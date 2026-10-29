@@ -35,6 +35,7 @@
  *                   0x04      -> client A reconnects (new connection, prelude)
  *                   0x05 rest -> raw bytes to A's socket (no CRLF, no
  *                                WebSocket framing)
+ *                   0x06      -> client B's TCP connection drops (EOF)
  */
 #include "config.h"
 
@@ -534,6 +535,33 @@ static void fz_kill_sessions(void)
   }
 }
 
+static void fz_sweep_clients(void)
+{
+  int guard;
+  for (guard = 0; guard < 4096; guard++) {
+    struct Client *c, *victim = NULL;
+    for (c = GlobalClientList; c; c = cli_next(c)) {
+      if (c == &me || cli_magic(c) != CLIENT_MAGIC)
+        continue;
+      victim = c;
+      break;
+    }
+    if (!victim)
+      return;
+    if (IsUser(victim) && IsBouncerHold(victim)) {
+      struct BouncerSession *bs = cli_user(victim)
+        ? bounce_find_any_session(cli_user(victim)->account) : NULL;
+      if (bs) {
+        bounce_kill_session(bs, "fuzz sweep");
+        fz_flush();
+        continue;
+      }
+    }
+    exit_client(victim, victim, &me, "fuzz sweep");
+    fz_flush();
+  }
+}
+
 static void fz_sasl_plain(struct fz_conn *c, const char *acct)
 {
   char raw[128], b64[256], line[300];
@@ -869,6 +897,9 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
     case 0x05:
       fz_send_raw(&fzA, line + 1, len - 1);
       break;
+    case 0x06:
+      fz_disconnect(&fzB);  /* B's TCP drops (may become a held ghost) */
+      break;
     default:
       fz_line(&fzA, line, len);
       break;
@@ -879,8 +910,19 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
   fz_destroy(&fzA);
   fz_destroy(&fzB);
   fz_kill_sessions();
+  if (!getenv("FUZZ_CLIENT_NOSWEEP"))
+    fz_sweep_clients();
   /* Let held bouncer sessions, deferred destroys and async completions
    * settle so the next input starts from a quiet server. */
   fz_pump(4);
+  if (getenv("FUZZ_CLIENT_DUMP")) {
+    struct Client *c;
+    for (c = GlobalClientList; c; c = cli_next(c))
+      if (c != &me)
+        fprintf(stderr, "leftover: %s status=%d fd=%d from=%p self=%p dead=%d hold=%d\n",
+                cli_name(c), cli_status(c), cli_fd(cli_from(c)),
+                (void *)cli_from(c), (void *)c, IsDead(c) ? 1 : 0,
+                IsUser(c) && IsBouncerHold(c) ? 1 : 0);
+  }
   return 0;
 }
