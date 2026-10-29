@@ -37,7 +37,7 @@ below come from it.
 | F3 | Medium | `parse.c:2247` `parse_server` | any line whose command is a numeric evaluating to 0: `AB 000 x`, `AB 0/: x` | `mptr == NULL` → SEGV |
 | F7 | Medium | `m_mark.c:112` `ms_mark` | `AB MK x` (fewer than 2 params) | `strcmp(NULL, ...)` → SEGV |
 | F8 | Medium | `channel.c:2870` `modebuf_flush_int` | `AB M #c -o ABAAA:1` (deop carrying an op-level) | `strptro_i == NULL` write → SEGV |
-| F10 | Low | `parse.c:2056-2079` `parse_server` | a line starting with NUL | prefix scan steps past the terminator, so the bytes after the NUL are parsed as a server-sourced command (memory-safe: stays in the 8 KiB line buffer; it is how F6 was reached with an "empty" line) |
+| F10 | Low | `parse.c:2042-2070` `parse_server` | a line starting with NUL | prefix scan steps past the terminator, so the bytes after the NUL are parsed as a server-sourced command (memory-safe: stays in the 8 KiB line buffer; it is how F6 was reached with an "empty" line) |
 | U1 | Low (UB) | `m_burst.c:577` | op-level digits `ABAAA:99999999999` in a `B` | signed overflow; the wrapped negative op-level passes the `> MAXOPLEVEL` clamp |
 | U2 | Low (UB) | `numnicks.c:479` `iptobase64` | any IPv4 address >= 128.0.0.0 | `uint16 << 16` signed-int overflow (benign on two's-complement) |
 
@@ -339,7 +339,7 @@ second `ircd_snprintf` with `if (strptro)`, and ignore the `:level` suffix on
 
 ## F10 — NUL in the prefix position
 
-`parse_server` (`parse.c:2056-2079`) copies the prefix until space/NUL. With an
+`parse_server` (`parse.c:2042-2070`) copies the prefix until space/NUL. With an
 empty prefix it reports "Missing Prefix", uses `from = cptr`, and then
 `do { ++ch; } while (*ch != ' ' && *ch);` steps *over* the NUL and keeps
 parsing the bytes that follow. A line `\0AB N nick1 ...` is therefore handled as
