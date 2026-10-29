@@ -142,12 +142,12 @@ dbuf exhausted CBMC's memory; it was instead checked bounded-exhaustively under 
 ## Fuzzing campaigns
 
 Each campaign pushes harnesses, scripts, minimized reproducer files, a corpus
-and a `FINDINGS.md` to its own branch. Counts as of 18:46 UTC:
+and a `FINDINGS.md` to its own branch. Final counts at wrap-up (all four campaigns stopped and their sessions archived, 19:12 UTC):
 
 | Branch | Findings file | Entries |
 | --- | --- | --- |
 | `fuzz/client-protocol` | `fuzz/client/FINDINGS.md`; reproducers in `fuzz/client/crashes/01..06` | 6, final (a850fcc). About 2.5 h, ~7M execs, 54,890/72,179 edges. F-5 is the multiline crash already fixed in PR #6. Low-privilege: F-3 (MARKREAD high byte), F-5. Oper-only: F-1 (/TRACE), F-2 (ORESET UAF), F-4 (*LINE expiry overflow), F-6 (CLEARMODE stack overflow) |
-| `fuzz/p10-server` | `fuzz/p10/FINDINGS.md` | 13 |
+| `fuzz/p10-server` | `fuzz/p10/FINDINGS.md`; reproducers in `fuzz/p10/repro/` (20 files); corpus `fuzz/p10/corpus.tar.xz` | 17, final (11a8a18). About 149 min, ~2.64M execs at 60-200 execs/s (the slow whole-ircd case the stateful plan targets). **14 crash a hub from one linked peer.** Critical: F1 (`base64toip` unbounded write), F6 (1-char numeric gives a dangling `client_list` UAF). High: F5 (stack Ban linked into a banlist), A1 (orphan bouncer alias hashed gives assert/UAF/hang), A2 (KICK of a bouncer primary is a heap UAF), F4 (empty BURST member / `base64toint("")` over-read). Medium: 8 NULL derefs (F2 F3 F7 F8 F11 F12 F13 F14). Low: F10, U1, U2 |
 | `fuzz/parsers` | `fuzz/parsers/FINDINGS.md`; reproducers in `fuzz/parsers/findings/` (all 33 replay with `reproduce.sh`) | 29, final (c8c8980). About 1.05B execs, ~26k execs/s per core. New: F29, a linked server sending a tags-only line makes `parse_server` read past the NUL into stale `cli_buffer` (`parse.c:2066-2070`; can chain into F28). F25 is the DNS rd_length bug |
 | `fuzz/config-records` | `fuzz/config/FINDINGS.md`; reproducers in `fuzz/config/repro/` | 14, final (458b1ec). About 3 h on 4 cores. F14 is the crule arglist overflow already fixed in PR #7. Most serious open: F12 (`add_listener` UAF when a Port block changes to ipv6 and is REHASHed, `listener.c:397`), F10 (v8 bouncer records lost on upgrade), F7 (crule frees an uninitialised pointer), F3 (DNSBL infinite loop), F8 (include cycle k^10) |
 
