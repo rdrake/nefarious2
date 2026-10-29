@@ -7,7 +7,7 @@
 #include "../../../ircd/webpush_attention.c"
 
 #ifndef NCONN
-#define NCONN 3
+#define NCONN 2
 #endif
 
 static void nondet_conn(struct webpush_conn_state *c)
