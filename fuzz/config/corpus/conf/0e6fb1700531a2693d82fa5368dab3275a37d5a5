@@ -1,0 +1,12 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Admin {
+        location = "Somewhere";
+        contact = "Someone";
+};
+
+#@REHASH@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Admin {
+        location = "Somewhere";
+        contact = "Someone";
+};

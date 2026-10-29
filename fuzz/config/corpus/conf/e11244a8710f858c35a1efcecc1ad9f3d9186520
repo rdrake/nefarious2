@@ -1,0 +1,9 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+
+#@REHASH@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+General {
+         name = "London.UK.Eu.UnderNet.org";
+         description = "University of London, England";
+         numeric = 1;
+};

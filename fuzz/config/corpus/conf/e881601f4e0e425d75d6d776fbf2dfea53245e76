@@ -1,0 +1,14 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Kill
+{
+ realname = "*sub7*";
+ reason = "You are infected with a Trojan";
+};
+
+#@REHASH@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Kill
+{
+  version = "*iroffer*";
+  reason = "You are using a disallowed chat client version. Either upgrade or get a new client.";
+};

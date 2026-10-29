@@ -1,0 +1,49 @@
+Gen
+#@REHASH@
+= "fuzz.example.net"; channeldescription = "fuzz"; numeric { name= "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Connect {
+        name = "test-1.example.ne"
+;t        host = "::1";
+  General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1form = no;
+     hide_channels = no;
+     local_opmode = no;
+     force_local_opWHOX = no;
+     walk_lchan = no;
+     deop_lchan = no;
+     mode_lchan = no;
+     shun = no;
+     local_shun = no;
+     gline = no;
+     local_gline = no;
+     zline = no;
+     local_zline = no;
+     hide_idle      password = "bogus_example";
+        port = 77et"; des00     class = "Server = no;
+    uzz.example.net"; description = "fuzz"; nu}eric = 1; };
+Class {
+     name = "Opers";
+     pingfreq = 90;
+     connectfreq = 0;
+     maxlinks = 100;
+     sendq = 160000;
+     whois_notice = no;
+     remove = no;
+     freeform = no;
+     hide_channels = no;
+     local_opmode = no;
+     force_local_opmode = no;
+     walk_lchan = no;
+     deop_lchan = no;
+  ";UUUUUUUUUUUUUU
+     mode_lchan = no;
+     shun    connect = ye= no;
+     local_shun = no;
+     gline = no;
+     local_glins;
+e = no;
+     zline = no;
+     local_zline = no;
+     hide_idle = no;
+     xtraop = no;
+     };
+sn

@@ -1,0 +1,15 @@
+General { name = "fuzz.example.nGeneral { name = "fuzz.example.net"; description = "fuzz"; numeric!= 1;!};
+Jup { e
+nick = "A,B,C,D,E,F,G,H,H,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z,{,|,},~,-,_,`";
+ nick = "EuWorld,UWorld,UWorld2";
+ nick = "login,undernet,protocol,pass,newpass,org";
+ nick = "StatSÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿet"; description = "fuzz"; numeric!= 1;!};
+Jupe {
+ nick = "A,B,C,D,E,F,G,H,H,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z,{,|,},~,-,_,`";
+ nick = "EuWorld,UWorld,UWorld2";
+ nick = "login,undernet,protocol,pass,newpass,org";
+ nick = "StatSÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿernet,protocol,pass,newpass,org";
+ nick = "StatSÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ"ÿÿÿÿÿÿÿÿÿÿÿ;
+};
+ÿÿÿÿÿÿÿÿÿ";
+};

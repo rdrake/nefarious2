@@ -1,0 +1,19 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1;`vhost = "127.0.0.1"; };
+Admin { location = "here"; contact = "me@example.net"; };
+Class { name = "Bounae"; pingfreq = 1 minutes 30 seconds; sendnumericq = 1 mbytes; recvq = 4 kb; maxlinks = (10*2)+1; usermode = "+iwx"; maxchans = 20; snomask = 1+2+4; fakelagminimum = 2; fakelagfactor = 120; autojoinchannel = General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Jupe {
+ nick = "A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,B,S,T,U,V,W,Xrld,UWorld,UWorld4";
+ nick = "login,undernet,protocol,pass,newpass,org";
+ nick = "StatSÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ,protocol,pass,n44444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444444ewpass,org";
+ nick = "StatSÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿH,I,ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿH,I,J,K,L,M,N,O,P,Q";
+        nick = "R,S,T,U,V,W,X,Y,Z,{}~|,,,,-,_,`";
+};
+r"; local = no; die = yes; restart = yes; rehash = yes; w"; host = "127.0.0.1"; key = "k"; };
+IAuth { program = "/bin/false" "-x"; };
+Features { "BOUNCER_ENABLE" = "TRUE"; "BOUNCER_PERSIST" = "TRUE C"";AP_draft_webpush" = "TRUE"; "SASL_LOCAVL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"zz"; numeric = 1; vhost = "127.0.0.1"; };
+Admin { location = "here"; contact = "me@example.net"; };
+Class { name = "Bounae"; pingfreq = 1 minutes 30 seconds; sendnumericq = 1 mbytes; recvq = 4 kb; maxlinks = (77*2)+1; usrermode = "+iwx"; maxchans = 20; snomask = 1+2+4; fakelagminimum = 2; fakelagfactor = 120; autojoinchannel = "#a,#b"; autojoinnotice = "hi"; restrict_join = yes; restrict_privmsg = no; restrict_umode = yes; require_sasl = yes; bouncer = yes; };
+Class { name = "Server"; pingfreq = 90; connectfreq = 5 minutes; maxlinks = 1"; descriptiÚn = "X3"; pas= y1"; sslciphers = "HIGH"; };
+UWorld { name = "service¿.example.net"; oper = "x"; };
+Operator { name = "op"; password = "$5$abc"; host = "*@*"; class = "Bounce"; sslfp = "AA"; snomask = 15; autojoinchaNnel = "#opers"; autojoinnotice = "o"; swhoi´ = "is an oHOOK_PORT" = "0"; };
+include "ircd.conf";

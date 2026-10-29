@@ -1,0 +1,7 @@
+CAP_draft_hcathist	ircd.log
+LRUe
+CHATg
+MAXEXCEPTS	FILE	ircd.log
+LOG	SYFILE	ircdmt(.log
+LOG	SYSTEM	FVEL	NOg
+LOG	SYSTEM	FVEL	NOTICE

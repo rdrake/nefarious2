@@ -1,0 +1,36 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Class {
+     name = "Local";
+     pingfreq = 1 minutes 30 seconds;
+     maxlinks = 100;
+     sendq = 160000;
+     fakelagminimum = 0;
+ "fuzz"; numeric = 1; };
+Features {
+        "HIS_STATS_k" = "FALSE";
+        "PPATH" = "ircd-t1.pid";
+};
+
+#@REHASH@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Features {
+        "HIS_STATS_k" = "FALSE";
+        "PPATc = 1; };
+Features {
+        "HIS_STATS_k"   hide_channels = no;
+     local_opmode = no;
+     force_local_opmode = no;
+   ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ  walk_lchan = no;
+     deop_lchan = no;
+     mode_lchan = no;
+     shun = no;
+     local_shun = no;
+     gline = no;
+     local_gline = no;
+     zline = no;
+     local_zline = no;
+     hide_idle = no;
+     xtraop = no;
+     snomask = 5645;
+     remote = yes;
+};

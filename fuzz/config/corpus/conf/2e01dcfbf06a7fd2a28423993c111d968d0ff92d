@@ -1,0 +1,72 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; vhost = "127.0.0.1"; };
+Admin { location = "here"; contact = "me@example.net"; };
+Class { name = "Bounce"; pingfreq = 0 minutes 30 seconds; sendq A= 1 mbytes; recvq = 4 kb; max1ndrxPQu3B66"; class = "Opers"; };
+
+Kill { username = "sub7"; realname = "s*7*"; reason = "You are infected with a Trojan"; };
+Kill { realname = "Chloe"; reason = "drones"; };
+Kill { username = "sub7"; reason = "You are infected with a Trojan"; };
+
+Client { class = "others"; ip = "*"; };
+
+Port { server = auto port = 7700; };
+Port { server = no;  port = 7701; };
+
+Quarantine {
+        "#shells" = "Thou shalt not support the h4><0rz";
+};
+
+Pseudo "X" {
+        name = "X";
+        nick = "X@channels.exa"*@*"; password = "$CRYPT$41ndrxPQu3B66"; class = "Opers"; };
+
+Kill { username = "sub7"; re"; defaulttext = "help"; };
+Forwards { "!" = "services.example.net"; "?" = "x"; };
+WebIRC { host = "*@126.0.0.1"; password = "w"; ident = "web"; userident = yes; ignoreident = no; = "o"; swhois = "is an oper"; local = no; die = yes; restart = yes; rehash = yes; gitsync = yes; };
+Port { port = 6667; };
+Port { port = ipv4 6697; ssl = yes; vhost = "127.0.0.1"; masGeneral { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Features {
+        "HIS_STATS_k" = "FALSE";
+        "PPATH" = "ircd-t1.pid";
+};
+
+#@REHASH@
+General { name = "fuzz.example.ÿÿt"; description = "fuzz"; numeric = 1; };
+Features {
+        "HIS_STATS_k" = "FALSE";
+        "PPATH" = "ircd|||||||||||||||||-t1.pid";
+?};
+pt = yes; mark = "m"; };
+Kill { host = "*.bad2"; file = "kill.txt"; };
+CRule { server = "*.example.net"; rule = "connected(hub.*) || !directcon(*.eu)"; all = yes; };
+Motd { host = "*.ca"; country = "CA"; continent = "NA"; file = "motd.txt"; };
+Quarantine { "#spam" = "spam"; "stripsslfp = yes; enableoptions = yes; tttext = "help"; };
+Forwards { "!" = "services.example.net"; "?" = "x"; };
+WebIRC { host = "*@127.0.0.1"; password = "w"; ident = "web"; userident = yes; ignoreident = no; = "o"; swhois = "is an oper"; local = no; die = yes; restart = yes; rehash = yes; gitsync = yes; };
+Port { port = 6667; };
+Port { port = ipv4 6697; ssl = yes; vhost = "127.0.0.1"; masGeneral { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Features {
+        "HIS_STATS_k" = "FALSE";
+        "PPATH" = "ircd-t1.pid";
+};
+
+#@REHASH@
+General { name = "fuzz.example.ÿÿt"; description = "fuzz"; numeric = 1; };
+Features {
+        "HIS_STATS_k" = "FALSE";
+        "PPATH" = "ircd|||||||||||||||||-t1.pid";
+};
+pt = yes; mark = "m"; };
+Kill { host = "*.bad2"; file = "kill.txt"; };
+CRule { server = "*.example.net"; rule = "connected(hub.*) || !directcon(*.eu)"; all = yes; };
+Motd { host = "*.ca"; country = "CA"; continent = "NA"; file = "motd.txt"; };
+Quarantine { "#spam" = "spam"; "stripsslfp = yes; enableoptions = yes; trustaccount = yes; description = "gw"; };
+SpoofHost "fake.host" { host = "*@*"; pass = "s"; autoapply = no; ismask = yes; matchusername = yes; };
+Except { host = "*@10.*"; shun = yes; kline = yes; gline = yes; zline = yes; ident = yes; rdns = yes; ipcheck = yes; targetlimit = yes; listdelay = yes; };
+DNSBL { name = "dnsbl.example.org"; host = "127.0.0.2,127.0.0.3"; bitmask = 6; action = mark; reason = "listed"; score = 10; };
+SSL { certificate = "cert.pem"; key = "key.pem"; };
+Webhook { port = 9000; secret = "s3cret"; vhost = "127.0.0.1"; path = "/hook"; maxconnections = 4; maxrequestsize = 64 kb; queuemax = 10; batchsize = 2; signaturewindow = 300; legacysecret = no; realm = "r"; };
+Keycloak { url = "http://kc.example.net:8080"; realm = "afternet"; client_id = "ircd"; client_secret = "cs"; issuer = "http://kc/realms/afternet"; allowed_clients = "a,b"; insecure_token_validation = no; };
+AuthToken "x3" { url = "https://x3.example.net/token"; description = "X3"; password = "pw"; host = "127.0.0.1"; key = "k"; };
+IAuth { program = "/bin/false" "-x"; };
+Features { "BOUNCER_ENABLE" = "TRUE"; "BOUNCER_PERSIST" = "TRUE"; "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.conf";

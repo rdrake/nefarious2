@@ -1,0 +1,5 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Kill
+{
+  version = "*iroffe a disallowed chat client version. Either upgrade or get a new client.";
+};

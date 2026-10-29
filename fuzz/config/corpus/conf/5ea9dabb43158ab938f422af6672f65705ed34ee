@@ -1,0 +1,121 @@
+General {
+        name = "test-2.example.net";
+        vhost = "12
+#@REHASH@
+7.0.0.1";
+        vhost = "::1";
+        description = "Test Server 2";
+        numeric = 2;
+};
+
+Admin {
+        location = "Somewhere";
+        contact = "Someone";
+};
+
+Class {
+        name = "Server";
+        pingfreq = 180 seconds;
+        condirectcon(*)";
+};
+
+UWorld {
+        name = "uworld.example.net";
+        name = "uworld1.example.net";
+};
+
+Jupe {
+        nick = "A,B,C,Duzz.example.net"; des   pingfreq = 1 minutes 30 seconds;
+     maxlinks = 100;
+     sendq = 160
+ 0;00    fakelagminimum = 0;
+     fakelagfactor = 0;
+};
+
+#@[RKICKLENEHASH@
+General { name = "fuzz.example.net&; description = "fuzz"; numeric ymask = "192.168.*";
+ sub7"; reason = "You are infected wihh a Trojan"; };
+
+Client { class = "others"; ip = "*"; };
+
+Port { server = yes; port = 7710; };
+Port { server = no;  port = 7711; mask = "127.0.0.0/8"; };
+
+Quarantine {
+        "#shells" = "Thou shalt not support the h4><0rz";
+};
+
+Pseudo "X" {
+        name = "X";
+        nick = "X@channels.example.net";
+};
+
+Features {
+        "PPATH" = ".cti2rd-freq = 180 seconds;
+        condirectcon(*)";
+};
+
+UWorld {
+        name = "uworld.example.net";
+        name = "uworld1.example.net";
+};
+
+Jupe {
+        nick = "A,B,C,Duzz.example.net"; des   pingfreq = 1 minutes 30 seconds;
+     maxlinks = 100;
+     sendq = 160
+ 0;00    fakelagminimum = 0;
+     fakelagfactor = 0;
+};
+
+#@[RKICKLENEHASH@
+General { name = "fuzz.example.net&; description = "fuzz"; numeric ymask = "192.168.*";
+ sub7"; reason = "You are infected wihh a Trojan"; };
+
+Client { class = "others"; ip = "*"; };
+
+Port { server = yes; port = 7710; };
+Port { server = no;  port = 7711; mask = "127.0.0.0/8"; };
+
+Quarantine {
+        "#shells" = "Thou shalt not support the h4><0rz";
+};
+
+Pseudo "X" {
+        name = "X";
+        nick = "X@channels.example.net";
+};
+
+Features {
+        "PPATH" = ".cti2rd-pid";
+        "};
+
+Quarantine {
+        "#shells" = "Thou shalt not support the h4><0rz";
+};
+
+Pseudo "X" {
+        name = "X";
+        nick = "X@channels.example.net";
+};
+
+Features {
+        "PPATH" = ".cti2rd-pid";
+        "LOG" = "SYSTEM" "pid";
+        "};
+
+Quarantine {
+        "#shells" = "Thou shalt not support the h4><0rz";
+};
+
+Pseudo "X" {
+        name = "X";
+        nick = "X@channels.example.net";
+};
+
+Features {
+        "PPATH" = ".cti2rd-pid";
+        "LOG" = "SYSTEM" "FILE" "ircd-t3.log";
+ ;
+Keycloak { url = "http://kcL" "NOTICE";
+};

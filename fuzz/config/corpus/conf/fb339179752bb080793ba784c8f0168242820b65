@@ -1,0 +1,8 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Jupe {
+ nick = "A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,B,S,T,U,V,W,Xrld,UWorld,UWorld4";
+ nick = "login,undernet,protocol,pass,newpass,org";
+ nick = "StatSÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ,protocol,pass,newpass,org";
+ nick = "StatSÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿH,I,ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿH,I,J,K,L,M,N,O,P,Q";
+        nick = "R,S,T,U,V,W,X,Y,Z,{}~|,,,,-,_,`";
+};

@@ -1,0 +1,17 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Port {
+     port = 8443;
+     ssl = yes;
+     websocket = yes;
+};
+
+#@REHASH@
+General { nameumeric = 1; };
+Port {
+     port = 8443;
+     ssl = yes;
+     websocket = yes;
+};
+
+#@REHASH@
+General { name = "fuzz.example.net"; description = "fuzz"; numeri = "fuzz.example.net"; description = "fuzz"; numeric = 1; };

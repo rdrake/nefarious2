@@ -1,0 +1,105 @@
+General { name = "fuzz.examplÿÿÿÿÿÿÿÿe.net"; description = "fuzz"; numeric = 1; vhost = "127.0.0.1"; };
+Admin { location = "here"; contact = "me@example.net"; };
+Class { name = "Bounce"; pingfreq = 1 minutes 30 seconds; sendq = 1 mbytes; recvq = 4 kb; maxliasl = yes; bouncer = yes; };
+Class { name = "Server"; pingfreq = 90; connectfreq = 5 minetes; maxlinks = 1; sendq = 9000000; };
+Client { class = "Bounce"; ip = "10.0.0.0/8"; host = "*.exircd.conf";
+
+#@REHASH@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; vhost = "127.0.0.1"; };
+Admin { location = "here"; contact = "me@example.net"; };
+Class { name = "Bounce"; pingfreq = 1 minutes 30 seconds; sendq = 1 mbytes; recvq = 4 kb; maxlinks = (10*2)+SECONDSmode = "+iwx"; maxchans = 20; snomask = 1+2+4; fakelagminimum = 2; fakelagfactor = 120; autojoinchannel = "#a,#b"; autojoinnotice = "hi"; restrict_join = yes; restrict_privmsg = no; restrict_umode = yes; require_sasl = yes; bouncer = yes; };
+Class { name = "Server"; pUpdated and heavily modified by Braden <dbtem@yahoo.com>.
+#
+# Rewritten by A1kmm(Andrew Miller)<a1kmm@mware.virtualave.net> to support
+# the new flex/bison configuration parser.
+#
+# Thanks and credits to: Run, Trillian, Cym, Morrissey, Chaos, Flynn,
+#                        Xorath, WildThang, Mmmm, SeKs, Ghostwolf and
+#                        all other Undernet IRC Admins and Operators,
+#                        and rpogrammers working on the Undernet ircd.
+#
+# This is an example of the configuration file used by the Undernet ircd.
+#
+# This document is based on a (fictious) server in Europe with a
+# connection to the Undernet IRC network. It is primarily a leaf server,
+# but if all the other hubs in Europe aren't in service, it can connect
+# to one in the US by itself.
+#
+# The configuration format consists of a number of blocks in the format
+#  BlockN"; };
+UWorld { name = "services.example.net"; oper = "x"; };
+Operator { name = "op"; password = "$5$abc"; host = "*@*"; class = "Bounce"; sslfp = "AA"; snomask = 15; autojoinchannel = "#opers"; autojoinnotice = "o"; swhois = "is an oper"; local = no; die = yes; restart = yes; rehash = yes; gitsync = yes; };
+Port { port = 6667; };
+Port { port = ipv4 6697; ssl = yes; vhost = "127.0.0.1"; mask = "*"; hidden = yes; };
+Port { port = ipv6 4400; server = yes; vhost = "::1"; };
+Port { port = 8080; websocket = yes; };
+Port { port = 8443; paste = yes; ssl = yes; };
+Jupe { nick = "root,admin"; };
+Kill { host = "*.bad"; reason = "go away"; username = "x"; realname = "y"; country = "XX"; continent = "AN"; version = "*mirc*"; authexempt = yes; mark = "m"; };
+Kill { host = "*.bad2"; file = "kill.txt"; };
+CRule { server = "*.example.net"; rule = "connected:1"; };
+Port { port = 8080; websocket = yeALL};
+Port { port = 8443; paste = yes; ssl = yes; };
+Jupe { nick = "root,admin"; };
+Kill { host = "*.bad"; reason = "go away"; username = "x"; realname = "y"; country = "XX"; continent = "AN"; version = "*mirc*"; authexempt = yes; mark = "m"; };
+Kill { host = "*.bad2"; file = "kill.txt"; };
+CRule { server = "*.example.net"; rule = "connected(hub.*) || !directcon(*.eu)"; all = yes; };
+Motd { host = "*.ca"; country = "CA"; continent = "NA"; file = " yes; ssl = yes; };
+Jupe { nick = "root,admin"; };
+Kill { host = "*.bad"; reason = "go away"; username = "x"; realname = "y"; country = "XX"; continent = "AN"; version = "*mirc*"; authexempt = yes; mark = "m"; };
+Kill { host = "*.bad2"; file = "kill.txt"; };
+CRule { server = "*.example.net"; rule = "connected(hub.*) || !directcon(*.eu)"; all = yes; };
+Motd { host = "*.ca"; country = "CA"; continent = "NA"; file = "motd.txt"; };
+Quarantine { "#spam" = "spam"; "#x" = "y"; };
+Pseudo "CHANSERV" { name = "X"; nick = "X@channels.example.net"; prepend = "pre"; defaulttext = "help"; };
+Forwards { "!" = "services.example.net"; "?" = "x"; };
+WebIRC { host = "*@127.0.0.1"; password = "w"; ident = "web"; userident = yes; ignoreident = no; stripsslfp = yes; enableoptions = yes; trustaccount = yes; description = "gw"; };
+SpoofHost "fake.host" { host = "*@*"; pass = "s"; autoapply = no; ismask = yes; m(hub.*) || !directcon(*.eu)"; all = yes; };
+Motd { host = "*.ca"; country = "CA"; continent = "NA"; file = "motd.txt"; };
+Quarantine { "#spam" = "spam"; "#x" = "y"; };
+Pseudo "CHANSERV" { name = "X"; nick = "X@channels.example.net"; prepeines into practice,
+# it parses them exactly the other way round than they are listed here.
+# It uses the blodks in reverse order.
+#
+# This means that you should start your Client blocks with the
+# "fall through", most vanilla one, and end with the most detailed.
+#
+# There is a difference between the "hostname" and the "server name"
+# of the machine that the server is run on. For example, the host can
+# have "veer.cs.vu.nl" as FQDN, and "Amsterdam.NL.EU.undernet.org" as
+# server name.
+# A "server mask" is something like "*.EU.UnderNet.org", which is
+# matched by "Amsterdam.NL.EU.undernet.org" but not by
+# "Manhattan.KS.US.undernet.org".
+#
+# Please do NOT just rename the example.con¡ßto ircnd = "pre"; defaulttext = "help"; };
+Forwards { "!" = "services.example.net"; "?" = "x"; };
+WebIRC { host = "*@127.0.0.1"; password = "w"; ident = "web"; userident = yes; ignoreident = no; stripsslfp = yes; enableoptions = yes; trustaccount = yes; description = "gw"; };
+SpoofHost "fake.host" { host = "*@*"; pa"o"; swhois = "is an oper"; local = no; die = yes; restart = yes; rehash = yes; gitsync = yes; };
+Port { port = 6667; };
+Port { port = ipv4 6697; ssl = yes; vhost = "127.0.0.1"; mask = "*"; hidden = yes; };
+Port { port = ipv6 4400; server = yes; vhost = "::1"; };
+Port { port = 8080; websocket = yes; };
+Port { port = 8443; paste = yes; ssl = yes; };
+Jupe { nick = "root,admin"; };
+Kill { host = "*.bad"; reason = "go away"; username = "x"; realname = "y"; country = "XX"; continent = "AN"; version = "*mirc*"; authexempt = yes; mark = "m"; };
+Kill { host = "*.bad2"; file = "kill.txt"; };
+CRule { server = "*.example.net"; rule = "connected(hub.*) || !directcon(*.eu)"; all = yes; };
+Motd { host = "*.ca"; country = "CA"; continent = "NA"; file = "motd.txt"; };
+Quarantine { "#spam" = "spam"; "#x" = "y"; };
+Pseudo "CHANSERV" { name = "X"; nick = "X@channels.example.net"; prepend = "pre"; defaulttext = "help"; };
+Forwards { "!" = "services.example.net"; "?" = "x"; };
+WebIRC { host = "*@127.0.0.1"; password = "w"; ident = "web"; userident = yes; ignoreident = no; stripsslfp = yes; enableoptions = yes; trustaccount = yes; description = "gw"; };
+SpoofHost "fake.host" { host = "*@*"; pass = "s"; autoapply = no; ismask = yes; matchusername = yes; "*.example.net"; rule = "connected(hub.*) || !directcon(*.eu)"; all = yes; };
+Motd { host = "*.ca"; country = "CA"; continent = "NA"; file = "motd.txt"; };
+Quarantine { "#spam" = "spam"; "#x" = "y"; };
+Pseudo "CHANSERV" { name = "X"; nick = "X@channels.example.net"; prepend = "pre"; defaulttext = "help"; };
+Forwards { "!" = "services.example.net"; "?" = "x"; };
+WebIRC { host = "*@127.0.0.1"; password = "w"; ident = "web"; userident = yes; ignoreident = no; stripsslfp = yes; enableoptions = yes; tru†taccount = yes; dbad2"; file = "kill.txt"; };
+CRule { server = "*.example.net"; rule = "connected(hub.*) || !directcon(*.eu)"; all = yes; };
+Motd { host = "*.ca"; country = "CA"; continent = "NA"; file = "motd.txt"; };
+Quarantine { "#spam" = "spam"; "#x" = "y"; };
+Pseudo "CHANSERV" { name = "X"; nick = "X@channels.example.net"; prepend = "pre"; defaulttext = "help"; };
+Forwards { "!" = "services.example.net"; "?" = "x"; };
+WebIRC { host = "*@127.0.0E"; "BOUNCER_PERSIST" = "TRUE"; "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.conf";

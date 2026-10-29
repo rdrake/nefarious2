@@ -1,0 +1,12 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Jupe {
+        nick = "A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q";
+        nick = "R,S,T,U,V,W,X,Y,Z,{,|,},~,-,_,`";
+};
+
+#@REHASH@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Jupe {
+        nick = "A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q";
+        nick = "R,S,T,U,V,W,X,Y,Z,{,|,},~,-,_,`";
+};

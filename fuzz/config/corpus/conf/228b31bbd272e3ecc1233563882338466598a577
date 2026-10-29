@@ -1,0 +1,2 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Port { server = yes; port = 7700; };

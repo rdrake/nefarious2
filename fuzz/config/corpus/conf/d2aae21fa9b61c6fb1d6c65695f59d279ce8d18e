@@ -1,0 +1,4 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Plistdelaymask = "192.168.*";
+ port = 6666;
+};

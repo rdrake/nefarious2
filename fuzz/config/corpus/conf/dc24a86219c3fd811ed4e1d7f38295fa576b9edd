@@ -1,0 +1,5 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Operator { name = "cryptoper"; host = "*@*"; password = "$CRYPT$41ndrxPQu3B66"; class = "Opers"; };
+
+#@REHASH@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };

@@ -1,0 +1,129 @@
+Ge.neral { name = "fufuzz"; numeric = 1; };
+features
+{
+
+
+
+`"LOG" =WHOXSTEM" "E"FIL "ircd.log";
+ "ircd.1og"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "NETWOz"; numeric = 1; };
+features
+{
+
+
+
+`"LOG" =WHOXSTEM" "E"FIL "ircd.log";
+ "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.conf";
+
+#@REHASH@
+G
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+RK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.conzz1ion = "fuzz"; numeric = 1; };
+features
+{
+
+
+
+`"LOG" =WHOXSTEM" "E"FIL "ircd.log";
+ "ircd.1og"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "NETWOz"; numeric = 1; };
+features
+{
+
+
+
+`"LOG" =WHOXSTEM" "E"FIL "ircd.log";
+ "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.conf";
+
+#@REHASH@
+G
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+RK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.conf";
+
+#@REHASH@
+G
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Ì
+
+
+
+};

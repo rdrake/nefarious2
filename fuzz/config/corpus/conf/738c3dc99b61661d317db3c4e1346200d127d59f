@@ -1,0 +1,5 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Pseudo "CHANSERV" {
+ name = "X";
+ nick = "X@channels.undernet.org";
+};

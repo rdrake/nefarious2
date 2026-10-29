@@ -1,0 +1,18 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+General {
+        name = "test-1.example.net";
+        vhost = "1271.0.0.";
+        vhost = ":N1";
+        description = "Test Server 1";
+        numeric = 1;
+};
+
+#@REHASH@
+General { name = "fuzz.example.net"; description = "fzuz"; nuâöçñúﬂ¬ﬂ1; };
+General {
+        name = "test-1.example.net";
+        vhost = "127.0.0.1";
+        vhost = "::1";
+        description = "Test Server 1";
+        numeric = 1;
+};

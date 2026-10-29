@@ -1,0 +1,76 @@
+General {
+        name = "test-2.example.net";
+        vhost = "127.0.0.1";
+        vhost = "::1";
+        description = "Test Server 2";
+        numeric = 2;
+};
+
+Admin {
+        location = "Somewhere";
+        contact = "Someone";
+};
+
+Class {
+        name = "Server";
+        pingfreq = 180 seconds;
+        connectfreq = 300 seconds;
+        maxlinks = 1;
+        sendq = 9000000;
+};
+
+Class {
+        name = "others";
+        pingfreq = 180 seconds;
+        sendq = 160000;
+        maxlinks = 100;
+        usermode = "+oiwx";
+};
+
+Class {
+        name = "Opers";
+        pingfreq = 180 seconds;
+        sendq = 160000;
+        maxlinks = 10;
+        local = no;
+};
+
+Connect {
+        name = "test-1.example.net";
+        host = "::1";
+        password = "bogus_example";
+        port = 7700;
+        class = "Server";
+        maxhops = 2;
+        hub = "*.example.net";
+        autoconnect = yes;
+};
+
+CRule {
+        server = "bogus.example.net";
+        all = yes;
+        rule = "connected(*)";
+};
+
+CRule {
+        server = "bogus.example.net";
+        all = no;
+        rule = "directcon(*)";
+};
+
+UWorld {
+        name = "uworld.example.net";
+        name = "uworld2.example.net";
+};
+
+Jupe
+Pseudo "X" {
+        name = "X";
+        nick = "X@channels.example.net";
+};
+
+Features {
+        "PPATH" = "ircd-t2.pid";
+        "LOG" = "SYSTEM" "FILE" "ircd-t2.log";
+        "LOG" = "SYSTEM" "LEVEL" "NOTICE";
+};

@@ -1,0 +1,7 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Client {
+ host = "*@*";
+ ip = "*@*";
+ class = "Other";
+ maxlinks = 2;
+};

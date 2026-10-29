@@ -1,0 +1,5 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Admin {
+     Location = "Earth";
+     Contact = "admin@example.net";
+};

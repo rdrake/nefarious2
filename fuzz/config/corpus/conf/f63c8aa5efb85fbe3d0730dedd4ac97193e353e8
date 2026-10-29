@@ -1,0 +1,22 @@
+General { nam.example.net"; descriptiont = "172.16.0.1" 6667;
+ vhost = "172.16.3.1" 6668;
+ hidden = no;
+};
+
+#@REHASH@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 0; };
+Port {
+   ' e = "fuzz.example.net"; descriptiont = "172.16.0.1" 6667;
+ vhost = "172.16.3.1" 6668;
+ hidden = no;
+};
+
+#@REHASH@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 0; };
+Port {
+   '  port = 4497;
+     server = yert {
+     ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿport = 4497;
+     server = yes;
+     ssl = yes;
+};

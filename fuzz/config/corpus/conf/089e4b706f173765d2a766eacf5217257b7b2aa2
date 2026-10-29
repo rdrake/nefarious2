@@ -1,0 +1,5 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Pseudo "X" {
+        name = "X";
+        nick = "X@channels.example.net";
+};

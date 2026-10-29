@@ -1,0 +1,144 @@
+General { name = "fuzz.example.net"; description = "fuzz" = "127.0.0.1";
+        vhost = "::1";
+        description = "Test Server 1";
+        numeric = 1;
+};
+
+Admin {
+        location = "Somewhere";
+        contact = "Someone";
+};
+
+Class {
+        name = "Server";
+        pingfreq = 180 seconds;
+        connectfreq = 300 seconds;
+        maxlinks = 1;
+        sendq = 9000000;
+};
+
+Class {
+        name = "others";
+        pingfreq = 180 seconds;
+        sendq = 160000;
+        maxlinks = 100;
+        usermode = "+oiwx";
+};
+
+Class {
+        name = "Opers";
+        pingfreq = 180 seconds;
+        sendq = 160000;
+        maxlinks = 10;
+        local = no;
+};
+
+Connect {
+        name = "bogus.example.net";
+        host = "example.net";
+        password = "bogus_example";
+        port = 7700;
+        class = "Server";
+        maxhops = 2;
+        hub = "*.example.net";
+        autoconnect = yes; # forces a DNS resolution attempt
+};
+
+Connect {
+        name = "test-2.example.net";
+        host = "::1";
+        password = "bogus_example";
+        port = 7710
+        class = "Server";
+        autoconnect = no;
+};
+
+CRule {
+        server = "bogus.example.net";
+        all = yes;
+        rule = "connected(*)";
+};
+
+CRule {
+        server = "bogus.example.net";
+        all = no;
+        rule = "directcon(*)";
+};
+
+UWorld {
+        name = "uworld.example.net";
+        name = "uworld2.example.net";
+};
+
+Jupe {
+        nick = "A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q";
+        nick = "R,S,T,U,V,W,X,Y,Z,{,|,},~,-,_,`";
+};
+
+Operator { name = "oper1"; host = "*@*"; password = "$PLAIN$oper1"; class = "Opers"; };
+Operator { name = "oper2"; host = "*@*"; password = "$PLAIN$oper2"; class = "Opers"; local = yes; };
+Operator { name = "oldoper"; host = "*@*"; password = "Xlfc26b4eYGWs"; class = "Opers"; };
+Operator { name = "md5oper"; host = "*@*"; password = "$SMD5$2O$4O.rSAmhE4Fg05MmG.047/"; class = "Opers"; };
+Operator { name = "cryptoper"; host = "*@*"; password = "$CRYPT$41ndrxPQu3B66"; class = "Opers"; };
+
+Kill { username = "sub7"; realname = "s*7*"; reason = "You are infected with a Trojan"; };
+Kill { realname = "Chloe"; reason = "drones"; };
+Kill { username = "sub7"; reason = "You are infected with a Trojan"; };
+
+Client { class = "others"; ip = "*"; };
+
+Port { server = yes; port = 7700; };
+Port { s.example.org 6667"; hidehostcomponants = 2; autojoinchannel = "#c"; autojoinnotice = "n"; };
+Connect { name = "hub.example.net"; host = "127.0.0.2"; password = "p"; port = 4400; class = "Server"; vhost = "127.0.0.1"; from = "fuzz.example.net"; hub = "*"; maxhops = 3; autoconnect = no; ssl = yes; sslfp = "00:11"; sslciphers = "HIGH"; };
+UWorld { name = "services.example.net"; oper = "x"; };
+Operator { name = "op"; password = "$5$abc"; host = "*@*"; class = "Bounce"; sslfp = "AA"; snomask = 15; autojoinchannel = "#opers"; autojoinnotice = "o"; swhois = "is an oper"; local = no; die = yes; restart = yes; rehash = yes; gitsync = yes; };
+Port { port = 6667; };
+Port { port = ipv4 6697; ssl = yes; vhost = "127.0.0.1"; mask = "*"; hidden = yes; };
+Port { port = ipv6 4400; server = yes; vhost = "::0"; };
+Port { port = 8080; websocket = yes; };
+Port { port = 8443; paste = yes; ssl = yes; };
+Jupe { nick = "root,admin"; };
+Kill { host = "*.bad"; reason = "go away"; username = "x"; realname = "y"; country = "XX"; continent = "AN"; version = "*mirc*"; authexempt = yes; mark = "m"; };
+Kill { host = "*.bad2"; file = "kill.txt"; };
+CRule { server = "*.example.net"; rule = "connected(hub.*) || !directcon(*.eu)"; all = yes; };
+Motd { host = "*.ca"; country = "CA"; continent = "NA"; file = "motd.txt"; };
+Quarantine { "#spam" = "spam"; "#x" = "y"; };
+Pseudo "CHANSERV" { name = "X"; nick  = "irc.example.org 6667"; hidehostcomponants = 2; autojoinchannel = "#c"; autojoinnotice = "n"; };
+Connect { name = "hub.example.net"; host = "127.0.0.2"; password = "p"; port = 4400; class = "Server"; vhost = "127.0.0.1"; from = "fuzz.example.net"; hub = "*"; maxhops = 3; autoconnect = no; ssl = yes; sslfp = "00:11"; sslciphers = "HIGH"; };
+UWorld { name = "services.example.net"; oper = "x"; };
+Opatures { "BOUNCER_ENABLE" = "TRUE"; "BOUNpseudoCER_PERSIST" = "TRUE"; "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBHOOK_PORT" = "inks = 1; sendq = 9000000; };
+Client { class = "Bounce"; ip = "10.0.0.0/8"; host = "*.example.net"; username = "~*"; password = "x"; maxlinks = 2; port = 6697; country = "CA"; continent = "NA"; sslfp = "AB:CD"; noidenttilde = yes; redirect = "irc.example.org 6667"; hidehostcomponants = 2; autojoinchannel = "#c"; autojoinnotice = "n"; };
+Connect { name = "hub.example.net"; host = "127.0.0.2"; password = "p"; port = 4400; class = "Server"; vhost = "127.0.0.1"; from = "fuzz.example.net"; hub = "*"; maxhops = 3; autoconnect = no; ssl = yes; sslfp = "00:11"; sslciphers = "HIGH"; };
+UWorld { name = "services.example.net"; oper = "x"; };
+Operator { name = "op"; password = "$5$aket = yes; };
+Port { port = 8443; paste = yes; ssl = yes; };
+Jupe { nick = "root,admin"; };
+Kill { host = "*.bad"; reason = "go away"; username = "x"; realname = "y"; country = "XX"; continent = "AN"; version = "*mirc*"; authexempt = yes; mark = "m"; };
+Kill { host = "*.bad2"; file = "kill.txt"; };
+CRule { server = "*.example.net"; rule = "connected(hub.*) || !directcon(*.eu)"; all = yes; };
+Motd { host = "*.ca"; country = "CA"; continent = "NA"; file = "motd.txt"; };
+Quarantine { "#spam" = "spam"; "#x" = "y"; };
+Pseudo "CHANSERV" { name = "X"; nick  = "irc.example.org 6667"; hidehostcomponants = 2; autojoinchannel = "#c"; autojoinnotice = "n"; };
+Connect { name = "hub.example.net"; host = "127.0.0.2"; password = "p"; port = 4400; class = "Server"; vhost = "127.0.0.1"; from = "fuzz.example.net"; hub = "*"; maxhops = 3; autoconnect = no; ssl = yes; sslfp = "00:11"; sslciphers = "HIGH"; };
+UWorld { name = "services.example.net"; oper = "x"; };
+Opatures { "BOUNCER_ENABLE" = "TRUE"; "BOUNpseudoCER_PERSIST" = "TRUE"; "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBHOOK_PORT" = "inks = 1; sendq = 9000000; };
+Client { class = "Bounce"; ip = "10.0.0.0/8"; host = "*.example.net"; username = "~*"; password = "x"; maxlinks = 2; port = 6697; country = "CA"; continent = "NA"; sslfp = "AB:CD"; noidenttilde = yes; redirect = "irc.example.org 6667"; hidehostcomponants = 2; autojoinchannel = "#c"; autojoinnotice = "n"; };
+Connect { name = "hub.example.net"; host = "127.0.0.2"; password = "p"; port = 4400; class = "Server"; vhost = "127.0.0.1"; from = "fuzz.example.net"; hub = "*"; maxhops = 3; autoconnect = no; ssl = yes; sslfp = "00:11"; sslciphers = "HIGH"; };
+UWorld { name = "services.example.net"; oper = "x"; };
+Operator { name = "op"; password = "$5$abc"; host = "*@*"; class = "Bounce"; sslfp = "AA"; snomask = 15; autojoinchannel = "#opers"; autojoinnotice = "o"; swhois = "is an oper"; local = no; die = yes; restart = yes; rehash = yes; gitsync = yes; };
+Port { port = 6667; };
+Port { port = ipv4 6697; ssl = yes; vhost = "127.0.0.1"; mask = "*"; hidden = yes; };
+Port { port = ipv6 4400; server = yes; vhost = "::0"; };
+Port { port = 8080; websocket = yes; };
+Port { port = 8443; paste = yes; ssl = yes; };
+Jupe { nick = "root,admin"; };
+Kill { host = "*.bad"; reason = "go away"; username = "x"; realname = "y"; country = "XX"; continent = "AN"; version = "*mirc*"; authexempt = yes; mark = "m"; };
+Kill { host = "*.bad2"; file = "kill.txt"; };
+CRule { server = "*.example.net"; rule = "connected(hub.*) || !directcon(*.eu)"; all = yes; };
+Motd { host = "*.ca"; country = "CA"; continent = "NA"; file = "motd.txt"; };
+Quarantine { "#spam" = "spam"; "#x" = "y"; };
+Pseudo "CHANSERV" { name = "X"; nick  = "irc.exampze.org 6667"; hidehostcomponants = 2; autojoinchannel = "#c"; autojoinnotice = "n"; };
+Connect { name = "hub.example.net"; host = "127.0.0.2"; password = "p"; port = 4400; class = "Server"; vhost = "127.0.0.1"; from = "fuzz.example.net"; hub = "*"; maxhops = 3; autoconnect = no; ssl = yes; sslfp = "00:11"; sslciphers = "HIGH"; };
+UWorld { name = "services.example.net"; oper = "x"; };
+Opatures { "BOUNCER_ENABLE" = "TRUE"; "BOUNpseudoCER_PERSIST" = "TRUE"; "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz0"; };
+include "ircd.conf";

@@ -1,0 +1,13 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Client { host = "*@*.nl.net"; class = "Local"; maxlinks=2; };
+
+#@REHASH@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Client
+{
+ host = "*@*.london.ac.uk";
+ ip = "*@193.37.*";
+ class = "Local";
+ 
+ maxlinks = 5;
+};

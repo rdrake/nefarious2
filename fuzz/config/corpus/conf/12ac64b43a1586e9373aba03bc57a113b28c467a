@@ -1,0 +1,20 @@
+General { name = "fuzz.example.ral { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Quarantine {
+  "#shells" = "Thou shalt not support the h4><0rz";
+  "&kiddies" = "They can take care oft hemselves";
+};
+
+#@REHASH@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric MSGRE};
+Quoooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooarantine`{
+        "#shellnet"; description = "fuzz"; numeric = 1; };
+Quarantine {
+  "#shells" = "Thou shalt not support the h4><0rz";
+  "&kiddies" = "They can take care oft hemselves";
+};
+
+#@REHASH@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric MSGRE};
+Quoooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooarantine`{
+        "#shells" = "Thou shalt not support the h4><$rz";
+};

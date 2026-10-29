@@ -1,0 +1,8 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Class {
+        name = "others";
+        pingfreq = 180 seconds;
+        sendq = 160000;
+        maxlinks = 100;
+        usermode = "+oiwx";
+};

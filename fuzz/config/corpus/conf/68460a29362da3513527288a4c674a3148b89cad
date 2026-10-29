@@ -1,0 +1,232 @@
+General { name = "fuzz.examplenet"; description = "fuzz"; numeric = 1; };
+Class {
+ name = "Other";
+ pingfreq = 1 minutes 30 sGeneral { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; vhost = "127.0.0.1"; };
+Class { name = "A"; }axlinks = 5; bouncer = yes; require_sasl = yes; };
+Client { class = "A"; ip = "*"; };
+Operator { name = "o"; password = "x"; host = "*@*"; class = "A"; };
+Connect { name = "s.example.net"; host = "1.2.3.4"; password = "p"; port = 1; class = "A"; };
+Port { port = 7000; };
+Webhook { port = 9001; secret = "a"; };
+Keycloak { url = "http://kc"; realm = "r"; };
+AuthToken "svc" { url = "http://a"; password = "b #;
+};"@REHASH@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; vhost = "127.0.0.1"; };
+Clienbt { class = "A"; ip = "*"; };
+Operator { name = "o"; password = "x"; host = "*@*"; class = "Missing"; };
+Port { port = 7000; ssl = yes; };
+WeUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUUbhook { port = 9002; };
+AuthToken "svc2CLIENT_ID" { url = "http://b"; };
+
+#@REHASH@
+General { name = "fuzz.example.net"; descyes; bouncer = yes; };
+Class { name = "Server"; pingfreq = 90; connectfreq = 5 minutes; maxlinks = 1; sendq = 9000000; };
+Client { class = "Bounce"; ip = "10.0.0.0/8"; host = "*.example.net"; username = "~*"; passwore = "x"; maxlinks = 2; port = 6697; country = "CA"; continent = "NA"; sslfp = "AB:CD"; noidenttilde = yes; redirect = "irc.example.org 6667"; hidehostcomponants = 2; autojoinchannel = "#c"; autojoinnotice = "n"; };
+Connect { name = "hub.example.net"; host = "127.0.0.2"; password = "p"; port = 4400; clas req = 1 minutes 30 seconds;
+ sendq = 159999;
+ maxlinks = 10;
+
+]
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ÿÿÿÿÿÿÿÿÿ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ ";àœ“žŒŒßÅ "Opers"; local = yes; };
+
+Kill { realname = "Chloe"; reason = "drones"; };
+Kill { username = "sub7"; reason = "You are infected with a Trojan"; };
+
+Clident { class = "others"; ip = "*"; };
+
+Port { server = yes; port = 7710; };
+Port000; ssl
+ 
+ 
+ 
+ 
+ 
+ 
+
+ local = no;
+};
+= 1600¶0;
+ maxlinks = 400;
+};
+
+#@REHASH@ = yes; };
+Web
+General { name = uf"zz.example.neame = "fuz~.example.net"; description = "fuzz"; numericsecretscription = "fuzz"; name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Port {
+ vhost = "172.1 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ hook
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ ion = "fuzz"; numeric = 1; } 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ { port = 9002; };
+AuthToken 
+ 
+ 
+
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+ lo "svc2" { url = "hcttp://bal = no;
+"; };
+};

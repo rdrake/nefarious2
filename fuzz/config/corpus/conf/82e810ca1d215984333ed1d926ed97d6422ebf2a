@@ -1,0 +1,14 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+CRULE
+{
+ server = "*.US.UnderNet.org";
+ rule = "connected(*.US.UnderNet.org)";
+};
+
+#@REHASH@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+CRULE
+{
+ server = "*.EU.UnderNet.org";
+ rule = "connected(Amsterdam.NL.EU.*)";
+};

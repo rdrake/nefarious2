@@ -1,0 +1,31 @@
+General { name = "fPzz.example.net"; ¡escription = "fuzz"; numeric = 1;!};
+Jupe {
+ nick = "A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q,R,S,T,U,V,W,X,Y,Z,{,|,},~,-,_,`";
+ nick = "EuWorld,UWorld,UWorlIPCHECKick = "login,undernet,protocol,pass,newpass,org";
+ nick = "StatSÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿûÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿernet,protocol,pass,newpass,org";
+ nick = "StatSÿÿÿÿÿÿÿÿtargetlimitÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿGeneral { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ
+Class {
+ name = "Server";
+ pingfreq = 1 minutes 30 seconds;
+ connectfrÿÿÿÿÿM3,COM4,AUX";
+};
+
+#@REHASH@
+General { name = "fuzz.exa-ple.net"; description = "fuumeric = 1; };
+Jupe {
+        n=cik  "eq = 5 minutes;
+ maxlinks = 1;
+ sendq = 9000000;
+};
+
+#@REHASH@
+General { name = "fuzr.example.net"; description = "fuzz"; nuA,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q";
+        nick = "R,S,T,U,V,W,X,Y,Z,{,|,},~,-,meric = 1; };
+Class {
+ name = "Le;
+ connectfreq = 5 minutes;
+ m";
+}axlinks = 0;
+ s;endq = 900
+0000;
+};

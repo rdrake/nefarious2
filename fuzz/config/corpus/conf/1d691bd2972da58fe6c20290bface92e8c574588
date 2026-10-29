@@ -1,0 +1,21 @@
+General { General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Class {
+     name = "Local";
+     pingfreq = 1 minutes 30 seconds;
+     maxlinks = 100;
+     sendq = 160
+ 0;00    fakelagminimum = 0;
+     fakelagfactor = 0;
+};
+
+#@REHASH@
+General { name = "fuzz.example.net&; description = "fuzz"; numeric = 1; };
+Class {
+     name = "Opers";
+     pingfreq = 90;
+     connectfreq = 0;
+     maxlinks = 100;
+name = "fuzz.example.net"; description = "fuzz"; nuCPRIVMSGmeric = 1; };
+Quarantine {
+  "#shells" = "Thou shalt not support the h4><0rz";
+  "&kiddies" = "Theykill take care of     send q t

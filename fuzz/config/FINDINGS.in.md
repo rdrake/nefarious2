@@ -482,6 +482,14 @@ error paths of `auth_spawn()` (and its earlier `socket_add` failure path).
 
 ---
 
+## Known, excluded
+
+* **UBSan `-fsanitize=function` in `ircd/m_cap.c`** (and other ircu-era
+  `qsort`/`bsearch` calls through a `(bqcmp)` cast, e.g. `capab_sort`,
+  `capab_search`, `subcmd_search`): already triaged, fix in progress on a
+  separate branch.  `build.sh` passes `-fno-sanitize=function`.  (None of
+  these harnesses' runs reported it before the flag was added.)
+
 ## Harness artifacts (discarded)
 
 All of these came from the harness, not the ircd, and were fixed in the

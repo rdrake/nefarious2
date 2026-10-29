@@ -1,0 +1,13 @@
+Gen
+#@REHASH@
+= "fuzz.example.net"; description = "fuzzEHASH@
+= "fuzz.example.net"; description = "fuzz"; numeric { name= "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Connect {
+        name = "te"; numeric { name= "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Connect {
+        name = "test-1.example.net";
+        host = "::1";
+        password = "bogus_example";
+        port = 77et"; des00     class = "Server";UUUUUUUUUUUUUU
+     connect = yes;
+};

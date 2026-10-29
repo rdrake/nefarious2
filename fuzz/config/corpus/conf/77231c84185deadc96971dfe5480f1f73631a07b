@@ -1,0 +1,234 @@
+Ge.neral { name = "fuzz.example.net?"; descrip1ion = "fuzz"; numeric = 1; };
+features
+{
+
+
+
+ "LOG" =WHOXSTEM" "E"FIL "ircd.log";
+ "ircd.log"; "LOG" = "SYSTEM" "General {
+    n(*)";
+};
+
+UWorld {
+    word = "$CRYPT$41ndrxPQu3B66"; class = "Opers"; };
+
+Kill { us= "$PLAIN$oper2"; class = "Opers"; local = ye
+
+
+
+
+
+
+
+
+
+s; };
+Operator { name = "oldoper"; host = "*@*"; password = "Xlfc26b4eYGWs"; class = "Opers"; };
+Operator { name = "md5oper"; host = "*@*"; pas
+sword = "$SMD5$2O$4O.rSAmhE4Fg05MmG.047/"; class = "Opers"; };
+Operator { name = "cryptoper"; host = "*ÀÌ"; password = "$CRYPT$41ndrxPQu3B66"; class = "Opers"; };
+
+Kill { username = "sub7"; realname = "s*timeout7*"; reason = "You are infected with a Trojan"; };
+Kill { realname = "Chloe"; reason = "drones"; }­;
+Kill { username = "sub7"; reason = "You are infected with a Trojan"; };
+
+Client { class = "others"; ip = "*"; };
+
+Port {
+};
+ server = yes; port = 7General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; vhost = "127.0.0KICKLEN
+Admin { location = "here"; contact = "me@example.net"; };
+Class { name = "Bounae"; pingfreq = 1 minutes 30 seconds; sendq = 1 mbytes;AUX";
+};
+
+#@REHASH@
+General { name = "fu.ca"; country = "CA"; continent = "NA"; fis = "Opers"; };
+Operator { name = "md5oper"; host = "*@*"; pas
+sword = "$SMD5$2O$4O.rSAmhE4Fg05MmG.047/"; class = "Opers"; };
+Operator { name = "cryptoper"; host = "*ÀÌ"; password = "$CRYPT$41ndrxPQu3B66"; class = "Opers"; };
+
+Kill { username = "sub7"; realname = "s*timeout7*"; reasoweb"; userident = yes; ignoreident = no; stripsslfp = "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME"700; };
+Port { server = no;  port = 7702; };
+
+Quarantine {
+        "#shells" = "Thou shal = "*.example.net"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.cRV" { name = "X"; nick = "X@channels.example.net"; prepend = "pre"; defaulttext = "help"; };
+Forwards { "!" = "services.example.net"; "?" = "x"; # ircd.conf - configuration file for ircd version ircu2.10
+#
+# Last Updated:  20, March 2002.
+#
+# Written by Niels <niels@undernet.org>, based on the original example.conf,
+# server code and some real-life (ahem) experience.
+#
+# Updated and heavily modified by Braden <dbtem@yahoo.com>.
+#
+# Rewritten by A1kmm(Andrew Miller)<a1kmm@mware.virtualave.net> to support
+# the new flex/bison configuration parser.
+#
+# Thanks and credits to: Run, Trillian, Cym, Morrissey, Chaos, Flynn,
+#                        Xorath, WildThang, Mmmm, SeKs, Ghostwolf and
+#                        all other Undernet IRC Admins and Operators,
+#                        and programmers working on the Undernet ircd.
+#
+# This is an example of the configuration file used by the Undernet ircd.
+#
+# This document is based on a (fictious) server in Europe with a
+# connection to the Undernet IRC network. It is primarily a leaf server,
+# but if all the other hubs in Europe aren't in service, it can connect
+# to one in the US by itself.
+#
+# The configuration format consists of a number of blocks in the format
+#  BlockName { setting = number; setting2 = "string"; setting3 = yes; };
+# Note that comments start from a #(hash) and go to the end of the line.
+# Whitespace(space, tab, or carriage return/linefeed) are ignored and may
+# be used to make the configuration file more readable.
+#
+# Please note that when ircd puts the configuration lines into practice,
+# it parses them exactly the other way round than they are listed here.
+# It uses the blocks in reverse order.
+#
+# This means that you should start your Client blocks with the
+# "fall through", most vanilla one, and end with the most detailed.
+#
+# There is a difference between the "hostname" and the "server name"
+# of the machine that the server is run on. For example, the host can
+# have "veer.cs.vu.nl" as FQDN, and "Amsterdam.NL.EU.undernet.org" as
+# server name.
+# A "server mask" is something like "*.EU.UnderNet.org", which is
+# matched by "Amsterdam.NL.EU.undernet.org" but not by
+# "Manhattan.KS.US.undernet.org".
+#
+# Please do NOT just rename the example.conf to ircd.conf and expect
+# it to work.
+
+# [Include]
+#
+# Include the contents of the specified file.
+#
+# Include "path/to/include/file";
+
+# [General]
+#
+# First some information about the server.
+# General {
+#         name = "servername";
+#         vhost = "ipv4vhost";
+#         vhost = "ipv6vhost";
+#         description = "description";
+#         numeric = numericnumber;
+#         dns vhost = "ipv4vhost";
+#         dns vhost = "ipv6vhost";
+#         dns server = "ipaddress";
+#         dns server = "ipaddress2";
+# };
+#
+# If present, <virtual host> must contain a valid address in dotted
+# quad or IPv6 numeric notation (127.0.0.1 or ::1).  The address MUST
+# be the address of a physical interface on the host.  This address is
+# used for outgoing connections if the Connect{} block does not
+# override it.  See Port{} for liGe.neral { name z "fuzz.example.net?"; descrip1ion = "fuzz"; numeric = 1; };
+features
+{
+
+
+
+ "LOG" =WHOXSTEM" "E"FIL "ircd.log";
+ "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBHOOK_PORT" =General {
+     name = "fuzz.example.net";
+     description = "fuzz server";
+     numeric = 1;
+};
+
+Features {
+General { name = "fuzz.example.net"; descriptiomaxlinksn = "fuzz"; numeric = 1; vhost = "127.0.0.1"; };
+Admin { location = "here"; contact = "me@example.net"; };
+Class { name = "Bouna     "LOG" = "SYSTEM" "FILE" "ircd.log";
+     "LOG" = "SYSTEM" "LEVEL" "CRIT";
+
+     # Enable draft IRCv3 capabilities
+     "CAP_draft_chathistory" = "TRUE";
+     "CAP_draft_metadata_2" = "TRUE";
+
+     # PM Chathistory
+     "CHATHISTORY_PRIVATE" = "TRUE";
+};
+
+Admin {
+     Location = "Earth";
+     Contact = "admin@example.net";
+};
+
+Class {
+     name = "Server";
+     pingfreq = 1 minutes 30 seconds;
+     connectfr "5"; };
+include "ircd.conf";
+
+#@REH)ASH@
+G
+
+
+
+
+
+
+
+
+
+
+=
+
+
+
+
+
+
+
+////////////////////////////////////////eq = 5 minutes;
+     maxlinks = 1;
+     sendq = 9000000;
+};
+
+Class {
+     name = "LeafServer";
+     pingfreq = 1 minutes 30 seconds;
+     connectfreq = 5 minutes;
+     maxlinks = 0;
+     sendq = 9000000;
+};
+
+Class {
+     name = "Local";
+     pingfreq = 1 minutes 30 seconds;
+     maxlinks = 100;
+     sendq = 160000;
+     fakelagminime"; pingfreq = 1 minutes 30 seconds; sendq = 1 mbytes; recvq = 4 kb; maxlinks = (10*2)+1; usermode = "+iwx"; maxchans = 20; snomask = 1+2+4; fakelagminimum = 2; fakelagfactor = 120; autojoinchannel = "#a,#b"; autojoinnotice = "hi"; restrict_join = yes; restrict_privmsg = no; restrict_umode = yes; require_sasl = yes; ÿÿÿöbouncer = yes; };
+Class { name = "Server"; pingfreq = 90; connectfreq = 5 minutes; maxlinks = 1"; description = "X3"; password = "pw"; host = "127.0.0.1"; key = "k"; };
+IAuth { program = "/bin/false" "-x"; };
+Features { "BOUNCER_ENABLE" = "TRUE"; "BOUNCER_PERSIST" = "TRUE"; "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.conf";
+
+#@REHASH@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; vhost = "127.0.0.1"; };
+Admin { location = "here"; contact = "me@example.net"; };
+Class { name = "Bounce"; pingfreq = 1 minutes 30 seconds; sendq = 1 mbytes; recvq = 4 kb; maxlinks = (10*2)+1; ueric = 1; vhost = "127.0.0.1"; };
+Admin { location = "here"; contact = "me@example.net"; };
+Class { name = "Bounae"; pingfreq = 1 minutes 30 seconds; sendq = 1 mbytes; recvq = 4 kb; maxlinks = (10*2)+1; usermode = "+iwx"; maxchans = 20; snomask = 1+2+4; fakelagminimum = 2; fakelagfactor = 120; autojoinchannel = "#a,#b"; autojoinnotice = "hi"; restrict_join = yes; restrict_privmsg = no; restrict_umode = yes; require_sasl = yes; ÿÿÿöbouncer = yes; };
+Class { name = "Server"; pingfreq = 90; connectfreq = 5 minutes; maxlinks = 1"; description = "X3"; password = "pw"; host = "127.0.0.1"; key = "k"; };
+IAuth { program = "/bin/false" "-x"; };
+Features { "BOUNCER_ENABLE" = "TRUE"; "BOUNCER_PERSIST" = "TRUE"; "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.conf";
+
+#@REHASH@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; vhost = "127.0.0.1"; };
+Admin { location = "here"; contact = "me@example.net"; };
+Class { name = "Bounce"; pingfreq = 1 minutes 30 seconds; sendq = 1 mbytes; recvq = 4 kb; maxlinks = (10stener virtual hosting.  If in doubt,
+# leave it out -- or use "*", which has the same meaning as no vhost.
+#
+# You may specify both an IPv4 virtual host and an IPv6 virtual host,
+# to indicate which address should be used for outbound connections
+# of the respective type.
+#
+# Note that <s*2)+1; usermode = "+iwx"; maxchans = 20; snomask = 1+2+4; fakelagminimum = 2; fakelagfactor = 120; autojoinchannel = "#a,#b"; autojoinnotice = "hi"; restrict_join = yes; restrict_privmsg = no; restrict_umode = yes; require_sasl = y1"; sslciphers = "HIGH"; };
+UWorld { name = "services.example.net"; oper = "x"; };
+Operator { name = "op"; password = "$5$abc"; host = "*@*"; class = "Bounce"; sslfp = "AA"; snoma

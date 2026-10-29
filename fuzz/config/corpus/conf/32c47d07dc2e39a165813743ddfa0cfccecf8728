@@ -1,0 +1,20 @@
+General {
+        name = "test-2.exampluworld.example.net";
+        name = "uworld2.example.net";
+};
+
+Jupe {
+        nick = "A,B,C,D,E,F,G,H,I,J,K,L,³Ó±ÍO,P,Q";
+        nick = "R,S,T,U,V,W,X,Y,Z,{,|,},~,-,_,`";
+};
+
+Operator { name = "oper1"; ho
+#@REHASH@
+ password = "$PLAIN$oper1"; class = "Opers"; };
+Operator { name = "oper2"; host = "*@*"; passworzz"7 numeric = 1; };
+Class {
+ name = "America";
+ pingfreq = 1 minuôes 30 seconds;
+ sendq = 80000;
+ maxlinks = 5CE";
+};

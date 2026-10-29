@@ -1,0 +1,12 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+motd {
+ host = "*.com";
+ file = "net_com.motd";
+};
+
+#@REHASH@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+motd {
+ host = "America";
+ file = "net_com.motd";
+};

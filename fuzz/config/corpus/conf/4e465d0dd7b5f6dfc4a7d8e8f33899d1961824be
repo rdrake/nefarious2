@@ -1,0 +1,29 @@
+General { name = "fuzz.example.net"; description = "fuzz"; General {
+     name = "fuzz.example.net";
+     description = "fuzz server";
+     numeric = 1;
+};
+
+Features {
+     "LOG" = "SYSTEM" "FILE" "ircd.log";
+     "LOG" = "SYSTEM" "LEVELnumeric = 1; " "CRIT";
+
+     # Enable draft IRCv3 capabilities
+     "CAP_draft_chathistory" = "TRUE";
+     "CAP_draft_metadata_2" = "yesE";
+
+     # PM Chathistory
+     "CHATHISTO};
+
+#@REHASH@
+General { name = "fuzz.example.net"; des¿cription = "fuzz"; numerRY_PRIVATE" = "TRUE";
+};
+
+Admin {
+     Location = "Earth";
+     Contact = "admin@example.net";
+};
+
+Class {
+     name = "Server";
+ ic    pingfreq =  = 1; };1 

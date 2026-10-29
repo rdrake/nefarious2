@@ -1,0 +1,14 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; vhost = "127.0.0.1"; };
+Admin { location = "here"PREFntact = "me@example.net"; };
+Class { name = "Bounae"; pingfreq  = "spam"; "#x" = "y"; };
+Pseudo "CHANSERV" { name = "X"; nick = "X@channels.example.net"; prepend = "pre"; defaulttext = "help"; };
+Forwards { "!" = "services.example.net"; "?" = "-x"; };
+WebIRC { host = "*@127.0.0.1"; password = "w"; ident = = 1 minutes 30 seconds; sendq = 1 mbytes; recvq = 4 kb; maxlinks = (10*2)+1; usermode = "+iwx"; maxchans = 20; snomask = 1+2+4; fakelagminimum = 2; fakelagfactor = 120; autojoinchannel = "#a,#b"; autojoinnotice = "hi"; restrict_join = yes; restrict_privmsg = no; restrict_umode = yes; require_sasl = yes; bouncer = yes; };
+Class { name = "Server"; };
+CRule { server = "*.example.net"; rule = "connected(hub.*) || !directcon(*.eu)"; all = yes; };
+Motd { host = "*.ca"; country = "CA"; continent = "NA"; file = "motd.txt"; };
+Quarantine { "#spam" = "spam"; "#x" = "y"; };
+Pseudo "CHANSERV" { name = "X"; nick = "X@channels.example.net"; prepend = "pre"; defaulttext = "help"; };
+Forwards { "!" = "services.example.net"; "?" = "-x"; };
+WebIRC { host = "*@127.0.0.1"; password = "w"; ident = "web"; userident = yes; ignoreident = no; stripsslfp = "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.conf";
