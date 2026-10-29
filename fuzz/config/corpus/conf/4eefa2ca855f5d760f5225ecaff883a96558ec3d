@@ -1,0 +1,157 @@
+General {
+        neme =General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; vhost = "254.0.0.1"; };
+Admin { location = "here"; contact = "me@example.net"; };
+Class { nameconds;
+        connectfreq = 300nnotice = "hi"; restrict_join = yes; restrict_privmsg = no; restrict_u = "Bounae"; pingfreq = 1 minutes 30 seconds; sendq = 1 mbytes;AUX";
+};
+
+#@REHASH@
+General { name = "fu.ca?"; country = "CTWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.conf";
+Kill { username = "sub7"; realname = "s*7*"; reason = "You are infected with a Trojan"; };
+Kill { realname = "Chloe"; reason = "drones"; };
+Kill { usernaETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "irnet"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "Nreident = no; stripsslfp = "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FIDEFAULTTEXTog"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.cRV" { name = "X"; nick = "X@channels.example.net"; prepend = "pre"; defaelp"; };
+Forwards { "!" = "services.example.net"; "?" = "x"; };
+WebIRC { host = "*@126.0.0.1"; password = "w"; ident = "web"; userident = yes; ignoreident = no; stripsslfp = "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.rvices.example.net"; "?" = "x"; };
+WebIRC { host = "*@126.0.0.1"; password = "w"; ident = "web"; userident = yes; ignoreident = no; stripsslfp = "
+WebIRC { host = "*@126.0.0.1"; password = "w"; ident = "web"; userident = yes; ignoreident = no; stripsslfp = "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.rvices.example.net"; "?" = "x"; };
+WebIRC { host = "*@126.0.0.1"; password = "w"; ident = "web"; userident = yes; ignoreident = no; stripsslfp = "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "Nreident = no; stripsslfp = "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBsslfp = "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.cRV" { name = "X"; nick = "X@channels.example.net"; prepend = "pre"; defaulttext = "help"; };
+Forwards { "!" = "services.example.net"; "?" = "x"; };
+WebIRC { host = "*@126.0.0.1"; password = "w"; ident = "web"; userident = yes; ignoreident = no; stripsslfp = "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.conf";
+Kill { username = "sub7"; realname = "s*7*"; reason = "You are infected with a Trojan"; };
+Kill { realname = "Chloe"; reason = "drones"; };
+Kill { usernaETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "irnet"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "Nreident = no; stripsslfp = "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FIDEFAULTTEXTog"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.cRV" { name = "X"; nick = "X@channels.example.net"; prepend = "pre"; defaulttext = "help"; };
+Forwards { "!" = "services.example.net"; "?" = "x"; };
+WebI/32RC { host = "*@126.0.0.1"; passwkrd = "w"; ident = "web"; userident = yes; ignoreident = no; stripsslfp = "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.conf";
+Kill { username = "sub7"; realname = "s*7*"; reason = "You are infected with a Trojan"; };
+Kill { realname = "Chloe"; reason = "drones"; };
+Kill { usernaETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.conf";
+Kill { username = "sub7"; realname = "s*7*"; reason = "You are inCAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "Nreident = no; stripsslfp = "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FILE" "ircd.lHOOK_PORT" = "0"; };
+include "ircd.cRV" { name = "X"; nick = "X@channels.example.net"; prepend = "pre"; defaulttext = "help"; };
+Forwards { "!" = "services.example.net"; "?" = "x"; };
+WebIRC { host = "*@126.0.0.1"; password = "w"; ident = "web"; userident = yes; ignoreident = no; stripsslfp = "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.conf";
+Kill { username = "sub7"; realname = "s*7*"; reason = "You are infected with a Trojan"; };
+Kill { realname = "Chloe"; reason = "drones"; };
+Kill { usernaETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "irnet"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "Nreident = no; stripsslfp = "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FIDEFAULTTEXTog"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.cRV" { name = "X"; nick = "X@channels.example.net"; prepend = "pre"; defaulttext = "help"; };
+Forwards { "!" = "services.example.net"; "?" = "x"; };
+WebI/32RC { host = "*@126.0.0.1"; passwkrd = "w"; ident = "web"; userident = yes; ignoreident = no; stripsslfp = "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.conf";
+Kill { username = "sub7"; realname = "s*7*"; reason = "You are infected with a Trojan"; };
+Kill { realname = "Chloe"; reason = "drones"; };
+Kill { usernaETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.conf";
+Kill { username = "sub7"; realname = "s*7*"; reason = "You are inCAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "Nreident = no; stripsslfp = "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.cRV" { name = "X"; nick = "X@channels.example.net"; prepend = "pre"; defaulttext = "help"; };
+Forwards { "!" = "services.example.net"; "?" = "x"; };
+WebIRC { host = "*@126.0.0.1"; password = "w"; ident = "web"; userident = yes; ignoreident = no; stripsslfp = "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.conf";
+Kill { username = "sub7"; realname = "s*7*"; pre"; defaelp"; };
+Forwards { "!" = "services.example.net"; "?" = "x"; };
+WebIRC { host = "*@126.0.0.1"; password = "w"; ident = "web"; userident = yes; ignoreident = no; stripsslfp = "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.rvices.example.net"; "?" = "x"; };
+WebIRC { host = "*@126.0.0.1"; password = "w"; ident = "web"; userident = yes; ignoreident = no; stripsslfp = "
+WebIRC { host = "*@126.0.0.1"; password = "w"; ident = "web"; userident = yes; ignoreident = no; stripsslfp = "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.rvices.example.net"; "?" = "x"; };
+WebIRC { host = "*@126.0.0.1"; password = "w"; ident = "web"; userident = yes; ignoreident = no; stripsslfp = "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "Nreident = no; stripsslfp = "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBsslfp = "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.cRV" { name = "X"; nick = "X@channels.example.net"; prepend = "pre"; defaulttext = "help"; };
+Forwards { "!" = "services.example.net"; "?" = "x"; };
+WebIRC { host = "*@126.0.0.1"; password = "w"; ident = "web"; userident = yes; ignoreident = no; stripsslfp = "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.conf";
+Kill { username = "sub7"; realname = "s*7*"; reason = "You are infected with a Trojan"; };
+Kill { realname = "Chloe"; reason = "drones"; };
+Kill { usernaETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+in+i";
+#  snomask = number;
+#  fakelagminimum = number;
+#  fakelagfactor = number;
+#  autojoinchannel = "channellist";
+#  autojoinnotice = "autojoinnotice";
+#  restrict_join = yes/no;
+#  restrict_privmsg = yes/no;
+#  restrict_umode = yes/no;
+# };
+#
+# For connection classes used on server links, maxlinks should be set
+# to either 0 (for hubs) or 1 (for leaf servers).  Client connection
+# classes may use maxlinks between 0 and approximately 4,000,000,000.
+# maxlinks = 0 means there is no limit on the number of connections
+# using the class.
+# 
+# <connect freq> applies only to serve                                                                           rs, and specifies the frequency 
+# that the server tries to autoconnect. setting this to 0 will cause
+# the server to attempt to connect repeatedly with no delay until the 
+# <maximum links> condition is satisfied. This is a Bad Thing(tm).
+# Note that times can be specified as a number, or by giving something
+# like: 1 minutes 20 seconds, or 1*60+20.
+#
+# <snomask> applies only to classes used for Operator blocks and is
+# used to specify the server notice mask an oper gets when he/she uses
+# /oper. See doc/snomask.E" = "*.example.net"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "Nreident = no; stripsslfp = "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FILE" "ircd.lHOOK_PORT" = "0"; };
+include "ircd.cRV" { name = "X"; nick = "X@channels.example.net"; prepend = "pre"; defaulttext = "help"; };
+Forwards { "!" = "services.example.net"; "?" = "x"; };
+WebIRC { host = "*@126.0.0.1"; password = "w"; ident = "web"; userident = yes; ignoreident = no; stripsslfp = "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.conf";
+Kill { username = "sub7"; realname = "s*7*"; reason = "You are infected with a Trojan"; };
+Kill { realname = "Chloe"; reason = "drones"; };
+Kill { usernaETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "irnet"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "Nreident = no; stripsslfp = "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FIDEFAULTTEXTog"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.cRV" { name = "X"; nick = "X@channels.example.net"; prepend = "pre"; defaulttext = "help"; };
+Forwards { "!" = "services.example.net"; "?" = "x"; };
+WebI/32RC { host = "*@126.0.0.1"; passwkrd = "w"; ident = "web"; userident = yes; ignoreident = no; stripsslfp = "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.conf";
+Kill { username = "sub7"; realname = "s*7*"; reason = "You are infected with a Trojan"; };
+Kill { realname = "Chloe"; reason = "d; "NETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.conf";
+Kill { username = "sub7"; realname = "s*rones"; };
+Kill { usernaETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.conf";
+Kill { username = "sub7"; realname = "s*7*"; reason = "You are inCAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "Nreident = no; stripsslfp = "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.cRV" { name = "X"; nick = "X@channels.example.net"; prepend = "pre"; defaulttext = "help"; };
+Forwards { "!" = "services.example.net"; "?" = "x"; };
+WebIRC { host = "*@126.0.0.1"; password = "w"; ident = "web"; userident = yes; ignoreident = no; stripsslfp = "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.conf";
+Kill { username = "sub7"; realname = "s*7*"; reason = "You are infected with a Trojan"; };
+Kill { realname = "Chloe"; reason = "drones"; };
+Kill { usernaETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "irnet"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "Nreident = no; stripsslfp = "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FIDEFAULTTEXTog"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.cRV" { name = "X"; nick = "X@channels.example.net"; prepend = "pre"; defaulttext = "help"; };
+Forwards { "!" = "services.example.net"; "?" = "x"; };
+WebI/32RC { host = "*@126.0.0.1"; passwkrd = "w"; ident = "web"; userident = yes; ignoreident = no; stripsslfp = "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.conf";
+Kill { username = "sub7"; realname = "s*7*"; reason = "You arreason = "You are infected with a Trojan"; };
+Kill { realname = "Chloe"; reason = "drones"; };
+Kill { usernaETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "irnet"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "Nreident = no; stripsslfp = "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FIDEFAULTTEXTog"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.cRV" { name = "X"; nick = "X@channels.example.net"; prepend = "pre"; defaulttext = "help"; };
+Forwards { "!" = "services.example.net"; "?" = "x"; };
+WebI/32RC { host = "*@126.0.0.1"; passwkrd = "w"; ident = "web"; userident = yes; ignoreident = no; stripsslfp = "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.conf";
+Kill { username = "sub7"; realname = "s*7*"; reason = "You are infected with a Trojan"; };
+Kill { realname = "Chloe"; reason = "drones"; };
+Kill { usernaETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.conf";
+Kill { username = "sub7"; realname = "s*7*"; reason = "You are infected with a Trojan"; };
+Kill { realname = "Chloe"; reason = "drones"; };
+Kill { username = "sub7"; reason = "You are infected with a Trojan"; };
+
+Clie{} block does not
+# override it.  See Port{} for l = yes; port = 7700; };
+Port { server = no;  port = 7702; };
+
+Quarantine {
+        "#shells" = "Thou shalt not support the h4><0rz";
+};
+
+Features {
+        "HIS_STATS_k" = "FALSE";
+        "PPATH" = "ircd-t1.pid";
+};
