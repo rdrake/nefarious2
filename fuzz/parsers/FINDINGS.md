@@ -873,8 +873,57 @@ the last values libFuzzer reported (edges / features).  `lines` is source
 line coverage of the target's main file by its committed corpus
 (`./coverage.sh`).  Untrusted-network targets got the longest slots.
 
-STATS_TABLE_PLACEHOLDER
+| target | runs | fuzz time | execs | cov (edges) | ft | corpus | crash/timeout/oom | lines |
+|---|---|---|---|---|---|---|---|---|
+| sasl_auth | 2 | 105m | 151,010,566 | 1174 | 1069 | 223 | 0/0/0 | 66.6% (sasl_auth.c) |
+| kc_jwt | 2 | 101m | 47,543,758 | 1304 | 1138 | 315 | 0/0/0 | 90.5% (kc_jwt.c) |
+| kc_webhook | 2 | 101m | 78,194,978 | 1093 | 1005 | 320 | 0/0/0 | 59.0% (kc_webhook.c), 82.0% (kc_webhook_sig.c) |
+| websocket | 2 | 101m | 92,503,567 | 2277 | 2167 | 955 | 0/0/0 | 76.2% (websocket.c) |
+| ircd_string | 2 | 46m | 175,038,978 | 3081 | 4012 | 1617 | 12/0/0 | 97.2% (ircd_string.c), 39.3% (numnicks.c) |
+| history | 2 | 45m | 44,110,929 | 2993 | 2640 | 589 | 0/0/0 | 38.2% (history.c), 27.4% (ml_content.c) |
+| dns | 1 | 40m | 43,793,445 | 410 | 912 | 258 | 0/0/0 | — |
+| parse | 2 | 38m | 97,694,061 | 896 | 1170 | 536 | 54/0/0 | — |
+| chathistory | 1 | 21m | 147,531,495 | 471 | 547 | 141 | 0/0/0 | — |
+| match | 2 | 20m | 22,542,833 | 1846 | 1849 | 638 | 0/0/0 | 92.9% (match.c) |
+| webpush | 1 | 20m | 25,674,726 | 327 | 447 | 177 | 0/0/0 | — |
+| kc_cred_derive | 1 | 10m | 57,558 | 68 | 48 | 4 | 0/0/0 | — |
+| kc_cache | 1 | 5m | 5,232,510 | 117 | 526 | 192 | 0/0/0 | — |
+| kc_url | 1 | 5m | 10,241,297 | 107 | 122 | 31 | 0/0/0 | — |
+| kc_error_classify | 1 | 5m | 73,779,661 | 24 | 24 | 14 | 0/0/0 | — |
+| kc_base64 | 1 | 5m | 34,903,773 | 178 | 496 | 129 | 0/0/0 | — |
+| bouncer_record | 1 | 0m | 60,928 | 577 | 833 | 66 | 0/0/0 | — |
+| paste_listener | 1 | 0m | 441,408 | 558 | 677 | 166 | 0/0/0 | — |
+| **total** | | 11h15m core-time | 1,050,356,471 | | | | | — |
+
+Campaign wall-clock: about 3h10m on 4 cores (logged runs 15:53–19:02 UTC),
+stopped at 19:02 when the session's budget ran out, before the last
+scheduled slots.  Average throughput across all jobs ≈ 26,000 execs/s per core
+(1.05 billion execs / 11h15m core-time).  The rows above are the targets
+whose libFuzzer logs were kept; the smaller decoders (account_id,
+recv_classify, exit_reason, register_throttle, webhook_eventlog, crule,
+ircd_snprintf, db_casefold, ircd_compress, dbuf, metadata, webpush_store,
+webpush_line, webpush_mute, webpush_expiry, webpush_keyring) ran in the
+earlier shakedown runs (~380M execs together), whose per-target logs were
+not retained.  The crash counts are all known findings (ircd_string: the
+gated F04/F07/F09 family hit before the guards; parse: F28/F29).  `—` =
+no coverage report generated (the per-target coverage pass was cut).
 
 Coverage gaps worth knowing (checked where a target plateaued):
 
-COVERAGE_NOTES_PLACEHOLDER
+* `history`: 38% of history.c — the network-facing query paths are
+  covered; the rest is RocksDB maintenance (compaction, purge, retention
+  sweeps, migration) that needs a timer / real db, out of reach of a
+  byte-input harness.
+* `kc_webhook`: 59% of kc_webhook.c — the uncovered part is the listener
+  setup, TLS and the curl/event-loop glue; parsing, signature and
+  dispatch are covered (kc_webhook_sig.c 82%).
+* `sasl_auth`: 67% — the remaining paths need libkc async callbacks
+  (Keycloak ROPC replies, token introspection), which the stubs answer
+  only synchronously.
+* `parse`: command handlers are autostubbed, so coverage is the parser
+  only (tags, prefix, dispatch); that is what found F24/F28/F29.
+* `dns`: edges plateaued at ~410 within minutes; the reply parser is
+  small and fully reachable (proc_answer, dn_expand, dn_skipname).
+* `bouncer_record`, `paste_listener`: short final slots (the campaign
+  was stopped before their scheduled time); their corpora come from the
+  earlier runs.
