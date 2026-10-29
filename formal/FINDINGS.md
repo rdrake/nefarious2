@@ -6,6 +6,52 @@ adversarial code review) before any fix. PR numbers refer to
 rdrake/nefarious2, base `ircv3.2-upgrade`. "Upstream" means
 evilnet/nefarious2 `master`.
 
+## Hand-off: how to resume
+
+Written 2026-10-29 at wrap-up, when cloud credits ran out. Everything a new
+session needs is on GitHub (rdrake/nefarious2); nothing lives only in the old
+container.
+
+### Next steps, in priority order
+
+1. **C1: pre-auth WebSocket handshake hang** (CBMC section below). Fix, add a cmocka case, validate live, open a PR. It's a small fix with the highest impact.
+2. **Fuzz findings, highest severity first.** Read each `fuzz/*` branch's `FINDINGS.md` (table below). Start with:
+   - config F10: v8 bouncer records are dropped at boot, i.e. data loss on upgrade;
+   - p10's `base64toip` heap overflow;
+   - client `BOUNCER ORESET` use-after-free and the `/TRACE` stack overflow;
+   - parsers F25 (DNS);
+   - config F7 (crule frees an uninitialised pointer) and F3 (DNSBL infinite loop).
+3. **CBMC C2–C7.**
+4. **Bouncer F3/F4/F5/F7/F9 and the cross-server proposals.** Both are blocked on the maintainer's decisions (bottom of this file; also `PROTOCOL-PROPOSALS.md`).
+5. **The stateful fuzzing plan** (`STATEFUL-FUZZ-PLAN.md`), as time allows.
+
+### Process this work followed (keep it)
+
+- **Validate independently before fixing.** Reproduce on a sanitizer build, live where possible, or with an ASan harness linking the real object. Try to refute the claim, not just confirm it. A tool's report alone is not enough.
+- **Check upstream.** For each finding, record whether evilnet/nefarious2 `master` also has it. Fixes for upstream ones are candidates to send upstream later. The GitHub API isn't available for evilnet from these sessions; use `git ls-remote` / `git fetch` of `refs/heads/master` and `refs/pull/*/head` instead.
+- **One logical PR per fix.** Branch `fix/<topic>` from `ircv3.2-upgrade` and open the PR against `ircv3.2-upgrade`. Never push to `ircv3.2-upgrade` itself. Each PR states the before/after evidence and the upstream status.
+- **Commit messages:** explain the bug path and the evidence. No model names.
+
+### Rebuilding the test environment (Ubuntu container)
+
+- **Dependencies:**
+  ```
+  apt-get install -y librocksdb-dev libzstd-dev libcmocka-dev libcurl4-openssl-dev libjansson-dev libssl-dev libgit2-dev libmaxminddb-dev libgeoip-dev flex bison autoconf automake cppcheck cbmc libclang-rt-18-dev
+  pip install z3-solver
+  ```
+  For TLA+, download `tla2tools.jar` (v1.8.0).
+- **Sanitizer build:** `git archive <branch> | tar -x -C <dir>`, then `autoreconf -fi`, then configure with `CC=gcc CFLAGS="-g -O1 -fsanitize=address,undefined -fno-omit-frame-pointer" LDFLAGS="-fsanitize=address,undefined"` and `--enable-debug --with-maxcon=4096 --with-rocksdb=/usr --with-zstd=/usr --enable-keycloak`.
+  - The cmocka suite needs `make -C ircd/test LDFLAGS="-fsanitize=address,undefined" test-cmocka`.
+- **Running ircd as root:** it refuses unless faked. Use `formal/repro/common/fakeuid.c` as an LD_PRELOAD shim, with gcc's libasan first: `LD_PRELOAD="$(gcc -print-file-name=libasan.so) fakeuid.so"`.
+- **Harnesses:** `formal/repro/README.md` lists one per finding.
+
+### Pitfalls already hit
+
+- **clang `-fsanitize=function`** aborts on the first CAP until PR #3 merges. Use gcc, or `-fno-sanitize=function`.
+- **TLC `states/` directories** are huge. `formal/.gitignore` excludes them, so keep it when committing under `formal/`.
+- **Force-pushes are blocked** by the session's safety classifier. Fix mistakes with a follow-up commit or in the PR text. For example, PR #1's commit message says `HLC_MAX_FORWARD_MS` defaults to 0, but the default is 60000; the PR body corrects it.
+- **Test client timing** (`formal/repro/bouncer-live`) is occasionally flaky. Re-run a surprising result before believing it.
+
 ## Fixed in open PRs
 
 | PR | Finding | Severity / trigger | Found by | Confirmed by | Upstream |
