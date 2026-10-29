@@ -1,0 +1,200 @@
+diff -ru a/ircd/channel.c b/ircd/channel.c
+--- a/ircd/channel.c	2026-10-29 15:43:53.462864014 +0000
++++ b/ircd/channel.c	2026-10-29 15:52:03.536594648 +0000
+@@ -72,6 +72,11 @@
+ static unsigned int membershipAllocCount;
+ /** Freelist for struct Membership*'s */
+ static struct Membership* membershipFreeList;
++/* FUZZ: freelists are disabled so ASan can see use-after-free.  A
++ * released object goes to the harness graveyard instead: it stays
++ * intact (like a freelisted object) until the harness frees it between
++ * top-level events, so only pointers that dangle across events trip. */
++extern void fuzz_defer_free(void *p);
+ /** Freelist for struct Ban*'s */
+ static struct Ban* free_bans;
+ /** Number of ban structures allocated. */
+@@ -777,7 +782,7 @@
+ 
+   if (cli_user(who)) {
+    
+-    struct Membership* member = membershipFreeList;
++    struct Membership* member = NULL; /* FUZZ */
+     if (member)
+       membershipFreeList = member->next_member;
+     else {
+@@ -869,8 +874,7 @@
+   else
+     (cli_user(member->user))->channel = member->next_channel;
+ 
+-  member->next_member = membershipFreeList;
+-  membershipFreeList = member;
++  fuzz_defer_free(member); /* FUZZ */
+ 
+   if (IsMemberAlias(member)) {
+     /* Alias removal: decrement alias counter only.
+diff -ru a/ircd/dbuf.c b/ircd/dbuf.c
+--- a/ircd/dbuf.c	2026-10-29 15:43:53.468155532 +0000
++++ b/ircd/dbuf.c	2026-10-29 15:52:03.537543534 +0000
+@@ -52,6 +52,11 @@
+ 
+ /** List of allocated but unused DBuf structures. */
+ static struct DBufBuffer *dbufFreeList = 0;
++/* FUZZ: freelists are disabled so ASan can see use-after-free.  A
++ * released object goes to the harness graveyard instead: it stays
++ * intact (like a freelisted object) until the harness frees it between
++ * top-level events, so only pointers that dangle across events trip. */
++extern void fuzz_defer_free(void *p);
+ 
+ /** Size of data for a single DBufBuffer. */
+ #define DBUF_SIZE 2048
+@@ -83,7 +88,7 @@
+  */
+ static struct DBufBuffer *dbuf_alloc(void)
+ {
+-  struct DBufBuffer* db = dbufFreeList;
++  struct DBufBuffer* db = NULL; /* FUZZ */
+ 
+   if (db) {
+     dbufFreeList = db->next;
+@@ -105,8 +110,8 @@
+ {
+   assert(0 != db);
+   --DBufUsedCount;
+-  db->next = dbufFreeList;
+-  dbufFreeList = db;
++  --DBufAllocCount;
++  fuzz_defer_free(db); /* FUZZ */
+ }
+ 
+ /** Handle a memory allocation error on a DBuf.
+diff -ru a/ircd/list.c b/ircd/list.c
+--- a/ircd/list.c	2026-10-29 15:43:53.458908048 +0000
++++ b/ircd/list.c	2026-10-29 15:52:03.531945168 +0000
+@@ -64,6 +64,11 @@
+ 
+ /** Linked list of currently unused Client structures. */
+ static struct Client* clientFreeList;
++/* FUZZ: freelists are disabled so ASan can see use-after-free.  A
++ * released object goes to the harness graveyard instead: it stays
++ * intact (like a freelisted object) until the harness frees it between
++ * top-level events, so only pointers that dangle across events trip. */
++extern void fuzz_defer_free(void *p);
+ 
+ /** Linked list of currently unused Connection structures. */
+ static struct Connection* connectionFreeList;
+@@ -109,7 +114,7 @@
+  */
+ static struct Client* alloc_client(void)
+ {
+-  struct Client* cptr = clientFreeList;
++  struct Client* cptr = NULL; /* FUZZ */
+ 
+   if (!cptr) {
+     cptr = (struct Client*) MyMalloc(sizeof(struct Client));
+@@ -134,10 +139,8 @@
+ 
+   --clients.inuse;
+ 
+-  cli_next(cptr) = clientFreeList;
+-  clientFreeList = cptr;
+-
+   cli_magic(cptr) = 0;
++  fuzz_defer_free(cptr); /* FUZZ */
+ }
+ 
+ /** Allocate a new Connection structure.
+@@ -147,7 +150,7 @@
+  */
+ static struct Connection* alloc_connection(void)
+ {
+-  struct Connection* con = connectionFreeList;
++  struct Connection* con = NULL; /* FUZZ */
+ 
+   if (!con) {
+     con = (struct Connection*) MyMalloc(sizeof(struct Connection));
+@@ -202,10 +205,8 @@
+ 
+   --connections.inuse;
+ 
+-  con_next(con) = connectionFreeList;
+-  connectionFreeList = con;
+-
+   con_magic(con) = 0;
++  fuzz_defer_free(con); /* FUZZ */
+ }
+ 
+ /** Allocate a new client and initialize it.
+@@ -661,7 +662,7 @@
+  */
+ struct SLink* make_link(void)
+ {
+-  struct SLink* lp = slinkFreeList;
++  struct SLink* lp = NULL; /* FUZZ */
+   if (lp)
+     slinkFreeList = lp->next;
+   else {
+@@ -680,9 +681,8 @@
+ void free_link(struct SLink* lp)
+ {
+   if (lp) {
+-    lp->next = slinkFreeList;
+-    slinkFreeList = lp;
+     links.inuse--;
++    fuzz_defer_free(lp); /* FUZZ */
+   }
+ }
+ 
+@@ -699,7 +699,7 @@
+   struct DLink* lp;
+ 
+   /* Allocate from freelist or malloc */
+-  if (dlinkFreeList) {
++  if (0) { /* FUZZ */
+     lp = dlinkFreeList;
+     dlinkFreeList = lp->next;
+     dlinkFreeCount--;
+@@ -733,9 +733,7 @@
+     lp->next->prev = NULL;
+ 
+   /* Return to freelist instead of freeing */
+-  lp->next = dlinkFreeList;
+-  dlinkFreeList = lp;
+-  dlinkFreeCount++;
++  fuzz_defer_free(lp); /* FUZZ */
+ }
+ 
+ /** Report memory usage of a list to \a cptr.
+diff -ru a/ircd/s_auth.c b/ircd/s_auth.c
+--- a/ircd/s_auth.c	2026-10-29 15:43:53.471728522 +0000
++++ b/ircd/s_auth.c	2026-10-29 15:52:03.540082433 +0000
+@@ -249,6 +249,11 @@
+ static void iauth_sock_callback(struct Event *ev);
+ static void iauth_stderr_callback(struct Event *ev);
+ static int sendto_iauth(struct Client *cptr, const char *format, ...);
++/* FUZZ: freelists are disabled so ASan can see use-after-free.  A
++ * released object goes to the harness graveyard instead: it stays
++ * intact (like a freelisted object) until the harness frees it between
++ * top-level events, so only pointers that dangle across events trip. */
++extern void fuzz_defer_free(void *p);
+ static int preregister_user(struct Client *cptr);
+ typedef int (*iauth_cmd_handler)(struct IAuth *iauth, struct Client *cli,
+ 				 int parc, char **params);
+@@ -1161,8 +1166,7 @@
+   }
+   auth->prev = AUTH_FREELIST_MARKER;
+ 
+-  auth->next = auth_freelist;
+-  auth_freelist = auth;
++  fuzz_defer_free(auth); /* FUZZ */
+ #undef AUTH_FREELIST_MARKER
+ }
+ 
+@@ -1494,7 +1498,7 @@
+ 
+   /* Allocate the AuthRequest. */
+ #define AUTH_FREELIST_MARKER ((struct AuthRequest*)0xDEADBEEF)
+-  auth = auth_freelist;
++  auth = NULL; /* FUZZ */
+   if (auth) {
+       /* Defensive check: detect freelist corruption */
+       if (auth->next == auth) {
