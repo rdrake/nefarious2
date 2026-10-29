@@ -1,0 +1,30 @@
+CAP1enpwYX:N
+/z/172.30.NSILENCE +*!*@*
+SILENCE -*!*@*
+SILENCE fuzzA
+SILENCE +~a:x
+WATC://[::1]H +fuzzB +nobody l L
+WATCH S
+WATCH C
+WATCH -fuzzB
+MONITOR +ADATA * CLEAR
+METAz/172.30body l L
+WATCH S
+WATCH C
+WATCH -fuzzB
+MONITOR +ADATA * CLEAR
+METAz/172.30.NSILENCE +*!*@*
+SILENCE -*!*@*
+SILENCE fuzzA
+SILENCE +~a:x
+WATC://[::1]H +fuzzB +nobody l L
+WATCH S
+WATCH C
+WATCH -fuzzB
+MONITOR +ADATA * CLEAR
+METADATA *+ SET bad key :v
+METADATA * SET kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk LCK a nnnnnnnnn+nnnnnnnnnnnportsnnnnn;nnthtokenvvvvvvvvvvvvvvvvvvvvvvvvvvv
+WATCH -fuzzB
+MONITOR +ADATA * CLEAR
+METADATA * SET bad key :v
+METADAT s 

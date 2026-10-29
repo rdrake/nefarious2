@@ -1,0 +1,17 @@
+con”šœ‹JOIN #a,#b,#c,&dic
+TOPIC #fuzz
+KE #fuzz +o fuzzA
+TOPIC #fuzz :new topic
+TOPIC #fuzz
+KICK #fuzz fuzzB :out
+JOIN #fuzz
+INVITE fuzICK #fuzz fuzzB :out
+JOIN #fuzz
+INVITE fuzzB #fuzz
+INVITELEARMODE #fuzz ovbkl
+OPMODE #fuzz +o fuzzA
+REb
+NIJOIN #a,#b,#c,&d k1,k2
+JOIN 1
+JCK fuzzA3
+CHATHISTORY OIN #aTxxxxxoxxxxxxxxxxxx8xxxxxxxxxyxxxxxxxxxxxxxxxxxxxxx

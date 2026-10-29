@@ -1,0 +1,10 @@
+›››››SH›››››››››››››››››››_WEBPUSsl
+AUTHENTICATE EXTER_OPER fuzzoper fu://[::1]zzLINE
+GLINSVSQUITE ­*00 :z
+SHUN +*@1.2.3.5­*00@1.2@1.2.3.4 600: bad
+GLINE
+GLINE ­*00 :z
+SHUN +*@2.2.3.5 600  :baNICKP fILEd
+GLINE
+GLINSVSQUITE ­*00 :z
+SHUN +*@1.2.3*@1.2.3.5 600N :

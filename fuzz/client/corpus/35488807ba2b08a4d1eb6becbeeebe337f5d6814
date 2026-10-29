@@ -1,0 +1,17 @@
+_OPER fuGL :s
+JS INE
+GLINE ­*00 :z
+SHUN +*@1.2.3.5 600  :bad
+GLINE
+GLINSVSQUITE ­*00 :z
+SHUN +*@1.2.3.5 600 :bad
+GLINE
+GL±¼õDES§±¼·ÅAß÷›SLL fINE ­*00 :z
+SHUN +*[@1.2.3.5 600  :bad
+GLINE
+GLINSVSQUITE ­*00 :z
+SHUN +*@1.2.3.5 600 :s
+JS fuODE #fuzz +'o FuzzÃ
+SVSNICK fuzzA x
+SVSJOIN fuzzA #o
+TS¢±¼õDES§±¼·ÅAß÷›SLL fuzz.test.net

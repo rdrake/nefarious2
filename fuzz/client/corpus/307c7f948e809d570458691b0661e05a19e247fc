@@ -1,0 +1,5 @@
+WEBIRC fuzzwebirc gw host6.example 2001:db8::1
+WEBIRC bad gw h 1.2.3.4
+WEBIRC fuzzwebirc gw h notanip
+NICK w2
+USER w 0 * :w

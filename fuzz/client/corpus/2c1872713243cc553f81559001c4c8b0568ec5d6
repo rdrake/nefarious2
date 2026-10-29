@@ -1,0 +1,11 @@
+_OPER fuzzopeמממממממממממממopeמממממממממממממממממממr fuzzoperpass
+MODE fuzzA +s +cdk
+SNO +x
+WALLOPS :hi
+WALLUSERS :hi
+GLINE +*@1.2.3.4 600 :bad
+GLINE
+GLINE ­*@1.2.3.4
+ZLINE +1.2.3.0+*@1.2.A x y
+GITSYNC
+DES±§¼·ßֵ›קASLL fuzz.test.net
