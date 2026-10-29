@@ -95,8 +95,8 @@ add("burst_ts_newer", LOCALS,
     BASE_USERS + "AB B #fuzz 1900000000 +m ABAAA:o\nAB EB\n")
 add("burst_ipv6", POST_EB,
     "AB N V6a 2 %d u v6.example +i _ ABAAE :v6\n" % TS +
-    "AB N V6b 2 %d u v6.example +i AAAAAAAAAAAAAAAAAAAAAB ABAAF :v6\n" % TS +
-    "AB N V6c 2 %d u v6.example +i AAAA_AAB ABAAG :v6\n" % TS)
+    "AB N V6b 2 %d u v6.example +i AAAAAAAAAAAAAAAAAAAAAAAB ABAAF :v6\n" % TS +
+    "AB N V6c 2 %d u v6.example +i AAA_AAB ABAAG :v6\n" % TS)
 add("nick_modes_params", POST_EB,
     "AB N Full 2 %d user real.host +rhfCcxoi acc vuser@vhost.net fake.host cloak.host cloak.ip %s ABAAH :full modes\n" % (TS, ip4(1, 2, 3, 4)) +
     "AB N Mark 2 %d user host +iI %s ABAAI :mark\n" % (TS, ip4(1, 2, 3, 5)))

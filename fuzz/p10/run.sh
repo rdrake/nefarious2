@@ -25,6 +25,8 @@ JOBS="${JOBS:-$(nproc)}"
 
 mkdir -p "$WORK/corpus" "$WORK/artifacts" "$STORE"
 export FUZZ_TMPDIR="$STORE"
+# drop lines matching already-confirmed bugs (fuzz_p10.c known_bug_line)
+export FUZZ_FILTER_KNOWN="${FUZZ_FILTER_KNOWN-1}"
 export ASAN_OPTIONS="detect_leaks=0:abort_on_error=1:symbolize=1:allocator_may_return_null=1"
 export UBSAN_OPTIONS="print_stacktrace=1:halt_on_error=0:report_error_type=1"
 

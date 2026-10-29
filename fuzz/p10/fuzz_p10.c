@@ -37,6 +37,10 @@
  *   bit 3  0x08  register local users alice / bob in #fuzz first
  *   bit 4  0x10  run timers after the input
  *
+ * FUZZ_FILTER_KNOWN=1 drops input lines matching already-confirmed bugs
+ * (see known_bug_line and FINDINGS.md) so campaigns get past them; the
+ * input is then fed line by line instead of in 4 KiB reads.
+ *
  * Outbound data never reaches a socket: os_send_nonb / os_sendv_nonb
  * are wrapped at link time (-Wl,--wrap) to claim every byte written.
  */
@@ -115,6 +119,7 @@ static int tcp_listen_fd = -1;
 static struct sockaddr_in tcp_listen_addr;
 static int verbose;
 static int strict;
+static int filter_known;
 
 /* ---------------------------------------------------------------- */
 /* Outbound path: discard everything                                  */
@@ -187,6 +192,8 @@ static const char conf_text[] =
   "UWorld { name = \"uhub.fuzz\"; name = \"services.fuzz\"; name = \"x3.fuzz\"; };\n"
   "Operator { name = \"oper\"; host = \"*@*\"; password = \"$PLAIN$oper\"; class = \"Users\"; local = no; };\n"
   "Features {\n"
+  "  \"LOG\" = \"SYSTEM\" \"FILE\" \"/dev/stderr\";\n"
+  "  \"LOG\" = \"SYSTEM\" \"LEVEL\" \"CRIT\";\n"
   "  \"HUB\" = \"TRUE\";\n"
   "  \"NODNS\" = \"TRUE\";\n"
   "  \"NOIDENT\" = \"TRUE\";\n"
@@ -284,6 +291,7 @@ int LLVMFuzzerInitialize(int *argc, char ***argv)
   (void)argc; (void)argv;
   verbose = getenv("FUZZ_VERBOSE") != NULL;
   strict = getenv("FUZZ_STRICT") != NULL;
+  filter_known = getenv("FUZZ_FILTER_KNOWN") != NULL;
 
   snprintf(tmpdir, sizeof(tmpdir), "%s/p10fuzz.%d.XXXXXX", base ? base : "/tmp",
            (int)getpid());
@@ -510,6 +518,198 @@ static void check_clean(void)
   }
 }
 
+/* ---------------------------------------------------------------- */
+/* Known-bug filter (FUZZ_FILTER_KNOWN=1)                            */
+/* ---------------------------------------------------------------- */
+/* Once a crash is confirmed and written up in FINDINGS.md, the lines
+ * that trigger it are dropped here so a campaign can get past it.  The
+ * filter only removes whole lines; it never edits one.  Each rule names
+ * the finding it stands in for. */
+
+
+#define FTOK_MAX 20
+struct ftoks { char *t[FTOK_MAX]; int n; char *cmd; char *src; };
+
+/* Tokenise like parse_server: optional @tags, prefix, command, then up
+ * to MAXPARA params with a ':' trailing param.  Works on a copy. */
+static void ftokenise(char *s, struct ftoks *ft)
+{
+  int i = 0;
+  memset(ft, 0, sizeof(*ft));
+  if (*s == '@') { while (*s && *s != ' ') s++; }
+  while (*s == ' ') s++;
+  ft->src = s;
+  while (*s && *s != ' ') s++;
+  if (*s) *s++ = '\0';
+  while (*s == ' ') s++;
+  ft->cmd = s;
+  while (*s && *s != ' ') s++;
+  if (*s) *s++ = '\0';
+  for (;;) {
+    while (*s == ' ') *s++ = '\0';
+    if (!*s || i >= FTOK_MAX - 1)
+      break;
+    if (*s == ':') { ft->t[i++] = s + 1; break; }
+    ft->t[i++] = s;
+    if (i >= MAXPARA)
+      break;
+    while (*s && *s != ' ') s++;
+  }
+  ft->n = i;
+}
+
+/* F1: would base64toip() stay inside the 8 words and the string? */
+static int b64ip_safe(const char *in)
+{
+  size_t len = strlen(in);
+  int pos = 0;
+  if (len == 6)
+    return 1;
+  while (pos < 8) {
+    if (!*in)
+      return 0;
+    if (*in == '_') {
+      int left = ((int)25 - (int)strlen(in)) / 3 - pos;
+      if (25 < (int)strlen(in) || left < 0 || pos + left > 8)
+        return 0;
+      pos += left;
+      in++;
+    } else {
+      if (!in[0] || !in[1] || !in[2])
+        return 0;
+      in += 3;
+      pos++;
+    }
+  }
+  return 1;
+}
+
+static int is_all_digits(const char *s)
+{
+  if (!*s) return 0;
+  for (; *s; s++) if (*s < '0' || *s > '9') return 0;
+  return 1;
+}
+
+static int known_bug_line(const char *line, size_t len)
+{
+  char buf[FULL_MSG_SIZE + 1];
+  struct ftoks ft;
+  int i;
+
+  if (len > FULL_MSG_SIZE)
+    len = FULL_MSG_SIZE;
+  /* F10: a NUL where the prefix should be makes parse_server step past
+   * the terminator and parse what follows it */
+  {
+    size_t k = 0;
+    if (line[0] == '@')
+      while (k < len && line[k] != ' ' && line[k]) k++;
+    while (k < len && line[k] == ' ') k++;
+    if (k < len && line[k] == '\0')
+      return 1;
+  }
+  memcpy(buf, line, len);
+  buf[len] = '\0';
+  ftokenise(buf, &ft);
+  if (!ft.cmd || !*ft.cmd)
+    return 0;
+
+  /* F3: three-char numeric command that evaluates to 0 */
+  if (strlen(ft.cmd) == 3 && IsDigit(ft.cmd[0]) &&
+      (ft.cmd[0] - '0') * 100 + (ft.cmd[1] - '0') * 10 + (ft.cmd[2] - '0') == 0)
+    return 1;
+
+  /* F7: MARK with fewer than two params */
+  if ((!strcmp(ft.cmd, "MK") || !ircd_strcmp(ft.cmd, "MARK")) && ft.n < 2)
+    return 1;
+
+  /* F1 / F6: server-introduced N with a bad IP or numeric field */
+  if ((!strcmp(ft.cmd, "N") || !ircd_strcmp(ft.cmd, "NICK")) && ft.n >= 7) {
+    const char *ip = ft.t[ft.n - 3], *nn = ft.t[ft.n - 2];
+    if (!b64ip_safe(ip))
+      return 1;
+    if (strlen(nn) != 3 && strlen(nn) != 5)
+      return 1;
+  }
+  /* F1 also via the collision path: any N whose IP slot is unsafe */
+  if ((!strcmp(ft.cmd, "N") || !ircd_strcmp(ft.cmd, "NICK")) && ft.n >= 3 &&
+      ft.n < 7 && !b64ip_safe(ft.t[ft.n >= 3 ? ft.n - 3 : 0]))
+    return 1;
+
+  if (!strcmp(ft.cmd, "B") || !ircd_strcmp(ft.cmd, "BURST")) {
+    for (i = 2; i < ft.n; i++) {
+      const char *p = ft.t[i];
+      if (*p == '+') {
+        int need = 0;
+        for (; *p; p++) {
+          if (*p == 'k' || *p == 'l') need++;          /* F2 */
+          if (*p == 'b' || *p == 'e') return 1;        /* F5 */
+        }
+        if (i + need >= ft.n)
+          return 1;
+      } else if (*p != '%') {                           /* F4 */
+        const char *q = p;
+        if (*q == ',' || *q == ':') return 1;
+        for (; *q; q++)
+          if ((q[0] == ',' && (q[1] == ',' || q[1] == ':' || !q[1])))
+            return 1;
+      }
+    }
+  }
+
+  /* F5 (MODE path) and F8 */
+  if (!strcmp(ft.cmd, "M") || !ircd_strcmp(ft.cmd, "MODE") ||
+      !strcmp(ft.cmd, "OM") || !ircd_strcmp(ft.cmd, "OPMODE")) {
+    int minus = 0, be = 0;
+    if (ft.n >= 2)
+      for (const char *p = ft.t[1]; *p; p++) {
+        if (*p == '-') minus = 1;
+        if (*p == 'b' || *p == 'e') be = 1;
+      }
+    for (i = 1; i < ft.n; i++)
+      if (be && i == ft.n - 1 && is_all_digits(ft.t[i]))
+        return 1;
+    for (i = 2; i < ft.n; i++)
+      if (minus && strchr(ft.t[i], ':'))
+        return 1;
+  }
+
+  /* A1: NICK from a bouncer alias (prefix = first <=5 chars, as in
+   * parse_server) */
+  if ((!strcmp(ft.cmd, "N") || !ircd_strcmp(ft.cmd, "NICK")) &&
+      strlen(ft.src) >= 5 && ft.src[2] != ' ') {
+    char pre[6];
+    struct Client *c;
+    memcpy(pre, ft.src, 5);
+    pre[5] = '\0';
+    c = strchr(pre, ' ') ? NULL : findNUser(pre);
+    if (c && IsBouncerAlias(c))
+      return 1;
+  }
+  return 0;
+}
+
+/* Feed buf, dropping lines the known-bug filter rejects. */
+static int feed_server_filtered(struct Client *cptr, const char *buf, size_t len)
+{
+  size_t start = 0, i;
+  int ok = 1, fd = cli_fd(cptr);
+  for (i = 0; ok && i <= len; i++) {
+    if (i == len || buf[i] == '\n' || buf[i] == '\r') {
+      size_t l = i - start;
+      if (l && !known_bug_line(buf + start, l))
+        ok = feed_server(cptr, buf + start, l + (i < len));
+      else if (l && verbose)
+        fprintf(stderr, "fuzz_p10: filtered: %.*s\n", (int)(l > 120 ? 120 : l), buf + start);
+      start = i + 1;
+      if (LocalClientArray[fd] != cptr)
+        ok = 0;
+    }
+  }
+  return ok;
+}
+
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 {
   struct Client *link;
@@ -547,7 +747,9 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
     ok = feed_server(link, eb, sizeof(eb) - 1);
   }
 
-  for (off = 0; ok && off < size; ) {
+  if (filter_known)
+    ok = feed_server_filtered(link, (const char *)data, size);
+  else for (off = 0; ok && off < size; ) {
     size_t chunk = size - off;
     if (chunk > 4096)
       chunk = 4096;
