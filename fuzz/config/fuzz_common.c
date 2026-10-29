@@ -245,6 +245,26 @@ void __wrap_add_listener(int port, const char *vhost_ip, const char *mask,
   __real_add_listener(port, vhost_ip, mask, flags);
 }
 
+/* FINDINGS.md F14: crule_parsearglist() stores any number of arguments in
+ * arg[CR_MAXARGS] (3).  Reject rules with a longer argument list before
+ * the real parser sees them (FUZZ_UNMASK_KNOWN: unchanged). */
+struct CRuleNode;
+extern struct CRuleNode *__real_crule_parse(const char *rule);
+struct CRuleNode *__wrap_crule_parse(const char *rule)
+{
+#ifndef FUZZ_UNMASK_KNOWN
+  const char *p;
+  int commas = 0;
+  for (p = rule; *p; p++) {
+    if (*p == '(')
+      commas = 0;
+    else if (*p == ',' && ++commas >= 3)
+      return NULL;
+  }
+#endif
+  return __real_crule_parse(rule);
+}
+
 /* FUZZ_VERBOSE=1: show conf parse errors (yyerror only prints to stderr
  * before the first successful read). */
 extern int lineno;
