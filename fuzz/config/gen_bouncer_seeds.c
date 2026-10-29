@@ -2,7 +2,10 @@
  * on-disk layout v7..v12 (include/bouncer_session.h), plus multi-record
  * inputs (same account twice, two accounts).  Built and run by run.sh.
  *
- *   gen_bouncer_seeds OUTDIR
+ *   gen_bouncer_seeds OUTDIR [RECORDS_OUTDIR]
+ *
+ * With RECORDS_OUTDIR it also writes fuzz_records seeds: keyed chunks for
+ * the bouncer, presence and metadata column families.
  */
 #include "config.h"
 #include "bouncer_session.h"
@@ -12,6 +15,14 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <zstd.h>
+
+/* Mirror of the private struct presence_record (chathistory_presence.c). */
+struct fz_presence_record {
+  uint8_t count;
+  int64_t open_since;
+  struct { int64_t start, end; } intervals[256];
+};
 
 #define REC_SEP "\xff" "BSR" "\xff"
 
@@ -90,6 +101,86 @@ static void emit2(const void *a, size_t alen, const void *b, size_t blen)
 }
 #define EMIT(r) emit2(&(r), sizeof(r), NULL, 0)
 
+/* fuzz_records chunk: [cf][klen][key][value] */
+static size_t chunk(unsigned char *out, int cf, const void *key, size_t klen,
+                    const void *val, size_t vlen)
+{
+  out[0] = (unsigned char)cf;
+  out[1] = (unsigned char)klen;
+  memcpy(out + 2, key, klen);
+  memcpy(out + 2 + klen, val, vlen);
+  return 2 + klen + vlen;
+}
+
+static void emit_records(const char *dir, const struct BounceSessionRecord *r12)
+{
+  static unsigned char buf[65536];
+  static struct fz_presence_record pr;
+  unsigned char z[512];
+  char path[1024];
+  const char *meta_v = "T1799999000|https://example.net/avatar.png";
+  const char *meta_vis = "T1799999000|\x01private value";
+  size_t n = 0, zn;
+  int i, k;
+  FILE *f;
+
+  memset(&pr, 0, sizeof(pr));
+  pr.count = 3;
+  pr.open_since = ((int64_t)FUZZ_NOW * 1000) << 16;
+  for (i = 0; i < 3; i++) {
+    pr.intervals[i].start = ((int64_t)(FUZZ_NOW - 9000 + i * 1000) * 1000) << 16;
+    pr.intervals[i].end = pr.intervals[i].start + ((int64_t)500000 << 16);
+  }
+  zn = ZSTD_compress(z + 1, sizeof(z) - 1, meta_v, strlen(meta_v), 3);
+  z[0] = 0x1F;  /* COMPRESS_MAGIC */
+
+  for (k = 0; k < 6; k++) {
+    n = 0;
+    switch (k) {
+    case 0: /* all three: session + presence + metadata for its account */
+      n += chunk(buf + n, 0, "AYbCdEfGhIjKlMnOpQrStU", 22, r12, sizeof(*r12));
+      memcpy(buf + n, REC_SEP, 5); n += 5;
+      n += chunk(buf + n, 1, "acct\0#chan", 10, &pr, sizeof(pr));
+      memcpy(buf + n, REC_SEP, 5); n += 5;
+      n += chunk(buf + n, 2, "acct\0avatar", 11, meta_v, strlen(meta_v));
+      memcpy(buf + n, REC_SEP, 5); n += 5;
+      n += chunk(buf + n, 2, "acct\0z", 6, z, zn + 1);
+      break;
+    case 1: /* presence: seconds-era record, full count */
+      pr.count = 255;
+      pr.open_since = FUZZ_NOW - 5;
+      n += chunk(buf + n, 1, "acct\0#full", 10, &pr, sizeof(pr));
+      memcpy(buf + n, REC_SEP, 5); n += 5;
+      n += chunk(buf + n, 1, "\0\0last_alive", 12, &pr.open_since, 8);
+      pr.count = 3;
+      break;
+    case 2: /* metadata: legacy (no T prefix) + visibility prefix */
+      n += chunk(buf + n, 0, "AYbCdEfGhIjKlMnOpQrStU", 22, r12, sizeof(*r12));
+      memcpy(buf + n, REC_SEP, 5); n += 5;
+      n += chunk(buf + n, 2, "acct\0legacy", 11, "plain", 5);
+      memcpy(buf + n, REC_SEP, 5); n += 5;
+      n += chunk(buf + n, 2, "acct\0vis", 8, meta_vis, strlen(meta_vis));
+      break;
+    case 3: /* compressed metadata only */
+      n += chunk(buf + n, 0, "AYbCdEfGhIjKlMnOpQrStU", 22, r12, sizeof(*r12));
+      memcpy(buf + n, REC_SEP, 5); n += 5;
+      n += chunk(buf + n, 2, "acct\0z", 6, z, zn + 1);
+      break;
+    case 4: /* presence only, open interval */
+      n += chunk(buf + n, 1, "acct\0#chan", 10, &pr, sizeof(pr));
+      break;
+    case 5: /* bouncer only */
+      n += chunk(buf + n, 0, "k", 1, r12, sizeof(*r12));
+      break;
+    }
+    snprintf(path, sizeof(path), "%s/rec-%02d", dir, k);
+    f = fopen(path, "wb");
+    if (!f) { perror(path); exit(1); }
+    fwrite(buf, 1, n, f);
+    fclose(f);
+  }
+}
+
 int main(int argc, char **argv)
 {
   static struct BounceSessionRecord_v7 r7;
@@ -99,7 +190,10 @@ int main(int argc, char **argv)
   static struct BounceSessionRecord_v11 r11;
   static struct BounceSessionRecord r12, r12b;
 
-  if (argc != 2) { fprintf(stderr, "usage: %s OUTDIR\n", argv[0]); return 2; }
+  if (argc != 2 && argc != 3) {
+    fprintf(stderr, "usage: %s OUTDIR [RECORDS_OUTDIR]\n", argv[0]);
+    return 2;
+  }
   outdir = argv[1];
 
   FILL_COMMON(r7, 7, 0);
@@ -151,6 +245,10 @@ int main(int argc, char **argv)
   /* truncated / wrong-size records */
   emit2(&r12, sizeof(r12) - 1, NULL, 0);
   emit2(&r12, 4, NULL, 0);
+  if (argc == 3) {
+    FILL_COMMON(r12b, BOUNCER_DB_VERSION, 0);
+    emit_records(argv[2], &r12b);
+  }
   fprintf(stderr, "wrote %d bouncer seeds (v12 record = %zu bytes)\n", seq,
           sizeof(r12));
   return 0;

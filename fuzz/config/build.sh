@@ -87,16 +87,22 @@ mkdir -p "$OUT"
 clang $CFLAGS $INC -Dmain=ircd_main -c ircd.c -o "$OUT/ircd_nomain.o"
 clang $CFLAGS $INC $FUZZ_DEFS -c "$HERE/fuzz_common.c" -o "$OUT/fuzz_common.o"
 
-WRAP="-Wl,--wrap=fbopen -Wl,--wrap=dnsbl_add_server"
-for h in conf feature bouncer; do
+WRAP="-Wl,--wrap=fbopen -Wl,--wrap=dnsbl_add_server -Wl,--wrap=init_lexer_file"
+for h in conf feature bouncer records; do
   objs=$OBJS_NOMAIN
   hwrap=
-  [ "$h" = bouncer ] && objs=$OBJS_NOBOUNCE && hwrap=-Wl,--wrap=db_iter_value
-  clang $CFLAGS $INC $FUZZ_DEFS -c "$HERE/fuzz_$h.c" -o "$OUT/fuzz_$h.o"
+  src=$HERE/fuzz_$h.c
+  defs=$FUZZ_DEFS
+  case $h in
+    bouncer) objs=$OBJS_NOBOUNCE; hwrap=-Wl,--wrap=db_iter_value ;;
+    records) objs=$OBJS_NOBOUNCE; hwrap=-Wl,--wrap=db_iter_value
+             src=$HERE/fuzz_bouncer.c; defs="$defs -DFUZZ_RECORDS" ;;
+  esac
+  clang $CFLAGS $INC $defs -c "$src" -o "$OUT/fuzz_$h.o"
   clang $CFLAGS $DRIVER $WRAP $hwrap -o "$OUT/fuzz_$h" "$OUT/fuzz_$h.o" \
     "$OUT/fuzz_common.o" "$OUT/ircd_nomain.o" $objs $LIBS -lstdc++
   echo "built $OUT/fuzz_$h"
 done
 
-clang -g $INC "$HERE/gen_bouncer_seeds.c" -o "$OUT/gen_bouncer_seeds"
+clang -g $INC "$HERE/gen_bouncer_seeds.c" -o "$OUT/gen_bouncer_seeds" -lzstd
 echo "built $OUT/gen_bouncer_seeds"
