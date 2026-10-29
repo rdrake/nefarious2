@@ -722,8 +722,8 @@ static int known_bug_line(const char *line, size_t len)
     for (i = 1; i < ft.n; i++)
       if (be && i == ft.n - 1 && IsDigit(ft.t[i][0]))
         return 1;
-    for (i = 2; i < ft.n; i++)
-      if (minus && strchr(ft.t[i], ':'))
+    for (i = 2; i < ft.n; i++)                         /* F8 */
+      if (minus && (strchr(ft.t[i], ':') || strlen(ft.t[i]) < 5))
         return 1;
     for (i = 2; i < ft.n; i++)                         /* F4 via MODE */
       if (!ft.t[i][0])

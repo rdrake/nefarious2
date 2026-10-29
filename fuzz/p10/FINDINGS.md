@@ -279,6 +279,17 @@ The stack is `FindNServer numnicks.c:218 ← findNUser numnicks.c:243 ← mode_p
 For remote sources, `mode_parse_client` passes the raw parameter to `findNUser`,
 and an empty trailing parameter is `""`.
 
+A third call site showed up during the campaigns (job log, ASan
+stack-buffer-overflow READ in `base64toint numnicks.c:139 ← findNUser
+numnicks.c:244 ← parse_server parse.c:2064`). The prefix of a line that is a
+single character with no following space (e.g. `B`) is looked up with
+`findNUser("B")`, which resolves server AB and then calls
+`base64toint("B" + 1)`, reading past the end of the 6-byte `numeric_prefix`
+stack buffer. Whether it runs off the buffer depends on uninitialised stack
+bytes and on what the reused line buffer holds after the NUL (a leftover space
+at `ch[2]` takes the safe `FindNServer` path), so it did not reproduce
+standalone. The root cause and the fix are the same.
+
 **Root cause.** In the member `:vvvvvvvv`, `ms_burst` (`m_burst.c:513-514`) cuts
 the nick at `:`, leaving `nick = ""`. `findNUser("")` → `FindNServer("")` →
 `base64toint("")`. `base64toint` (`numnicks.c:138`) consumes `*s++` before it
@@ -343,6 +354,13 @@ ERROR: AddressSanitizer: SEGV on unknown address 0x000000000000
   #4 modebuf_flush       channel.c:3193
   #5 ms_mode             m_mode.c:338
 ```
+A second form, `repro/mode_deop_short_param` (`ABAAA M #c -o+v ABAA :notice`),
+reaches the same NULL write by another route. `mode_parse_client` tests
+`t_str[5] == ':'` without checking the parameter's length, so for the 4-char
+`ABAA` it reads one byte past its terminator: the `:` that still opens the next
+parameter. It then takes `atoi("notice")` = 0 as an op-level.
+base64 `AUFCIE4gbiAyIDE3NjAwMDAwMDAgdSBoICtpIEJdQUFBQiBBQkFBQSA6bgpBQkFBQSBDICNjIDE3NjAwMDAwMDAKQUJBQUEgTSAjYyAtbyt2IEFCQUEgOm5vdGljZQo=`.
+
 **Root cause.** For remote sources, `mode_parse_client` (`channel.c:4583-4586`) takes
 `XXXXX:<n>` as an op-level in either direction. `modebuf_flush_int` sets
 `strptro = strptro_i = NULL` for `MODE_DEL` (`channel.c:2856-2859`), but then
