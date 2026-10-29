@@ -536,11 +536,23 @@ static void ftokenise(char *s, struct ftoks *ft)
 {
   int i = 0;
   memset(ft, 0, sizeof(*ft));
-  if (*s == '@') { while (*s && *s != ' ') s++; }
-  while (*s == ' ') s++;
+  /* same prefix walk as parse_server: tags, then (only after tags)
+   * spaces, then up to 5 prefix chars; the pointer always advances at
+   * least one char and then to the next space */
+  if (*s == '@') {
+    char *te = strchr(s, ' ');
+    if (te) { s = te; while (*s == ' ') s++; }
+  }
   ft->src = s;
-  while (*s && *s != ' ') s++;
-  if (*s) *s++ = '\0';
+  if (*s == ':') {
+    ft->src = s + 1;
+    s = strchr(s, ' ');
+    if (!s) { ft->cmd = NULL; return; }
+    *s++ = '\0';
+  } else {
+    do { ++s; } while (*s != ' ' && *s);
+    if (*s) *s++ = '\0';
+  }
   while (*s == ' ') s++;
   ft->cmd = s;
   while (*s && *s != ' ') s++;
@@ -556,6 +568,33 @@ static void ftokenise(char *s, struct ftoks *ft)
     while (*s && *s != ' ') s++;
   }
   ft->n = i;
+}
+
+/* Command compare the way msg_tree_parse matches: each byte is folded
+ * with & 31, so "4" is "T" and "mk" is "MK". */
+static int fcmd(const char *cmd, const char *tok)
+{
+  if (!cmd || strlen(cmd) != strlen(tok))
+    return 0;
+  for (; *tok; cmd++, tok++)
+    if (((unsigned char)*cmd & 31) != ((unsigned char)*tok & 31) || !IsNickChar(*cmd))
+      return 0;
+  return 1;
+}
+
+/* the client parse_server would resolve the prefix to */
+static struct Client *fsource(const char *src)
+{
+  char pre[6];
+  int i;
+  for (i = 0; i < 5 && src[i] && src[i] != ' '; i++)
+    pre[i] = src[i];
+  pre[i] = '\0';
+  if (i == 0)
+    return NULL;
+  if (i <= 2 || src[1] == ' ' || src[2] == ' ')
+    return FindNServer(pre);
+  return findNUser(pre);
 }
 
 /* F1: would base64toip() stay inside the 8 words and the string? */
@@ -621,11 +660,11 @@ static int known_bug_line(const char *line, size_t len)
     return 1;
 
   /* F7: MARK with fewer than two params */
-  if ((!strcmp(ft.cmd, "MK") || !ircd_strcmp(ft.cmd, "MARK")) && ft.n < 2)
+  if ((fcmd(ft.cmd, "MK") || fcmd(ft.cmd, "MARK")) && ft.n < 2)
     return 1;
 
   /* F1 / F6: server-introduced N with a bad IP or numeric field */
-  if ((!strcmp(ft.cmd, "N") || !ircd_strcmp(ft.cmd, "NICK")) && ft.n >= 7) {
+  if ((fcmd(ft.cmd, "N") || fcmd(ft.cmd, "NICK")) && ft.n >= 7) {
     const char *ip = ft.t[ft.n - 3], *nn = ft.t[ft.n - 2];
     if (!b64ip_safe(ip))
       return 1;
@@ -633,11 +672,11 @@ static int known_bug_line(const char *line, size_t len)
       return 1;
   }
   /* F1 also via the collision path: any N whose IP slot is unsafe */
-  if ((!strcmp(ft.cmd, "N") || !ircd_strcmp(ft.cmd, "NICK")) && ft.n >= 3 &&
+  if ((fcmd(ft.cmd, "N") || fcmd(ft.cmd, "NICK")) && ft.n >= 3 &&
       ft.n < 7 && !b64ip_safe(ft.t[ft.n >= 3 ? ft.n - 3 : 0]))
     return 1;
 
-  if (!strcmp(ft.cmd, "B") || !ircd_strcmp(ft.cmd, "BURST")) {
+  if (fcmd(ft.cmd, "B") || fcmd(ft.cmd, "BURST")) {
     for (i = 2; i < ft.n; i++) {
       const char *p = ft.t[i];
       if (*p == '+') {
@@ -659,8 +698,8 @@ static int known_bug_line(const char *line, size_t len)
   }
 
   /* F5 (MODE path) and F8 */
-  if (!strcmp(ft.cmd, "M") || !ircd_strcmp(ft.cmd, "MODE") ||
-      !strcmp(ft.cmd, "OM") || !ircd_strcmp(ft.cmd, "OPMODE")) {
+  if (fcmd(ft.cmd, "M") || fcmd(ft.cmd, "MODE") ||
+      fcmd(ft.cmd, "OM") || fcmd(ft.cmd, "OPMODE")) {
     int minus = 0, be = 0;
     if (ft.n >= 2)
       for (const char *p = ft.t[1]; *p; p++) {
@@ -668,16 +707,35 @@ static int known_bug_line(const char *line, size_t len)
         if (*p == 'b' || *p == 'e') be = 1;
       }
     for (i = 1; i < ft.n; i++)
-      if (be && i == ft.n - 1 && is_all_digits(ft.t[i]))
+      if (be && i == ft.n - 1 && IsDigit(ft.t[i][0]))
         return 1;
     for (i = 2; i < ft.n; i++)
       if (minus && strchr(ft.t[i], ':'))
         return 1;
   }
 
+  /* F11 / F12 / F13: handlers that assume a user (or server) source */
+  {
+    struct Client *src = fsource(ft.src);
+    if (!src && (ft.src[0] == '\0' || ft.src == ft.cmd))
+      src = NULL;
+    if (src && IsServer(src) &&
+        (((fcmd(ft.cmd, "T") || fcmd(ft.cmd, "TOPIC")) && ft.n <= 4) ||
+         fcmd(ft.cmd, "RH") || fcmd(ft.cmd, "REHASH")))
+      return 1;
+    if (src && !IsServer(src) && !IsMe(src) &&
+        (fcmd(ft.cmd, "S") || fcmd(ft.cmd, "SERVER")))
+      return 1;
+    /* empty prefix -> parse_server uses the link itself */
+    if (!src && ft.src[0] != ':' &&
+        (((fcmd(ft.cmd, "T") || fcmd(ft.cmd, "TOPIC")) && ft.n <= 4) ||
+         fcmd(ft.cmd, "RH") || fcmd(ft.cmd, "REHASH")))
+      return 1;
+  }
+
   /* A1: NICK from a bouncer alias (prefix = first <=5 chars, as in
    * parse_server) */
-  if ((!strcmp(ft.cmd, "N") || !ircd_strcmp(ft.cmd, "NICK")) &&
+  if ((fcmd(ft.cmd, "N") || fcmd(ft.cmd, "NICK")) &&
       strlen(ft.src) >= 5 && ft.src[2] != ' ') {
     char pre[6];
     struct Client *c;
