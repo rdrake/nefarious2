@@ -751,6 +751,17 @@ static int known_bug_line(const char *line, size_t len)
       return 1;
   }
 
+  /* A2: KICK of a member whose bouncer aliases are in the channel */
+  if ((fcmd(ft.cmd, "K") || fcmd(ft.cmd, "KICK")) && ft.n >= 2) {
+    struct Channel *ch = FindChannel(ft.t[0]);
+    struct Client *who = strlen(ft.t[1]) == 5 ? findNUser(ft.t[1]) : FindUser(ft.t[1]);
+    struct Membership *m;
+    if (ch && who)
+      for (m = ch->members; m; m = m->next_member)
+        if (IsMemberAlias(m) && cli_alias_primary(m->user) == who)
+          return 1;
+  }
+
   /* A1: NICK from a bouncer alias (prefix = first <=5 chars, as in
    * parse_server) */
   if ((fcmd(ft.cmd, "N") || fcmd(ft.cmd, "NICK")) &&

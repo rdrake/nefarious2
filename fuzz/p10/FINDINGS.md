@@ -32,6 +32,7 @@ below come from it.
 | F6 | **Critical** | `numnicks.c:358-382` `SetRemoteNumNick` + `numnicks.c:259` `RemoveYXXClient` | `N` whose numeric field is 1 char | dangling `client_list` slot, use-after-free of a pooled `Client` |
 | F5 | **High** | `channel.c:4197` (`mode_parse_ban`) + early returns in `mode_parse` (`channel.c:5271`, `5298-5301`) | `M #c +b mask <newer-ts>` during burst, or a second `B` with a newer TS and `+b` | stack `struct Ban` left linked in `chptr->banlist` (stack-use-after-return, later `free()` of a stack address) |
 | A1 | **High** | `s_user.c:1469-1472`, `s_misc.c:348-396`, `m_nick.c:403` | `BX C` alias, primary `Q`, then the alias numeric sends `N` | alias put in nick hash, never removed: **assert `list.c:334` abort**; with NDEBUG a dangling hash entry (UAF), and a hash self-loop **hang** |
+| A2 | **High** | `channel.c:967-974` `remove_user_from_channel` + `bouncer_session.c:6936` `bounce_sync_alias_part` | `KICK` of a bouncer primary whose alias is in the channel and nobody else is | heap-use-after-free WRITE on the freed `Channel`/`Membership` |
 | F4 | High | `numnicks.c:136-143` `base64toint` via `findNUser` (`m_burst.c:595`, `channel.c:4587`) | `B #c <ts> ABAAA,:vvvvvvvv` (empty member before `:`), or `ABAAA M #c -o :` (empty client-mode param) | out-of-bounds read of `server_list[]` → wild pointer → SEGV |
 | F2 | Medium | `m_burst.c:125` `netride_modes` | `B #new <ts> +k` (no key argument) | `strcmp(key, NULL)` → SEGV |
 | F3 | Medium | `parse.c:2247` `parse_server` | any line whose command is a numeric evaluating to 0: `AB 000 x`, `AB 0/: x` | `mptr == NULL` → SEGV |
@@ -254,6 +255,54 @@ client; renaming an alias only updates `cli_name`. Belt and braces:
 `hRemClient` in the alias exit branch before `s_misc.c:396`, and remove before
 add in `bounce_promote_alias` (`:5044`). Also decide whether an orphan alias
 should be reaped when its primary exits.
+
+## A2 — KICK of a bouncer primary: channel freed under `remove_user_from_channel`
+
+**Reproducer** `repro/kick_primary_with_alias`
+```
+\x01AB N Bnc 2 1760000000 bnc h +ixr bnc B]AAAB ABAAL :Bnc
+AB B #c 1760000000 ABAAL
+AB BX C ABAAL ABAAM bnc 0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b +ix :#c
+AB K #c ABAAL :bye
+```
+base64: `AUFCIE4gQm5jIDIgMTc2MDAwMDAwMCBibmMgaCAraXhyIGJuYyBCXUFBQUIgQUJBQUwgOkJuYwpBQiBCICNjIDE3NjAwMDAwMDAgQUJBQUwKQUIgQlggQyBBQkFBTCBBQkFBTSBibmMgMDE5MGExYjItYzNkNC03ZTVmLThhOWItMGMxZDJlM2Y0YTViICtpeCA6I2MKQUIgSyAjYyBBQkFBTCA6YnllCg==`
+```
+ERROR: AddressSanitizer: heap-use-after-free ... WRITE of size 8
+  #0 remove_member_from_channel   channel.c
+  #1 remove_user_from_channel     channel.c:974
+  #2 make_zombie                  channel.c:2371
+  #3 ms_kick                      m_kick.c:456
+freed by thread T0 here:
+  #1 destruct_channel             channel.c:501
+  #2 sub1_from_channel            channel.c:440
+  #3 remove_user_from_channel     channel.c:987   (all-zombies sweep)
+  #4 bounce_sync_alias_part       bouncer_session.c:6936
+  #5 remove_user_from_channel     channel.c:967
+  #6 make_zombie                  channel.c:2371
+```
+**Root cause.** `make_zombie` marks the kicked primary as a zombie, then calls
+`remove_user_from_channel(primary)`. Before removing the primary's own
+membership, that first calls `bounce_sync_alias_part` (`channel.c:967`), which
+removes each alias with a recursive `remove_user_from_channel`. In the inner
+call, after the alias's membership goes, the only member left is the zombie
+primary, so the `channel_all_zombies` sweep (`channel.c:980-987`) removes it too
+and `sub1_from_channel` destroys the channel. Back in the outer call,
+`remove_member_from_channel(member)` (`channel.c:974`) writes through the freed
+`Membership`/`Channel`.
+
+**Reachability.** Any KICK of a bouncer primary (by services, a chanop, or a
+server) in a channel where the session's own connections are the only members.
+That is the normal state of a user idling in their own channel or a
+just-created one. Here the KICK came from the link the user is behind
+(`make_zombie` case d). The local-primary branch (`MyUser(who)`) calls the same
+`remove_user_from_channel` after `SetZombie`, so it should behave the same way
+(not separately reproduced). Found in campaign 5 as a state-dependent crash, then rebuilt as the
+4-line reproducer above. **Fix.** In `remove_user_from_channel`, remove the
+member itself first and part the aliases afterwards, or make
+`bounce_sync_alias_part` skip the all-zombies sweep (e.g. remove alias
+memberships with `remove_member_from_channel` directly and let the outer call do
+the sweep). Re-look up `find_member_link(chptr, cptr)` after the alias pass, and
+hold a reference on `chptr` across it.
 
 ## F4 — empty BURST member: `base64toint("")` over-read
 
