@@ -1,0 +1,10 @@
+_OPER fuzzoper fuzzop@erpass
+MODE fuzzA +s +cdk
+SNO +x
+WALLOPS :hi
+WAL‰‰‰‰‰‰‰‰LUSERS :hi
+GLINE uzz +o fuzzA
+SVSNICK fuzzAÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ x
+SVSJOIN fuzzA #o
+FAKE fuzzA fake.host
+MARK fuzzAASLL fuzz.test.net

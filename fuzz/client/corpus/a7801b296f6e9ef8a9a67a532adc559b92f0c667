@@ -1,0 +1,17 @@
+_MODE #fuzz +o fuzzA
+Tcommandszz :new topic
+TOPIC #fuzz
+KICK #fuzz fuzzB :out
+JOIN #fuzz
+IMVITCHÉ«HISTORYE fuzzB #fu
+KICK #fuzz fuzzB :out
+JOIN #fuzz
+IMVITCHITE fuzzB #fuzz
+INVITE
+KICK #fuzz fuzzA
+KICK #fuzz fuzzA :x
+JOIÿÿÿÿÿÿÿHN #fuzz
+CLEARMODE #fuzz ovbkl
+OE DMOP#fuzz +o fuzzA
+REMOVE #fuzz fuzzB :ST #fuzz
+LIST):#f*

@@ -1,0 +1,23 @@
+_MODE #fID
+WEOPS :hA
+LIST >0,<100,C>1,T<99999999
+LIST #fuzz
+#fuzz fuzzB :r
+NAMES #fuzz
+NAMES
+LIST
+LIST >0,<100,C>1,T<99999999
+LIST #fuzz
+LS: IC#TK #fuzz fuzzST >0,<100,C>1,T<99999999
+LIST #fuzz
+#fuzz fuzzB :r
+NAMES #fuzz
+NAMES
+LIST
+LIST >0,<100,C>1,T<99999999
+LIST #fuzz
+NAMES
+LIST
+LIST >0,<100,C>1,T<99999999
+LIST #fuzz
+LIST :#f*

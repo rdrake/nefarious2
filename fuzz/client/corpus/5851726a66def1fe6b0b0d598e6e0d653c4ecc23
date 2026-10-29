@@ -1,0 +1,11 @@
+_JOIN #a
+P
+
+G39,n89,n9zA
+SILENCE +75::,n89,n9zA9,n9zA
+SILENCE +75::VMSG #a :hi
+NOTICE #a :ncerhi
+NOTIÁ
+WHO fuzBATCHAYE #xxxxxxxxxancerhi
+NG #a :hi
+NOTIC

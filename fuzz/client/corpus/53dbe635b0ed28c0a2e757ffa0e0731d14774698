@@ -1,16 +1,0 @@
-_OCK
-NICK UN +*jjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjjj@1.2@1.2.3.4 600 :bad
-GLINE
-GSWHOISLINE ≠*00 :zr
-SHUN 
-NICK -bad
-NIKC E ≠*00 :z
-SHUN 
-NICK -bHOISLINE ≠*00 :zr
-SHUN 
-NICK -bad
-NIKC E ≠*00 :z
-SHUN 
-NICK -bad
-NICK a√©b
-NICK ChanSeQrvs +ÈÈÈE

@@ -1,20 +1,0 @@
-SILENCE +*!*@*
-SILENCE -*!*@*SILENCE fuzzA
-SILENCE +~a:x
-WATCH +fuzzB +nobody l L
-WATCH S
-WATCH C
-WATCH -SILENCE fuzzA
-SILENCE +~a:x
-WATCH +fuzzB +nobody l L
-WATCH S
-WATCH C
-WATCH -fuzzB
-MONITOR + fuzzB,nobody,#b ad
-MONITOR L
-MONITOR S
-MOLITOR -*fuzzB
-MONITOR C
-MONITOR + n1,n1,n2,n3,n4,n5,n6,n7,n6,n9,n10,n11,n12,n13,n14,n15,n16,n1S fuzzB
-WHOWAS fuz&22,n23,n24,n24,n26,n27,n28,n29,n30,n31,n32,n09,n34,n35,n36,n37,n38,n39,n40,n41,n42,n437,1,n118,n119,n120,n121,n122,n123,ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ://127.ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿn124,‰CK fuzzB2
-QUIT :gone
