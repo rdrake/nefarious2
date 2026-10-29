@@ -8,19 +8,61 @@
  * classes, connect/oper/client blocks, features, listeners, SASL/webhook,
  * webpush and bouncer settings.  After the input the baseline conf is
  * loaded again so every iteration starts from the same state.
+ *
+ * Between the first and second piece a socketless local client takes
+ * references the way connected clients do -- attach_conf() on Client,
+ * Connect, Operator and UWorld items (which also pins their classes) and
+ * a listener reference -- and drops them only after the later pieces are
+ * loaded.  That drives the "still in use" side of REHASH: CONF_ILLEGAL
+ * items freed on the last detach, classes kept past class_delete_marked(),
+ * listeners kept open past close_listeners().
  */
 #include "config.h"
 #include "ircd.h"
 #include "client.h"
 #include "s_conf.h"
+#include "list.h"
+#include "listener.h"
 #include "fuzz_common.h"
 
 #include <stdint.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #define REHASH_SEP "\n#@REHASH@\n"
 #define MAX_PIECES 3
+
+/* Hold references like a connected client would; see the header. */
+static struct Client *take_refs(void)
+{
+  struct Client *holder = make_client(NULL, STAT_UNKNOWN);
+  struct ConfItem *aconf;
+  int n = 0;
+
+  for (aconf = GlobalConfList; aconf && n < 16; aconf = aconf->next) {
+    if (aconf->status & (CONF_CLIENT | CONF_SERVER | CONF_OPERATOR |
+                         CONF_UWORLD)) {
+      attach_conf(holder, aconf);
+      n++;
+    }
+  }
+  if (ListenerPollList) {
+    cli_listener(holder) = ListenerPollList;
+    ListenerPollList->ref_count++;
+  }
+  return holder;
+}
+
+static void drop_refs(struct Client *holder)
+{
+  det_confs_butmask(holder, 0);
+  if (cli_listener(holder)) {
+    release_listener(cli_listener(holder));
+    cli_listener(holder) = NULL;
+  }
+  free_client(holder);
+}
 
 int LLVMFuzzerInitialize(int *argc, char ***argv)
 {
@@ -63,6 +105,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
   const char *p = copy;
   const char *end = p + size;
   int pieces = 0;
+  struct Client *holder = NULL;
 
   memcpy(copy, data, size);
 #ifndef FUZZ_UNMASK_KNOWN
@@ -75,12 +118,18 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
     const char *stop = sep ? sep : end;
     fuzz_write_conf(p, stop - p);
     rehash(&me, 2);
+    if (getenv("FUZZ_VERBOSE"))
+      fprintf(stderr, "fuzz_conf: piece %d: %s\n", pieces,
+              conf_get_error_flag() ? "parse errors" : "clean");
+    if (!holder)
+      holder = take_refs();
     pieces++;
     if (!sep)
       break;
     p = sep + sizeof(REHASH_SEP) - 1;
   }
 
+  drop_refs(holder);
   fuzz_write_conf(fuzz_baseline_conf, strlen(fuzz_baseline_conf));
   rehash(&me, 2);
   free(copy);

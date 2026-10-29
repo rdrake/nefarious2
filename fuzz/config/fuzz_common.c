@@ -214,6 +214,17 @@ int __wrap_init_lexer_file(char *file)
   return __real_init_lexer_file(file);
 }
 
+/* FUZZ_VERBOSE=1: show conf parse errors (yyerror only prints to stderr
+ * before the first successful read). */
+extern int lineno;
+extern void __real_yyerror(const char *msg);
+void __wrap_yyerror(const char *msg)
+{
+  if (getenv("FUZZ_VERBOSE"))
+    fprintf(stderr, "conf line %d: %s\n", lineno, msg);
+  __real_yyerror(msg);
+}
+
 void fuzz_ircd_boot(const char *conf_text)
 {
   const char *base = getenv("FUZZ_SANDBOX");

@@ -81,11 +81,16 @@ print-libs: ; @echo $(LIBS)
 MK
 )
 if [ "$VARIANT" = fuzz ] && [ -z "${FUZZ_DEFS:-}" ]; then
-  # FINDINGS.md F6: the conf expr rules overflow int on large operands;
-  # build the parser without that check so the fuzzer gets past it.
-  clang $CFLAGS -fno-sanitize=signed-integer-overflow -I. -I$SRC -I$SRC/include \
-    -c y.tab.c -o "$OUT/y.tab.o"
-  OBJS=$(echo "$OBJS" | tr ' ' '\n' | sed "s|^y\.tab\.o\$|$OUT/y.tab.o|" | tr '\n' ' ')
+  # Rebuild objects holding known UB findings without that one check so the
+  # fuzzer gets past them (FINDINGS.md):
+  #   F6   conf expr rules overflow int          (y.tab.c)
+  #   F11  presence_norm_time shift overflow     (chathistory_presence.c)
+  for ov in y.tab:signed-integer-overflow chathistory_presence:shift; do
+    o=${ov%%:*}; chk=${ov##*:}
+    clang $CFLAGS -fno-sanitize=$chk -I. -I$SRC -I$SRC/include \
+      -c $o.c -o "$OUT/$o.o"
+    OBJS=$(echo "$OBJS" | tr ' ' '\n' | sed "s|^$o\.o\$|$OUT/$o.o|" | tr '\n' ' ')
+  done
 fi
 OBJS_NOMAIN=$(echo "$OBJS" | tr ' ' '\n' | grep -v '^ircd\.o$' | tr '\n' ' ')
 OBJS_NOBOUNCE=$(echo "$OBJS_NOMAIN" | tr ' ' '\n' | grep -v '^bouncer_session\.o$' | tr '\n' ' ')
@@ -96,7 +101,7 @@ mkdir -p "$OUT"
 clang $CFLAGS $INC -Dmain=ircd_main -c ircd.c -o "$OUT/ircd_nomain.o"
 clang $CFLAGS $INC $FUZZ_DEFS -c "$HERE/fuzz_common.c" -o "$OUT/fuzz_common.o"
 
-WRAP="-Wl,--wrap=fbopen -Wl,--wrap=dnsbl_add_server -Wl,--wrap=init_lexer_file"
+WRAP="-Wl,--wrap=fbopen -Wl,--wrap=dnsbl_add_server -Wl,--wrap=init_lexer_file -Wl,--wrap=yyerror"
 for h in conf feature bouncer records; do
   objs=$OBJS_NOMAIN
   hwrap=
