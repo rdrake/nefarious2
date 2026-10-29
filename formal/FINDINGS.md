@@ -64,20 +64,28 @@ The fixes are in the proposals doc. Two need wire changes:
 | DNS AAAA/A answers copied without checking `rd_length` against the datagram end (`ircd_res.c` `proc_answer`) | Low–Medium (resolver or spoofed reply) | Yes | Code reading; handed to the parsers fuzz campaign to confirm |
 | `s_bsd.c` server read loop: `dolen <= 0` returns before the `dolen == 0` over-long-line branch, so that branch is dead | Info | Yes (ircu) | GCC `-Wduplicated-cond` |
 
-## Fuzzing campaigns (in progress)
+## Fuzzing campaigns
 
-Each campaign runs in its own cloud session and pushes harnesses, corpora
-and `FINDINGS.md` to its branch:
+Each campaign pushes harnesses, scripts, minimized reproducer files, a corpus
+and a `FINDINGS.md` to its own branch. Counts as of 17:50 UTC:
 
-- **`fuzz/client-protocol`:** 3 bugs so far.
-  - Oper `/TRACE` with a held ghost reads `link_u[-1]` (stack overflow).
-  - `BOUNCER ORESET` on the oper's own account is a use-after-free.
-  - `MARKREAD` with a byte ≥ 0x80 reads past the `sm_hash` `ToLower` table.
-- **`fuzz/p10-server`:** `base64toip` heap overflow, plus more being minimized.
-- **`fuzz/parsers`:** 8+ logged.
-- **`fuzz/config-records`:** in progress.
+| Branch | Findings file | Entries |
+| --- | --- | --- |
+| `fuzz/client-protocol` | `fuzz/client/FINDINGS.md` | 6 |
+| `fuzz/p10-server` | `fuzz/p10/FINDINGS.md` | 9 |
+| `fuzz/parsers` | `fuzz/parsers/FINDINGS.md`; reproducers and `reproduce.sh` in `fuzz/parsers/findings/` | 27 |
+| `fuzz/config-records` | `fuzz/config/FINDINGS.md`; reproducers in `fuzz/config/repro/` | 13 |
 
-None of these have been independently validated or fixed yet.
+**Highlights reported by the campaigns (not yet independently validated here):**
+- **client:** `/TRACE` with a held ghost reads `link_u[-1]`; `BOUNCER ORESET` on your own account is a use-after-free; `MARKREAD` with a high byte reads past the `ToLower` table.
+- **p10:** a heap overflow in `base64toip`.
+- **parsers:** F25, the DNS A/AAAA data is copied without checking `rd_length` (`ircd_res.c:711` and `:719`), which confirms the suspicion above.
+- **config/records:**
+    - F10, the frozen v8 bouncer record layout uses the live `BOUNCER_MAX_ALIASES`, so v8 sessions are dropped at boot;
+    - F7, `crule_parse` frees an uninitialised pointer;
+    - F3, a DNSBL infinite loop.
+
+**Next step for each finding:** validate it independently, check whether upstream has it, then open a fix PR. Same process as the PRs above.
 
 ## Verified clean
 

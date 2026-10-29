@@ -65,27 +65,27 @@ void harness_getmsg(void)
   unsigned la = nondet_unsigned(), lb = nondet_unsigned(), L = nondet_unsigned();
   unsigned K = nondet_unsigned(), n, i, i0, p, r;
 
-#ifdef KFIX
-  K = KFIX;              /* run.sh runs each boundary offset separately */
-#else
-  __CPROVER_assume(K >= DBUF_SIZE - 3 && K <= DBUF_SIZE);
+#ifndef KFIX
+#define KFIX 0
 #endif
+  K = KFIX;              /* 0 = no filler: everything in one fresh block */
+  memset(filler, 'x', sizeof(filler));
+  if (K) {
+    filler[K - 1] = '\n';
+    __CPROVER_assert(dbuf_put(&dyn, filler, K) == 1, "filler put");
+    dbuf_delete(&dyn, K - 1);
+    __CPROVER_assert(DBufLength(&dyn) == 1, "length after delete");
+  }
   __CPROVER_assume(la <= AMAX && lb <= AMAX && L >= 1 && L <= LMAX);
   for (i = 0; i < AMAX; i++) { a[i] = nondet_char(); b[i] = nondet_char(); }
-  memset(filler, 'x', sizeof(filler));
-  filler[K - 1] = '\n';
-
-  __CPROVER_assert(dbuf_put(&dyn, filler, K) == 1, "filler put");
-  dbuf_delete(&dyn, K - 1);
-  __CPROVER_assert(DBufLength(&dyn) == 1, "length after delete");
   __CPROVER_assert(dbuf_put(&dyn, a, la) == 1, "put a");
   __CPROVER_assert(dbuf_put(&dyn, b, lb) == 1, "put b");
-  n = 1 + la + lb;
+  n = (K ? 1 : 0) + la + lb;
   __CPROVER_assert(DBufLength(&dyn) == n, "length bookkeeping");
 
   s[0] = '\n';
-  for (i = 0; i < la; i++) s[1 + i] = a[i];
-  for (i = 0; i < lb; i++) s[1 + la + i] = b[i];
+  for (i = 0; i < la; i++) s[(K ? 1 : 0) + i] = a[i];
+  for (i = 0; i < lb; i++) s[(K ? 1 : 0) + la + i] = b[i];
   for (i0 = 0; i0 < n && is_eol(s[i0]); i0++)
     ;
   for (p = i0; p < n && !is_eol(s[p]); p++)
