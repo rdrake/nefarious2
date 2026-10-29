@@ -719,4 +719,43 @@ executed); `include` of a non-regular file (fifo, `/dev/stdin`) is refused.
 
 ## Campaign statistics
 
-(campaign in progress; final numbers to follow)
+Hardware: 4 cores, all four busy with fuzzing from 15:52 to 18:59 UTC (about
+3 h wall clock, ~11 core-hours), libFuzzer `-fork` mode, clang 18,
+ASan + UBSan.  Restarts after each new finding (to add its mask) split the
+runs into segments; the last segment of each target:
+
+| Target | Cores | Last segment | Units (last segment) | exec/s per core (typical) | Edges (cov) | Features | Corpus |
+|--------|-------|--------------|----------------------|---------------------------|-------------|----------|--------|
+| `fuzz_conf` | 2 | 18:14-18:55 (2440 s) | 82,377 | 15-60 (each input = 2-4 REHASHes) | 16,727 | 14,913 | 1,578 |
+| `fuzz_bouncer` | 1 | 17:31-18:47 (4547 s) | 803,635 | 150-400 | 4,116 | 3,151 | 272 |
+| `fuzz_records` | 1 | 17:31-18:47 (4547 s) | 765,929 | 120-400 | 3,849 | 3,030 | 292 |
+| `fuzz_feature` | 1 | 15:52-16:38 (~45 min total) | ~1.3 M | 1,800-3,500 | 3,050 | 2,631 | 481 |
+
+Total executions across all segments: roughly 0.4 M conf inputs (about 1 M
+REHASHes), 1.5 M bouncer, 1.0 M records, 1.3 M feature (estimated from the
+segment logs; the earlier segment logs were overwritten on restart).
+
+Line coverage of the main targets (coverage build replaying corpus + seeds;
+conf at 17:00, bouncer/records at 16:50):
+
+| File | Lines covered |
+|------|---------------|
+| `y.tab.c` (ircd_parser.y) | 82.8 % (every parser function) |
+| `lex.yy.c` (ircd_lexer.l) | 58.4 % |
+| `crule.c` | 66.8 % |
+| `s_conf.c` | 27.0 % (most of the file is runtime matching, not parsing) |
+| `listener.c` | 44.6 % |
+| `bounce_db_restore()` | 67.1 % (v8-v11 migrations reached via the seed dir, which -fork keeps in memory) |
+| `bounce_create_ghost()` | 87.9 % |
+| `presence_init()` | 68.7 % |
+| `metadata_account_list()` | 89.6 % |
+
+After the last fix pass a seed (`seeds-extra/parser-rest.conf`) covers the
+parser actions the corpus had not reached (time/size units, DNS vhost/server,
+privileges, address families, SSL cert blocks, DNSBL actions).
+
+Committed corpora (`corpus/`, `-merge=1` minimized, conf trimmed of its
+largest inputs to stay under 20 MB): conf 926, feature 561, bouncer 252,
+records 253 files, 18 MB.
+
+Findings: 14 confirmed (F1-F14) plus 1 known/excluded (`-fsanitize=function`).

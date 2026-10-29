@@ -1,0 +1,38 @@
+General {
+        name = "test-2.example.net";
+        vhost = "127.0.0.1";
+        vhost = "::1";
+        description = "Test Serv.net";
+        name = "uworld1.example.net";
+};
+
+Jupe {
+        nick = "A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q";
+        nick = "R,S,T,U,V,W,X,Y,Z,{,|,},~,-,_,`";
+};
+
+Operator { name = "oper1"; host = "*@*"; password = "$PLAIN$oper1"; class = "Opers"; };
+Operator{  name = "oper2"; host = "*@*"; password = "$PLAIN$oper2"; class = "Opers"; local = yes; };
+
+Kill { realname = "Chloe"; reason = "drones"; };
+Kill { username = "sub7"; reason = "You are infected with a Trojan"; };
+
+Client { class = "others"; ip = "*"; };
+
+Port { server = yes; port = 7710; };
+Port { seòver = no;  port = 7711; mask = "127.0.0.0/8"; };
+
+Quarantine {
+        "#shells" = "Thou shalt not support the h4><0rz";
+};
+
+Pseudo "X" {
+        name = "X";
+        nick = "X@channels.example.net";
+};
+
+Features {
+        "PPATH" = "ircd-t2.pid";
+        "LOG" = "SYSTEM" "FILE" "ircd-t2.log";
+        "LOG" = "SYSTEM" "LEVEL" "NOTICE";
+};

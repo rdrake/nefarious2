@@ -1,0 +1,19 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; vhost = "127.0.0.1"; };
+Class { name = "A"; maxlinks = 5; bouncer = yes; require_sasl = yes; };
+Client { class = "A"; ip = "*"; };
+Operator { name = "o"; password = "x"; host = "*@*"; class = "A"; };
+Connect { name = "s.example.net"; host = "1.2.3.4"; password = "p"; port = 1; class = "A"; };
+Port { port = 7000; };
+Webhook { port = 9001; secret = "a"; };
+Keycloak { url = "http://kc"; realm = "r"; };
+AuthToken "svc" { url = "http://a"; password = "b"; };
+#@REHASH@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; vhost = "127.0.0.1"; };
+Client { class = "A"; ip = "*"; };
+Operator { name = "o"; password = "x"; host = "*@*"; class = "Missing"; };
+Port { port = 7000; ssl = yes; };
+Webhook { port = 9002; };
+AuthToken "svc2" { url = "http://b"; };
+
+#@REHASH@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
