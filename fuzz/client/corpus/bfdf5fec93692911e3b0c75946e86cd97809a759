@@ -1,7 +1,0 @@
-O@label=abc P6IVMSG #fuzz :labeled
-@label=x;+tyÿÿng=done PRIVMSG fuzzB :t
-@label=LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL;LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL PING x
-@time=2020-01-01T00:00:00.000Z;msgid=fake PRIVMSG #fuzz :spoof
-@batch=nope PRIVMSG #fuzz :x
-@+draft/channel-context=#fuzz PRIVMSG fuzzB :ctx
-@+evilnet.github.io/ssid=abc;+evilnet.github.io/rsvvvvvvvvv@vvvv;+local-portk6=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k7=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k8=vvvvvvtvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k9=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k10=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k11=vvvvvvvvvùvvvvvvvvvvvvvvvvvvv;+k19=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k20=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k12=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvàvv;+k13=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k14=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k15=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k16=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k17=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k18=vvvvvvvvvvvvvvvvvvvvvùvvvvOMETADA

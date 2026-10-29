@@ -1,0 +1,4 @@
+OPRIVMSG #fuzz :café 😀
+SETNAME :éè
+TOPIC #fuzz :ÿþ invalid
+JOIN #été

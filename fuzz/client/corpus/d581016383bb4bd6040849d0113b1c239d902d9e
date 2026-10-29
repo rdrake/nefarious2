@@ -1,0 +1,9 @@
+_JOIN #a
+PRIVMS— #a :hi
+NOTICE #a : fuzzA
+ #a :hi
+NOTICWHOIS fuzzA
+WHO fuzˆ¾Hõ¾¨¾¦ß:gon :hi
+NOTICWHOIeÿÿRÿÿ
+AWAY
+QUIT :done

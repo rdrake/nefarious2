@@ -1,0 +1,16 @@
+_OPER ®uzzoper fuzzoperpass
+DEFAULTMODE fuzzA +s +cdk
+SNO +x
+WALLOPS :hi
+WALLUSERS :hi
+GLINE +*@1.2.3.4 600 :bad
+GLINE
+GL_OPER fuzzoper fuzzoperpass
+ODE fuzzA +s +cdk
+SNO +x
+WALLOPzoperpass
+O£DE fuzzA +s +cdk
+SNOconnectJOIN #a,#b,#c,&d kdraft/multiline-concat1,k2
+JOIN 0
+JOIN #a,#a,#a
+JOIN #c0,#c1,#c2,#c3יcertfp-sha-256יייייייייי,#c4,#,5c#c6,#c7,#c8,# +x

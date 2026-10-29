@@ -389,22 +389,28 @@ with `-fno-sanitize=function` (see `build.sh`). Listed for completeness only.
 * **Fuzzer:** libFuzzer + ASan + UBSan (`-fno-sanitize-recover=undefined`,
   `-fno-sanitize=function`), `-fork=$(nproc)` on 4 cores, `-max_len=8192`,
   `-dict=client.dict`, seeds from `gen_seeds.py` + committed `corpus/`.
-* **Wall-clock fuzzing:** a ~2 min smoke run, then a continuous `-fork` run of
-  **~49 min** (`time: 2945s` at last log line) that was stopped when crashed
-  `-fork` workers leaked their per-process RocksDB temp dirs and filled the
-  container disk (fixed afterward with a temp-dir reaper in `campaign.sh`/
-  `run.sh`; resume with `./campaign.sh <seconds>`). Plus repeated shorter
-  coverage/merge/triage runs.
-* **Throughput:** ~250–650 exec/s per core; **~2.84 million executions** total
-  on the master counter at stop (`#2838096`), 156 worker generations.
-* **Corpus:** grew to ~4,400 live inputs; the committed `corpus/` is the
-  coverage-minimized set (3,775 inputs, 16 MB, features ≈ 49.7k preserved).
-* **Coverage (see `COVERAGE.txt`):** **26,012 / 72,179 instrumented edges (~36%)**,
-  **49,711 features** at stop. The single-process replay over the committed
-  corpus reports 74,758 / 120,898 regions (38%), functions 50%.
-* **Crashes:** 13 crash artifacts saved, deduping by top frame to **4 distinct
-  root causes** = F-1…F-4 above. The `watch_new.sh` signature filter confirmed
-  no fifth distinct signature appeared.
+* **Wall-clock fuzzing:** a ~2 min smoke run; a first `-fork` run of **~49 min**
+  stopped when crashed `-fork` workers leaked their per-process RocksDB temp
+  dirs and filled the container disk (fixed with a temp-dir reaper in
+  `campaign.sh`/`run.sh`); then a second full **~100 min** reaped run
+  (`time: 6016s`), plus repeated shorter coverage/merge/triage runs. Total
+  ≈ **2.5 h** of active fuzzing (ended early — out of cloud credits).
+* **Throughput:** ~250–650 exec/s per core at steady state; master counters
+  `#2838096` (run 1) + `#4160641` (run 2) ≈ **7 million executions** total;
+  156 + 222 worker generations.
+* **Corpus:** live corpus grew to ~8,900 inputs; the committed `corpus/` is the
+  coverage-minimized set (4,649 inputs, 19 MB; features ≈ 52.8k preserved at
+  merge).
+* **Coverage:** final `-fork` run reached **54,890 / 72,179 instrumented edges
+  (~76%)**, **56,330 features**. `COVERAGE.txt` holds the per-file line-%
+  breakdown (captured from an earlier 3,775-input corpus — directionally
+  accurate for the client surface: recv_classify ~98%, m_who ~93%,
+  m_privmsg/m_cap ~77%, under-covered: m_tagmsg, m_redact, m_nick,
+  m_chathistory).
+* **Crashes:** 52 crash artifacts saved across both runs, deduping by top frame
+  to **6 distinct root causes** = F-1…F-6 above. The `watch_new.sh` /
+  `monitor2.sh` signature filter confirmed no 7th distinct signature appeared
+  through the end of the second run.
 
 ### Handlers still under-covered (targets for a longer run)
 

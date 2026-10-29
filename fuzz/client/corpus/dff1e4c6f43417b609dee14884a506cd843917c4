@@ -1,0 +1,14 @@
+_PERSISTENE CSET +example.com/xwhyle held
+PRIVMSG BOU #fº«
+CLIENTafter
+
+AHA#fuzz x 600 :z
+SHUN +*IENTS
+BO_MARKREAD #fº«
+CLIENTafter
+
+AHA#fuzz x 600 :z
+SHUN +*@1,2.A x y
+GIT
+PRIVMSG fuzzAiwh: le heSIONSTQUIT
+Ãˆ

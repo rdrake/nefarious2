@@ -1,0 +1,23 @@
+_OPERrver :x
+UPING fuzJOIN #a,#b,#c,&d k1,k2
+CK 0
+NICK fuzzA
+(
+NICK aNICK aNI 4400
+SQUIT fake.server :x
+UPING fuzJOIN #a,#b,#USERS ,#bad
+MONITOR L
+MONITOR S
+MONITOR - fuzzB
+MONITOR C
+Ma2
+NICK 0
+NICK fuzzA
+(
+NICK aNICK aNI 4400
+SQUIT fake.server :x
+UPING fuzJOIN #a,#b,#c,&d k1,k2
+JOIN 0
+JOIN #a,#a,#a
+JOIN #c0://192.168.²²²z.testent.
+SET MAXCONNE²²²CTI²ONS²

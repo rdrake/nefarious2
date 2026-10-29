@@ -1,0 +1,9 @@
+fCAP LS 3ÇÍ
+CAP LIST
+CAP REQ :sasl messageÓ‹ž›s
+CÿÿÿÿûÿÿAP REQ :R
+P
+EQ :-sasl
+CP AAWAY :gone
+AWAY
+QUIT :
