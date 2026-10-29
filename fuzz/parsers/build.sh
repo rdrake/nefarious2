@@ -68,6 +68,8 @@ T[db_casefold]="db_casefold/fuzz_db_casefold.c $I/db_casefold.c $C/fake_db.c $I/
 T[crule]="crule/fuzz_crule.c $I/crule.c $I/ircd_string.c $I/ircd_alloc.c $C/ircd_stubs.c |"
 A[crule]=1
 T[ircd_snprintf]="ircd_snprintf/fuzz_ircd_snprintf.c $I/ircd_snprintf.c $C/ircd_stubs.c |"
+T[webpush_store]="webpush_store/fuzz_webpush_store.c $C/fake_db.c $I/webpush_store.c $I/webpush.c $I/webpush_keyring.c $I/webpush_expiry.c $I/db_casefold.c $I/ircd_string.c $I/ircd_snprintf.c $I/ircd_alloc.c $C/ircd_stubs.c | -lssl -lcrypto -ljansson -lcurl"
+A[webpush_store]=1
 T[kc_jwt]="kc_jwt/fuzz_kc_jwt.c $I/kc/kc_base64.c $C/kc_log_stub.c | -ljansson -lcrypto"
 
 # register_throttle is built like its cmocka suite: 1 bucket x 4 slots

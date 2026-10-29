@@ -13,14 +13,16 @@
 #include <signal.h>
 #include <unistd.h>
 
-void __sanitizer_print_stack_trace(void);
+/* weak: the coverage build (common/../coverage.sh) has no sanitizer runtime */
+__attribute__((weak)) void __sanitizer_print_stack_trace(void);
 
 /* A harness oracle calls abort(); say so with a stack, like libFuzzer. */
 static void on_abort(int sig)
 {
   (void)sig;
   fprintf(stderr, "==ABORT== harness oracle or assert failed\n");
-  __sanitizer_print_stack_trace();
+  if (__sanitizer_print_stack_trace)
+    __sanitizer_print_stack_trace();
   _exit(134);
 }
 
