@@ -148,8 +148,8 @@ and a `FINDINGS.md` to its own branch. Counts as of 18:46 UTC:
 | --- | --- | --- |
 | `fuzz/client-protocol` | `fuzz/client/FINDINGS.md`; reproducers in `fuzz/client/crashes/01..06` | 6, final (a850fcc). About 2.5 h, ~7M execs, 54,890/72,179 edges. F-5 is the multiline crash already fixed in PR #6. Low-privilege: F-3 (MARKREAD high byte), F-5. Oper-only: F-1 (/TRACE), F-2 (ORESET UAF), F-4 (*LINE expiry overflow), F-6 (CLEARMODE stack overflow) |
 | `fuzz/p10-server` | `fuzz/p10/FINDINGS.md` | 13 |
-| `fuzz/parsers` | `fuzz/parsers/FINDINGS.md`; reproducers and `reproduce.sh` in `fuzz/parsers/findings/` | 28 |
-| `fuzz/config-records` | `fuzz/config/FINDINGS.md`; reproducers in `fuzz/config/repro/` | 14 |
+| `fuzz/parsers` | `fuzz/parsers/FINDINGS.md`; reproducers in `fuzz/parsers/findings/` (all 33 replay with `reproduce.sh`) | 29, final (c8c8980). About 1.05B execs, ~26k execs/s per core. New: F29, a linked server sending a tags-only line makes `parse_server` read past the NUL into stale `cli_buffer` (`parse.c:2066-2070`; can chain into F28). F25 is the DNS rd_length bug |
+| `fuzz/config-records` | `fuzz/config/FINDINGS.md`; reproducers in `fuzz/config/repro/` | 14, final (458b1ec). About 3 h on 4 cores. F14 is the crule arglist overflow already fixed in PR #7. Most serious open: F12 (`add_listener` UAF when a Port block changes to ipv6 and is REHASHed, `listener.c:397`), F10 (v8 bouncer records lost on upgrade), F7 (crule frees an uninitialised pointer), F3 (DNSBL infinite loop), F8 (include cycle k^10) |
 
 **Highlights reported by the campaigns (not yet independently validated here):**
 - **client:** `/TRACE` with a held ghost reads `link_u[-1]`; `BOUNCER ORESET` on your own account is a use-after-free; `MARKREAD` with a high byte reads past the `ToLower` table.
