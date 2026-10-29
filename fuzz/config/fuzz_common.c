@@ -200,6 +200,20 @@ static void remove_sandbox(void)
   nftw(sandbox, rm_entry, 16, FTW_DEPTH | FTW_PHYS);
 }
 
+/* FINDINGS.md F8: `include` has a depth limit (10) but no cycle check, so
+ * k self-includes parse the file ~k^10 times.  The fuzz build stops
+ * nesting at depth 2 (FUZZ_UNMASK_KNOWN restores the real limit). */
+extern int include_stack_ptr;
+extern int __real_init_lexer_file(char *file);
+int __wrap_init_lexer_file(char *file)
+{
+#ifndef FUZZ_UNMASK_KNOWN
+  if (include_stack_ptr >= 2)
+    return 0;
+#endif
+  return __real_init_lexer_file(file);
+}
+
 void fuzz_ircd_boot(const char *conf_text)
 {
   const char *base = getenv("FUZZ_SANDBOX");
