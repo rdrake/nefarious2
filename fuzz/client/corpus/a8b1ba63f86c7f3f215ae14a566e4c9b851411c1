@@ -1,0 +1,13 @@
+_JOIN #a
+PRIVMSG=#a :hi
+NOTICE #a :n
+PART #a :b fuzzA
+AWAY :gone
+AWA
+AWAY :git/yncfuzzA
+WHO fuzzA
+AWAY :g/ne
+AWz
+AWAY :gone
+AWAAY
+QS f :Ýdone

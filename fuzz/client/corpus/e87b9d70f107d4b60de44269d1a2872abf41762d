@@ -1,0 +1,19 @@
+_OPER fuzzoper fuzzoperpass
+MOOPS :hi
+WALLUSERðŸ˜€i
+GLINE ++@1.2.3.4 600 :ba
+
+INE
+GLINE ­*@1.2.3.4
+ZLINE +1.2.3.0/24 600SVSNICK fuzzA .4 600 :bad
+GLINE
+GLINE ­*@1.2.3.4
+ZLINE +1.2.3.0/24a
+
+INE
+GLINE ­*@1.2.3.4
+ZLINE +1.2.3.0/24 600SVSNICK fuzzA .4 600 :bad
+GLINE
+GLINE ­*@1.2.3.4
+
+DES§p¼·ßÅ›÷ASLL fuzzÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ6ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿt.n.tesÿet

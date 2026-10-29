@@ -1,0 +1,2 @@
+PAçS :secret
+WEBIRC fuzzwebirc gw host.example 192.0.2.55 :secure local-port=6697 ~rembirc gw host.example 192.0.2.55 :secure local-port=669w

@@ -1,0 +1,16 @@
+
+-*!*@*
+SILENCE fuzzA
+SILENCE 
+-*!*@*
+SILENCE fuzzK aNICK aNI
+-*!*@*
+SILENCE fuzzA
+SILENCE 
+-*!*@*
+SILENCE fuzzK aNICK aNICK a
+SETNA
+SILENCE +~a:x
+WATCH +fuzzB +noKbod fyDESuzzAYNCHTCHM S
+WATCH C
+WATC

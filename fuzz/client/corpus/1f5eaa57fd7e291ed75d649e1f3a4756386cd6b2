@@ -1,0 +1,19 @@
+OMELINKSTADATA * SET avar
+METADATA * SSILENCE +*!*@*
+SI+ fuzzB,nobody,#bad
+MONITOROR YNC
+METADATA #fuzz SYNC
+METADATA * CLEAR
+METADAT fuzzB
+WHOWAS fuzzB 5 fuzz.test.net
+ISON fuzzB nobody fuzzA
+USEkkkkkkkkkkkkkkkkk- tar :https://example.com/a.ar
+METADATA * SSILENCE +*!*@*
+SI+ fuzzB,nobody,#bad
+MONITOROR YNC
+METADATA #fuzz SYNC
+METADATA * CLEAR
+METADAT fuzzB
+WHOWAS fuzzB 5 fuzz.test.net
+ISON fuzzB nobody fuzzA
+USEkkkkkkkkkkkkkkkkk- fukkkkz

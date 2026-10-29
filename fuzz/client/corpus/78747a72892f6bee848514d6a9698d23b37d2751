@@ -1,0 +1,25 @@
+_PRIVMSG fuzzB :hello
+PRIVMSG fuzzB,fuzzB,#fuzz :multi
+PRIVMSG @#fuzz :ops
+PRIVMSG +#fuzz 
+PRIVMSG X@services.fuzz.test.net :hi
+PRIVMSuzz :ACTION waves
+PRIVMSG fuzzB :VERSION
+TAGMSG fuzzB#fuzz
+PRIVMSG X :help
+PRIVMSG X@services.fuzz.test.net :hi
+PRIVMSuzz :ACTION waves
+PRIVMSG fuzzB :V+OSION
+TAGMSG fuzzB
+@+typing=active TAGMSG #fuzz
+@+d
+@+typing=active TAGMSG #fuzz
+@+dr
+PRIVMSG fuzzB :V+OSION
+TAGMSG fuzzB
+@+typing=active TAGMSG #fuzz
+@+d
+@+typing=active TAGMSG #fuzz
+@+draft/reply=abc;+draft/react=:) TAGMSG #fuzz
+://086.30.CHANSERV help
+LOGIN a b

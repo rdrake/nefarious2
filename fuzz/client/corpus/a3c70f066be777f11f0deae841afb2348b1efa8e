@@ -1,0 +1,34 @@
+_WHO #fuzz
+WHO *
+WHO fuzz* o
+WHO 0 o
+WHO #fuzz %
+WHO :x y z
+WHOIS fuzzB fuzzB
+WHOIS *
+WHO·§ fuzz.test.otc,2
+WHO fuzzfuzz
+WHO * %nuhsrfdlaotc,1
+WHO fuzz* o
+WHO 0 o
+WHO #fO #fuzz %
+WHO :x y z
+HOIS fuzzB fuzzMULTILINE
+WHOIS fuzz.test.net fuzzB* o
+WHO 1 o
+WHO #fuzz rfdlaotc,1
+WHO fuzzfuzz
+WHO * O %nuhsrfdlast.net
+MOTD
+VERSION
+ADotc,1
+WMIN
+TIME
+INFO
+LINKS
+LINKS * *.net
+MAP
+TRAHO fuzz* o
+WHO 0CE
+T o
+WHR
