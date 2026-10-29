@@ -11,7 +11,7 @@ stub and script is under `fuzz/parsers/`; no ircd source was modified.
   back into `<t>/corpus`; `./coverage.sh` gives source line coverage.
 * Reproduce: `./findings/reproduce.sh` replays every reproducer below
   through the plain ASan build with the known-bug guards off and checks its
-  signature (25/25 at the time of writing).
+  signature (26/26 at the time of writing).
 
 Each harness steps around the bugs already reported here so the campaign
 could keep looking past them; `FUZZ_STRICT=1` (and, for the WebSocket and
