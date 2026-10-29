@@ -64,6 +64,35 @@ The fixes are in the proposals doc. Two need wire changes:
 | DNS AAAA/A answers copied without checking `rd_length` against the datagram end (`ircd_res.c` `proc_answer`) | Low–Medium (resolver or spoofed reply) | Yes | Code reading; handed to the parsers fuzz campaign to confirm |
 | `s_bsd.c` server read loop: `dolen <= 0` returns before the `dolen == 0` over-long-line branch, so that branch is dead | Info | Yes (ircu) | GCC `-Wduplicated-cond` |
 
+## CBMC pure-module findings (`formal/cbmc/`, `run_pure_modules.sh`)
+
+Each finding below was found by CBMC (unless the row says otherwise) and
+confirmed by replaying the counterexample against the real source under
+gcc ASan+UBSan (`confirm*.c` in each module directory). None has been
+fixed or independently re-validated yet.
+
+| # | Severity | Finding | Location | Who can trigger it | Suggested fix |
+|---|---|---|---|---|---|
+| C1 | **Critical** | **Pre-auth infinite loop:** a `Sec-WebSocket-Protocol` header with no supported token (e.g. `chat`, or empty) never advances the scan pointer, so the single-threaded ircd hangs | `websocket.c:188-207` `parse_ws_handshake`, reached from `websocket_handshake` (`:374`) | Anyone who can connect to a WebSocket or auto-detect listener, before registration; added in 069c0d8 | Bound the scan by the line end and always advance `p`; add a cmocka case |
+| C2 | Medium | **Keyed webpush subscriptions never expire.** `webpush_armed_at` takes everything after the 3rd `\|`; a real record has an 87-character key there, so the field is ≥24 bytes and the function returns 0. Bursts send armed=0, which receivers re-stamp as now | `webpush_expiry.c:34-35`; `m_webpush.c:300,1240,1906` | Every keyed subscription | Read only to the next `\|` (`strcspn`) |
+| C3 | Medium-low | **Per-IP REGISTER limit bypass.** IPv6 /64s that land in the same bucket (plain XOR hash) evict each other (LRU), so 100 of 100 attempts pass in 100 s; only the global cap applies | `register_throttle.c` | Anyone with a /56 | Refuse when the bucket is full, or use a keyed hash |
+| C4 | Low-medium | **Presence cap drops a newer window** when the record is full and the new window starts earliest, even if it ends latest; a member present the whole time can become invisible. Fails safe (history hidden, not leaked) | `chathistory_presence.c:650-651` | Linked-server PN timing | Drop the oldest window, as the header says |
+| C5 | Low | **PN accepts non-positive or overflowing stamps:** `-1` or ≥2^63 store the window `[-1, now]`; 2^47–1e15 overflow the shift (UB) | `m_markread.c:469-471`, `chathistory_presence.c:336` | A linked server only | After normalising, require `0 < start <= end` |
+| C6 | Low | **Signed overflows from peer input:** `armed+max_age` (`webpush_expiry.c:56`), `last_msg+idle` (`webpush_attention.c:18`), `end+coalesce` (`chathistory_presence.c:637,672`). Also: `webpush_armed_at` can return negatives; mute `until` ≥2^63 or `": -5"` is misread; `webpush_mute_prune` reports "unchanged" after pruning; a clock step back pins the REGISTER window | various | Peer input; the user's own metadata | Saturating arithmetic and range checks |
+| C7 | Low | **WebSocket fragments** (found by reading `s_bsd.c`, not by CBMC): fragmented messages skip `recv_classify`, so a 16 KB line gets past the per-class caps; `frag_data[16384]='\0'` writes one byte past `con_ws_frag_buf` (benign only by layout) | `s_bsd.c:1445-1470`, `client.h:510` | WebSocket clients | Classify reassembled lines; size the buffer +1 |
+| C8 | Info | Fragmented control frames are accepted (RFC 6455 §5.5 forbids them); `account_id_from_uuid` accepts hyphens in any position | `websocket.c`, `account_id.c` | n/a | Optional |
+
+**Verified clean, within the stated bounds:**
+- webpush mute, expiry and attention contracts and monotonicity;
+- register_throttle memory safety, and its per-IP and global caps for a single client;
+- account_id contract, and the exact UUID round trip;
+- recv_classify against a reference model, regardless of where the input is split;
+- exit_reason;
+- chathistory_presence union safety, idempotence and order-independence;
+- WebSocket `decode_frame`/`encode_frame` memory safety.
+
+dbuf exhausted CBMC's memory; it was instead checked bounded-exhaustively under ASan (23.7M cases, 0 mismatches).
+
 ## Fuzzing campaigns
 
 Each campaign pushes harnesses, scripts, minimized reproducer files, a corpus

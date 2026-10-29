@@ -30,4 +30,4 @@ Conventions (see `common/`):
 | exit_reason | `exit_reason/README.md` | contract verified |
 | chathistory_presence | `chathistory_presence/README.md` | union wf/sound/complete, next_visible exact; cap evicts newer window; PN/norm overflow |
 | websocket | `websocket/README.md` | frame decoder verified; **pre-auth infinite loop in handshake** |
-| dbuf | `dbuf/README.md` | getmsg exact across block boundary |
+| dbuf | `dbuf/README.md` | CBMC did not scale (2 KB blocks); bounded-exhaustive ASan check across the block boundary: 23.7M checks clean |
