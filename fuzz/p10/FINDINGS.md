@@ -11,7 +11,7 @@ peer's PASS/SERVER, and the peer sends the listed lines. No finding depends on
 harness-only state. Where a finding needs the link to still be in burst, it
 says so; that is the normal state for the first seconds of every link.
 
-All reproducers are in `fuzz/p10/repro/`. **Byte 0 of each file is a harness
+All reproducers are in `fuzz/p10/repro/` (20 files, one crash each; the standalone driver stops at the first crash, so run them one at a time). **Byte 0 of each file is a harness
 flag byte** (0x01 = send `AB EB` first, i.e. post-burst; 0x00 = in burst), the
 rest is the wire stream from peer `hub.fuzz` (numeric `AB`) to our server
 `fuzz.local` (`AK`). Run one with
@@ -534,7 +534,71 @@ so they would not mask deeper bugs. `repro_ubsan_p10` (`build.sh ubsan`) keeps t
 
 ---
 
-STATS_PLACEHOLDER
+## Campaign statistics
+
+4 cores, libFuzzer `-fork=4 -max_len=16384 -dict=p10.dict`, ASan+UBSan fuzz build.
+
+| Campaign | Wall time (UTC) | Execs | Final cov (counters) | Corpus | Notes |
+|---|---|---|---|---|---|
+| 1 | 16:25–16:56 (31 min) | 154,769 | 26,710 | 3,551 | no filter; 310 crash artifacts; 3 of 4 children hung in `hSeekClient` (A1) for most of it |
+| 2 | 16:57–17:17 (20 min) | 314,348 | 36,321 | 5,079 | known-bug filter on |
+| 3 | 17:18–17:34 (16 min) | 417,580 | 44,574 | 5,935 | filter v2; found F11–F13 |
+| 4 | 17:35–18:11 (36 min) | 805,524 | 48,998 | 7,059 | filter v3; found F14, F4/F8 variants |
+| 5a | 18:23–18:34 (11 min) | 241,721 | 53,798 | 7,009 | harness: alice negotiates IRCv3 caps; found A2 |
+| 5b | 18:34–19:09 (35 min) | 702,501 | 55,266 | 7,765 | stopped early (parent session: out of credits) |
+| **Total** | **~149 min wall** | **~2.64 M** | **55,266 peak** | 7,291 after merge | |
+
+**Shorter than asked.** The request was at least 3 hours of fuzzing. The
+campaign was stopped at about 2 h 29 min when the parent session reported it
+was out of cloud credits.
+
+Throughput: 60–200 exec/s for the whole 4-core run (about 15–50 per core).
+Each input does a real TCP accept, the PASS/SERVER handshake, our own outbound
+burst, optional registration of two local users (MOTD, 005, CAP), RocksDB
+history writes, and a full squit at reset. The figures sank as the corpus grew
+toward longer bursts. Without local users a minimal input runs in about 0.4 ms
+per core.
+
+Corpus: `fuzz/p10/corpus.tar.xz` (7,291 files, 42 MB unpacked, 0.8 MB
+compressed). This is `-merge=1` of the final corpus with the filter on. Unpack
+with `mkdir corpus && tar -xJf fuzz/p10/corpus.tar.xz -C corpus`.
+
+### Coverage (clang source coverage, `build.sh cov`, corpus after campaign 2)
+
+A coverage report was only generated after campaign 2 (`llvm-cov report`).
+Campaigns 3–5 added about 19k more counters (36k → 55k), mostly from local-user
+delivery with caps, bouncer and mode paths, so the figures below understate the
+final corpus.
+
+Whole binary: 26.9% of lines (most of the ircd is client-facing). S2S handler
+entry points, by function region coverage:
+
+* well covered (>75%): `ms_burst` (file 97% lines), `ms_svsnick`, `ms_metadata` 91%,
+  `ms_markread` 100%, `ms_redact` 89%, `ms_multiline` 84%, `ms_rename` 81%,
+  `bounce_handle_bs` 80%, `bounce_handle_bt` 100%, BX `C`/`P`/`N`/`U`/`V`
+  subhandlers 86–100%, `m_endburst.c` 86%, `parse.c` 68% lines
+* partly covered: `ms_cacheinval` 70%, `ms_presencesync` 68%, `ms_quit` 56%,
+  `bounce_alias_destroy` (BX X) 54%, `bounce_alias_echo` (BX E) 50%,
+  `ms_batch` 49%, `bounce_alias_snomask` (BX K) 41%,
+  `bounce_alias_multiline_echo` (BX M) 39%
+* **weak / uncovered S2S paths:** `ms_tagmsg` 15% (needs a local recipient
+  with `message-tags`; added in campaign 5 via alice's caps), `ms_svsjoin` 20%,
+  `bounce_rebind_ghost_to_remote_primary` 0% (needs a local held ghost from
+  BOUNCER_PERSIST restore), `m_webpush.c` 5% (webpush disabled: no libkc
+  transport in the harness), `sasl_webhook.c` 9% (CI relay only; the Keycloak
+  webhook listener is not started), `m_chathistory.c` 3% (client command; its
+  S2S query path is small)
+
+Seeds added for the weak spots: `batch_netjoin`, `tagmsg_locals`,
+`svsjoin_part`, `multiline_locals` (run in campaign 5).
+
+### Aside (not a P10 finding)
+
+`m_cap.c:869`: `bsearch(..., subcmd_search)` passes a comparator whose type
+does not match `int (*)(const void *, const void *)`. UBSan `-fsanitize=function`
+reports it on every CAP line. It is harmless on x86-64 and only on the client
+path; the check is off in the fuzz build.
+
 
 ## Harness / how to run
 
