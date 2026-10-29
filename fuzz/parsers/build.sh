@@ -56,6 +56,8 @@ T[recv_classify]="recv_classify/fuzz_recv_classify.c $I/recv_classify.c |"
 T[exit_reason]="exit_reason/fuzz_exit_reason.c $I/exit_reason.c |"
 T[register_throttle]="register_throttle/fuzz_register_throttle.c $OUT/gen/register_throttle_small.c |"
 T[webhook_eventlog]="webhook_eventlog/fuzz_webhook_eventlog.c $I/webhook_eventlog.c |"
+T[webpush]="webpush/fuzz_webpush.c webpush/mwebpush_wrap.c $I/webpush_keyring.c $I/webpush_line.c $I/webpush_mute.c $I/webpush_expiry.c $I/webpush_attention.c $I/ircd_string.c $I/ircd_snprintf.c $I/ircd_alloc.c $C/ircd_stubs.c | -lssl -lcrypto -ljansson -lcurl"
+A[webpush]=1
 T[kc_jwt]="kc_jwt/fuzz_kc_jwt.c $I/kc/kc_base64.c $C/kc_log_stub.c | -ljansson -lcrypto"
 
 # register_throttle is built like its cmocka suite: 1 bucket x 4 slots
