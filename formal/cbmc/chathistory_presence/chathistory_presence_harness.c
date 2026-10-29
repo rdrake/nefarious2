@@ -16,8 +16,37 @@
  * _any_time drop that restriction to expose wire-reachable overflow.
  */
 #include <stdint.h>
+#include <string.h>
 #include "../common/cbmc_util.h"
+
+/* memmove model for this module (defined below, after the struct).
+ * Every memmove in the interval core moves whole struct
+ * presence_interval elements inside r->intervals, so an element-wise
+ * model is exact; that precondition is asserted.  (CBMC's byte-level
+ * built-in over the 4 KB record exhausted memory.) */
+static void *cbmc_memmove_iv(void *d, const void *s, size_t n);
+#define memmove(d, s, n) cbmc_memmove_iv((d), (s), (n))
+
 #include "../../../ircd/chathistory_presence.c"
+
+static void *cbmc_memmove_iv(void *d, const void *s, size_t n)
+{
+  struct presence_interval *dd = (struct presence_interval *)d;
+  const struct presence_interval *ss = (const struct presence_interval *)s;
+  size_t i, w = n / sizeof(struct presence_interval);
+  __CPROVER_assert(n % sizeof(struct presence_interval) == 0,
+                   "memmove model: whole intervals only");
+  __CPROVER_assert(__CPROVER_r_ok(s, n) && __CPROVER_w_ok(d, n),
+                   "memmove: source readable, destination writable");
+  if (dd > ss) {           /* overlap-safe like memmove */
+    for (i = w; i > 0; i--)
+      dd[i - 1] = ss[i - 1];
+  } else {
+    for (i = 0; i < w; i++)
+      dd[i] = ss[i];
+  }
+  return d;
+}
 
 #ifndef CAP
 #define CAP 3
@@ -58,7 +87,8 @@ static int wf(const struct presence_record *r, unsigned cap)
 static void nondet_wf_record(struct presence_record *r, unsigned maxcount)
 {
   unsigned i;
-  memset(r, 0, sizeof(*r));
+  /* no memset: slots >= count stay nondeterministic (the code may only
+   * read [0, count) and write [0, count]) */
   r->count = (uint8_t)nondet_unsigned();
   __CPROVER_assume(r->count <= maxcount);
   for (i = 0; i < CAP; i++) {
