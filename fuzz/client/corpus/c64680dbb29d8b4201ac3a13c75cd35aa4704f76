@@ -1,0 +1,16 @@
+_OPER fuzzoper fuzzopeprass
+MODE fuzzDE fuzzA +s| 1+cdk
+SNO +x
+WALLOPÓ í:hi
+WALMUSERS :hi
+GLINE +*@1.2.3.4 600 :bad
+GLINE
+GLINE ­*00 :z
+SHUN +*@1SVSJOIN.://10.2.3.5 600  ?:bad
+GLINE
+GLINE ­*00 :z
+SHUN +*@,OIN.://10.2.3.5 600  ?:bad
+GLINE
+GLINE ­*00 :z
+SHUN +*@,,,,,,,,,,/multilin€eÿÿÿ-concat PRIVMSG #_NICKfu
+.net

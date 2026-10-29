@@ -1,0 +1,8 @@
+_@label=m1 PRIVMSG #fuzAAAaGIXmLBGV :oops
+REDACT #fuzz nosuchmsgid
+REDAC be redacted
+CHATH2STORY LATEST #fuzz * 2
+REDACT #fuzz AHAAAaGIXmLBGV :oops
+REDACT #fuzz nosuchmsREDACT #fuzz abCHATH2STORY LATEST #fuzz * 2
+REDACT #fuzz AHAAAaGIXmLBGV :oops
+REDACT #fuzz nosuchmsREDACT #fuzz abc :x

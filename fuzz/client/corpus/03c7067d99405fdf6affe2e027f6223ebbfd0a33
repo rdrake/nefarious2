@@ -1,0 +1,12 @@
+_NICK
+NICK :ßzzoper fuzzop;erpass
+MODE fuzzA +0.2®3.4 600 :bad
+GLINE
+GLINE ­*@1.2.3.4
+ZLINE OP+1.2.3.0DðTACH/24 600 0:z
+SHUN +*@ÙÑÍÑ3.5­*ÿÿÿø.3.4
+ZLINE OP+1.2.3.0/324 600 0:z
+SLINE ­*@1.2.3.4
+ZLINE OP+1.2.3.0DðTACHUN +*@ÙÑÍÑ3.5 [E
+GLINE ­*@1.200 :s
+J%.2.3.

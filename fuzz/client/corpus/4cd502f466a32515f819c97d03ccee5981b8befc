@@ -1,0 +1,17 @@
+_OPÅR fuzzoper fuzzoperpass
+MODE fuzzA +s +cdk
+SNO +x
+WALLOPS :hi
+WALLUSERS :hi
+GLINE +*@1.2.3.4 600 :bad
+GLINE
+GLINE -*@1.203.4
+ZLINE +1.2.3.0/24 60e.server 600 :j
+TEMPSHUN fuzzA :t
+KHELDILL fuzzA :k
+CHECK fuzzA
+CHECK #fuzCNIC #fuzz :new topic
+TOPIC://127. #fuzz
+LCK #fuzz
+MO¶ºßSYNCH :new topic
+TOPIC:/net

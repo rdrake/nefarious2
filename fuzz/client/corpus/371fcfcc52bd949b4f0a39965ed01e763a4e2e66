@@ -1,0 +1,12 @@
+_OPER fuzzoper fuzzop;erpas.2.3.4
+ZLINE +E ­*RS :hi
+GLINE +1.2.3.0/34 600 0:z
+SHUN +*@1.2.3.5 600 :s
+J%à™Š‚zA
+OPMODE #fuzz +o fuzzA
+SVSNICK fuzz·ß:hi
+GLINE +Ö¿ÎÑÍÑÌÐ4 600 2.3.5 600 :s
+J%à™Š‚zA
+OPMODE #fuzz +o fuzzA
+SVSNICK fuzz·ß:hi
+1231.2.Å›÷ASLL fuzz.test.net

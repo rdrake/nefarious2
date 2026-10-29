@@ -1,0 +1,20 @@
+PERSISTENCE SET ON
+PRIVMSG #fuzz :beforeT
+Ã:after
+
+BOONS
+QUIT drop
+
+PRheld
+IV¸MSfter
+ùBOONS
+CLIENTS
+PRIVMSG #fuzz :after
+
+BOUNCER LISTSESSIONS
+QUIT
+Ã:after
+
+BOONS
+QUIT
+Ãˆ

@@ -1,0 +1,13 @@
+JOIN #%lAPrrrUB
+MODE fuzz
+INVITE fuzzB #fuzz
+INVIT
+
+C fINVITE f :x
+WALLHOPS Y  #aDSUB
+MODE fuzz
+INVITE fuzzB #fuzz
+INVIT
+
+C fINVITE f :x
+WALLHOPS Y  #aDwwwLww

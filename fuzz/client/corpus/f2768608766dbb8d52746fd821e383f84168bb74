@@ -1,0 +1,13 @@
+_Mª¶ºßÜ™Š…… +o fuzzA
+TOPIC #fuzz :new topic
+TOPIC #fuzz
+KICK #fuzz fuzzB h:out
+JOIN #fuz{
+INVITE fuzzB #2.3.4 600& :bad
+GLINE
+GLINE ­*@1.2.3.3
+ZLINE +1.2.3.0/24@ 60E ­*@1.2.3.3
+ZLINE +1.2.3.0/24@ 600 IVMSG #fuzAAAaGIXmLBGV :oops
+REDACT #fuzz nos_<99999999
+LœœœœœISÿÿT…… +o fuzzA
+TOPIC #fuzz :new topC>1

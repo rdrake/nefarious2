@@ -1,0 +1,16 @@
+_OCK
+NICK :
+NICKnnnnnnnnnnnnnnnnnnnnnnnnnnnnn:bad
+GLINE
+GLINE ≠*01 :z
+SH+N* U@1.2@1========================================600 :bad
+GLINE
+GLINE ≠*00 :z
+SHUN 
+NICK -bad
+NICK a√©b
+NICK ChanServ
+USnnnnnn+s +cdk
+SNO +x
+WALLOPS :hi
+WALLUSnnnnnE

@@ -1,0 +1,19 @@
+_OPE.4 600 :bad
+GLINE
+GLINE ­*@1.2.3.4
+ZLINE +1.2.
+MODE fuzzA +s +cdk
+SNO +x
+WALLOPS :hi
+WALLUSERS :hi
+GLINE +*@1.2.3.4 600 :bad
+GLINE
+GLINE ­*@1.2.3.4
+ZLINE +1.2.3.0/24 600 :z
+SHUN +*@1.GITSYNC
+DEE +*@1.2.3.4 600 :bad
+GLINE
+GLINE ­*@1.2.3.4
+ZLINE +1.2.3.0/24 600 :z
+SHUN +*@1SJ.GITSYNC
+DES§±¼·ßÅ›÷ASLL fuzz.test.net

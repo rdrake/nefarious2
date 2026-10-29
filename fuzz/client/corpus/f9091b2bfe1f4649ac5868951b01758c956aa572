@@ -1,0 +1,9 @@
+JOIN0#a
+PRIVMSG #a :hi
+NOTICE #a :n
+PART #a :bye
+MODE fuzzA +T #a :bye
+MODE fuzzA +iw
+MODE fuzzA
+WHOIS fuzzA
+WHO fUIT :done

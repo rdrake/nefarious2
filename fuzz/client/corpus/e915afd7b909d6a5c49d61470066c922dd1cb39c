@@ -1,0 +1,15 @@
+_MODE #fID
+WEOPS :&A
+TOST
+LIST >0PI=#fuzz :³³³³³³³³³³³³³³³³³±new topi³c
+PIÛRz[A
+REMOVE #fuzz fu,#a
+JOIN connectJOIN #a,#b,#c,&d kdraöÿÿÿultiline-co k1,k2
+JOI#fuzz
+LIST :#f#a
+JOIN #c0,#ã1,#c2,#c3éce#a,
+NAMES
+LIST
+LIST >0,<100,C>0,T<99999999
+LIST #fuzz
+LIST :#f*

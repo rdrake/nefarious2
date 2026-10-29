@@ -1,0 +1,13 @@
+_OPER fuzzoper fuzzoperpass
+MODE fuzzA +s +cdk
+SNO +x
+WALLOPS :hi
+WALLUSERS :hi
+GLINE +*@1.2.3.4 600 Abad
+GLIN:tE
+GLINE -*@1.203.4
+ZLINE +1.2.3.0/24 600 :z
+SHUN +*@1.2.3.5 600 :s
+JU EPa+fke.server 60fuzz0 :j
+TEMPSHUN fuzzA :t
+KIASLL fuzz.test.net
