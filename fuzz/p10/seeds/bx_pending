@@ -1,0 +1,8 @@
+AB BX U ABAAZ host=x
+AB BX U ABAAZ la=1
+AB BX E ABAAZ ABAALP x y :z
+AB BX K ABAAZ 1 2
+AB N Bnc 2 1760000000 bnc bnc.example.net +ixr bnc AKAAAW ABAAL :Bnc real
+AB B #bnc 1760000000 +nt ABAAL:o
+AB BS C bnc 0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b Tok0123456789abcdef active 1760000000 :#bnc
+AB BX C ABAAL ABAAZ bnc 0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b +i :#bnc

@@ -1,0 +1,28 @@
+	AB N Bnc 2 1760000000 bnc bnc.example.net +ixr bnc AKAAAW ABAAL :Bnc real
+AB B #bnc 1760000000 +nt ABAAL:o
+AB BS C bnc 0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b Tok0123456789abcdef active 1760000000 :#bnc
+AB BX C ABAAL ABAAM bnc 0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b +ix :#bnc
+AB BX C ABAAL ABAAN bnc 0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b +ix prof1 :#bnc,#fuzz
+AB BX C ABAAL ABAAO bnc 0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b :#bnc
+AB BX U ABAAM host=new.host
+AB BX U ABAAM realhost=r.host
+AB BX U ABAAM realname=RN
+AB BX U ABAAM fakehost=f.h
+AB BX U ABAAM cloakhost=c.h
+AB BX U ABAAM cloakip=c.i
+AB BX U ABAAM username=uu
+AB BX U ABAAM account=other
+AB BX U ABAAM caps=1f
+AB BX N ABAAL BncNew 1793289405
+AB BX V ABAAM +#bnc
+AB BX V ABAAM -#bnc
+AB BX K ABAAL 1234 1793289405
+AB BX K ABAAM 0 1793289405
+ABAAM P #bnc :from alias
+ABAAM J #fuzz
+ABAAM L #fuzz
+ABAAM N ShouldFail 1793289405
+AB BX P ABAAL ABAAM 0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b Bnc
+AB BX X ABAAN
+AB BX X ABAAO
+ABAAL Q :primary gone

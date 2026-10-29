@@ -1,0 +1,6 @@
+AB CI someuser
+AB CI someuser ZP-D7eraToi4r24EgSYing
+AB CI a,b,c ZP-D7eraToi4r24EgSYing evt-1.2:3 D
+AB CI * * evt-2 P B
+AB CI x * evt-1.2:3 D
+AB CI acct2 * evt-9 X

@@ -1,0 +1,17 @@
+AB N Nick1 2 1760000000 nick1 nick1.example.net +iw AKAAAL ABAAA :Nick1 real
+AB N Acct2 2 1760000000 acct2 acct2.example.net +ixr acct2 AKAAAM ABAAB :Acct2 real
+AB N Oper3 2 1760000000 oper3 oper3.example.net +iowg AKAAAN ABAAC :Oper3 real
+AB N Six4 2 1760000000 six4 six4.example.net +i _ ABAAD :Six4 real
+ABAAC R d AK
+ABAAC R u AK
+ABAAA LI AK *
+ABAAA A0 AK
+ABAAA TI AK
+ABAAA AD AK
+ABAAA IN AK
+ABAAA TR AK
+ABAAC CO leaf.fuzz 4400 AK
+ABAAC RI AK :x
+ABAAC RO AK :x
+ABAAA CP 1.2.3.4 AK
+ABAAC GET AK HUB
