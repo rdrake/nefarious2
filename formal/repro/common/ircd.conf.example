@@ -1,0 +1,14 @@
+General { name = "val.example.net"; vhost = "127.0.0.1"; description = "Val"; numeric = 7; };
+Admin { location = "x"; contact = "y"; };
+Class { name = "others"; pingfreq = 180 seconds; sendq = 160000; maxlinks = 100; };
+Client { class = "others"; ip = "*"; };
+Port { server = no; port = 16667; };
+Features {
+  "PPATH" = "ircd.pid";
+  "SSL_CERTFILE" = "/tmp/claude-0/sendval/ircd.pem";
+  "SSL_KEYFILE" = "/tmp/claude-0/sendval/ircd.pem";
+  "MSGID" = "TRUE";
+  "NODNS" = "TRUE";
+  "NOIDENT" = "TRUE";
+  "CHATHISTORY_DB" = "/tmp/claude-0/sendval/run-orig/history";
+};

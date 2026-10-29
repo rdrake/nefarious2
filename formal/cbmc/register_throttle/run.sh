@@ -12,4 +12,5 @@ $R $H harness_per_ip_bound 18 $SMALL -DRT_CALLS=4 || fail=1
 $R $H harness_per_ip_bound_with_neighbours 18 $SMALL -DRT_CALLS=4 || fail=1
 $R $H harness_global_bound 18 $SMALL -DRT_CALLS=5 || fail=1
 $R $H harness_global_clock_step_back 18 $SMALL || fail=1
+../common/run_confirm.sh confirm.c ../../../ircd/register_throttle.c
 exit $fail
