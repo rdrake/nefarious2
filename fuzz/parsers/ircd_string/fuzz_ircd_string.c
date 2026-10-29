@@ -195,8 +195,10 @@ static void t_utf8(char *s)
     CHECK(n < BUFSIZE);
     CHECK(string_is_valid_utf8(t));
     CHECK(string_sanitize_utf8(t) == -1);   /* idempotent */
-  } else if (strlen(s) < BUFSIZE - 1) {
-    CHECK(v);                               /* -1 only when nothing to fix */
+  } else if (strlen(s) < BUFSIZE - 4) {
+    /* the scan stops at BUFSIZE-4 output bytes (documented): -1 means
+     * "nothing to fix" only for inputs shorter than that */
+    CHECK(v);
   }
   free(t);
 }
@@ -241,6 +243,7 @@ static void t_strncpy(char *s, unsigned arg)
   size_t n = arg % 64, len = strlen(s);
   char a[80], b[80];
   memset(a, 'X', sizeof a); memset(b, 'X', sizeof b);
+  a[sizeof a - 1] = b[sizeof b - 1] = 0;   /* n == 0 copies nothing */
   ircd_strncpy(a, s, n);
   if (n) {
     size_t c = len < n - 1 ? len : n - 1;
