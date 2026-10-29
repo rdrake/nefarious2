@@ -107,6 +107,137 @@ harness/toolchain artifact or already triaged elsewhere, not a server bug.
 
 ---
 
+## F-2 — Use-after-free / NULL `Connection` deref via `BOUNCER ORESET <own account>`  (CONFIRMED)
+
+* **Severity:** Medium (whole-server crash; oper-triggered, self-targeted).
+* **Where:** `ircd/m_bouncer.c:579` `bouncer_oreset()`; crash surfaces at
+  `ircd/parse.c:1744` (`cli_labeled_batch(cptr)` on a freed `Connection`).
+* **Root cause.** `bouncer_oreset()` snapshots the target session's `primary`
+  and alias clients and then exits them:
+  ```c
+  /* Exit all attached connections.  None of them is the caller (oper
+   * is on a different account), so plain order is fine. */
+  for (i = 0; i < alias_count; i++)
+    exit_client(cptr, aliases[i], &me, "Bouncer session reset by oper");
+  if (primary)
+    exit_client(cptr, primary, &me, "Bouncer session reset by oper");
+  return 0;
+  ```
+  The comment's assumption ("none of them is the caller") is not enforced. An
+  operator who is **also logged into the target account** and holds that
+  account's bouncer session is themselves `primary` (or an alias). The code
+  then calls `exit_client(cptr, cptr, …)`, which frees the caller's
+  `Connection` and `LocalClientArray` slot, but `bouncer_oreset()` returns `0`
+  instead of `CPTR_KILLED`. Back in `parse_client()` (parse.c:1742-1748), the
+  labeled-response epilogue runs `cli_labeled_batch(cptr)` /
+  `send_labeled_ack(cptr)` on the just-freed client → NULL/freed `Connection`
+  dereference.
+
+  The sibling self-service handler `bouncer_reset()` (RESET, m_bouncer.c:~481)
+  is written correctly: it skips the caller in the loops, exits it **last**,
+  and `return exit_client(cptr, sptr, …)` ("Returns CPTR_KILLED iff
+  cptr == sptr"). `bouncer_oreset()` simply omits that pattern.
+
+* **Reachability.** An IRC operator who is also SASL-authenticated into an
+  account that has a bouncer session runs `BOUNCER ORESET <that account>`
+  (ORESET is oper-gated). Oper accounts doubling as bouncer accounts is a
+  normal deployment. The resulting dereference crashes the whole `ircd`
+  process, not just the oper's client.
+
+* **Reproducer.** `fuzz/client/crashes/02-bouncer-oreset-self/oreset_self.bin`
+  — base64 `X0JPVU5DRVIgT1JFU0VUIGZ1enphY2N0`; mode `0x5f`
+  (register + SASL as `fuzzacct` + OPER + join `#fuzz`), single line
+  `BOUNCER ORESET fuzzacct`.
+
+* **Confirmed outside the fuzz config.** Plain ASan build:
+  ```
+  ==ERROR: AddressSanitizer: SEGV ... in parse_client ircd/parse.c:1744:34
+    #1 client_dopacket ircd/packet.c:261
+    #3 client_sock_callback ircd/s_bsd.c:1960
+  ```
+  (UBSan build: `parse.c:1744:34: member access within null pointer of type
+  'struct Connection'`.)
+
+* **Suggested fix.** Make `bouncer_oreset()` follow `bouncer_reset()`: skip the
+  caller while exiting the others, exit the caller last, and propagate its
+  return value:
+  ```c
+  for (i = 0; i < alias_count; i++)
+    if (aliases[i] != cptr) exit_client(cptr, aliases[i], &me, "...");
+  if (primary && primary != cptr)
+    exit_client(cptr, primary, &me, "...");
+  if (primary == cptr || caller_was_alias)
+    return exit_client(cptr, cptr, &me, "...");   /* propagates CPTR_KILLED */
+  return 0;
+  ```
+  A defensive secondary guard in `parse_client()` (treat a freed/NULL
+  `cli_connect(cptr)` after the handler as if `CPTR_KILLED` was returned) would
+  harden the labeled-response epilogue against any handler that makes the same
+  mistake.
+
+---
+
+## F-3 — Global-buffer-overflow (read) in `MARKREAD` via `ToLower((unsigned char))`  (CONFIRMED)
+
+* **Severity:** Medium–High (out-of-bounds global read reachable by a
+  low-privilege client; a known audit class the repo already fixed elsewhere).
+* **Where:** `ircd/m_markread.c:108`, `sm_hash()`:
+  ```c
+  for (p = target; *p; p++) {
+    h ^= (unsigned char)ToLower((unsigned char)*p);   /* <-- line 108 */
+    h *= 16777619u;
+  }
+  ```
+* **Root cause.** `ToLower(c)` is `ToLowerTab_8859_1[(c) - CHAR_MIN]`
+  (`include/ircd_chattr.h`), a **256-entry** table indexed for a plain signed
+  `char` (range `[-128,127]` → `[0,255]`). Passing `(unsigned char)*p` makes a
+  byte ≥ 0x80 index `[256,383]`, reading up to 127 bytes past the table. ASan:
+  `0x… is located 63 bytes after global variable 'ToLowerTab_8859_1' …
+  of size 256`.
+
+  This is exactly the audit class the `nefarious-codebase` skill records as
+  fixed in `80c93e2` ("`ToLower((unsigned char)c)` reads past the table for
+  bytes above 127 (four such sites were fixed)"). The in-memory session-marker
+  hash `sm_hash()` is an **unfixed straggler** of that same audit — the
+  account-anchored path uses the folded key builders that were corrected, but
+  this ephemeral path was missed.
+
+* **Reachability.** The crash is on the **session** branch of MARKREAD
+  (`is_session == 1`, `m_markread.c:334,418`): a client that holds a bouncer
+  **session id** but is **not** logged into an account, with the
+  `draft/read-marker` capability negotiated, sends
+  `MARKREAD <target>` where `<target>` contains any byte ≥ 0x80. No account
+  and no oper privilege are required — a capability-negotiating client reaches
+  it (the fuzzer hit it through plain CAP negotiation on a client listener).
+  The account-anchored branch goes through `metadata_readmarker_*`, whose key
+  builders were fixed by the casefold audit, so this ephemeral path is the
+  exposed one.
+
+* **Reproducer.** `fuzz/client/crashes/03-markread-tolower-overread/markread_hibyte.bin`
+  — base64 `M01BUktSRUFEIP8=`; mode `0x33`, single line `MARKREAD \xff`.
+
+* **Confirmed outside the fuzz config.** Plain ASan build:
+  ```
+  ==ERROR: AddressSanitizer: global-buffer-overflow ... in sm_hash
+    #0 sm_hash ircd/m_markread.c:108
+    #1 sm_find ircd/m_markread.c:117
+    #2 session_markread_get ircd/m_markread.c:156
+    #3 m_markread ircd/m_markread.c:418
+    0x… is located 63 bytes after global variable 'ToLowerTab_8859_1' … of size 256
+  ```
+
+* **Suggested fix.** Pass a plain `char` to `ToLower`, matching every corrected
+  site from `80c93e2`:
+  ```c
+  h ^= (unsigned char)ToLower((char)*p);   /* ToLower indexes from CHAR_MIN */
+  ```
+  (`ToLower` already handles the full signed-char range; the extra
+  `(unsigned char)` cast is what breaks it.) A codebase-wide re-sweep for
+  `ToLower((unsigned char)` is warranted, since the audit note implies the fix
+  was meant to be exhaustive.
+
+---
+
 ## Known / excluded (not server bugs)
 
 ### K-1 — `-fsanitize=function` abort in `ircd/m_cap.c` (toolchain/UB-cast, excluded)
