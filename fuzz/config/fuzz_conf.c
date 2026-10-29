@@ -29,11 +29,45 @@ int LLVMFuzzerInitialize(int *argc, char ***argv)
   return 0;
 }
 
+#ifndef FUZZ_UNMASK_KNOWN
+/* FINDINGS.md F6: `expr '/' expr` in ircd_parser.y divides with no zero
+ * check (SIGFPE).  Turn every '/' outside quoted strings and comments into
+ * '+' so the fuzzer is not stopped by the known bug.  (Signed overflow in
+ * the same rules is silenced by building y.tab.c without that check.) */
+static void mask_division(char *buf, size_t len)
+{
+  size_t i;
+  int quoted = 0, comment = 0;
+  for (i = 0; i < len; i++) {
+    char c = buf[i];
+    if (comment) {
+      if (c == '\n')
+        comment = 0;
+    } else if (quoted) {
+      if (c == '"' || c == '\n')
+        quoted = 0;
+    } else if (c == '"') {
+      quoted = 1;
+    } else if (c == '#') {
+      comment = 1;
+    } else if (c == '/') {
+      buf[i] = '+';
+    }
+  }
+}
+#endif
+
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 {
-  const char *p = (const char *)data;
+  char *copy = malloc(size + 1);
+  const char *p = copy;
   const char *end = p + size;
   int pieces = 0;
+
+  memcpy(copy, data, size);
+#ifndef FUZZ_UNMASK_KNOWN
+  mask_division(copy, size);
+#endif
 
   CurrentTime = FUZZ_NOW;
   while (p <= end && pieces < MAX_PIECES) {
@@ -49,6 +83,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 
   fuzz_write_conf(fuzz_baseline_conf, strlen(fuzz_baseline_conf));
   rehash(&me, 2);
+  free(copy);
   fuzz_sandbox_trim();
   return 0;
 }
