@@ -280,6 +280,84 @@ harness/toolchain artifact or already triaged elsewhere, not a server bug.
 
 ---
 
+## F-5 — NULL-pointer dereference in `draft/multiline` batched message with no text  (CONFIRMED)
+
+* **Severity:** Medium–High (remote crash reachable by any client that
+  negotiated `batch` + `draft/multiline`; no account or oper needed).
+* **Where:** `ircd/m_batch.c:847`, `multiline_add_message()`:
+  ```c
+  len = (text && *text) ? strlen(text) : 0;   /* line 809: NULL-safe */
+  ...
+  msgcopy = (char *)MyMalloc(len + 2);
+  msgcopy[0] = concat ? 1 : 0;
+  strcpy(msgcopy + 1, text);                   /* line 847: text may be NULL */
+  ```
+* **Root cause.** The length computation at line 809 explicitly tolerates a
+  NULL `text`, but the `strcpy` at line 847 passes `text` straight to
+  `strcpy`'s (nonnull) source. When a batched message carries no trailing
+  parameter (e.g. `PRIVMSG #chan` with no `:text`), `text` is NULL and
+  `strcpy(msgcopy + 1, NULL)` dereferences it. (`len` being 0 doesn't help —
+  `strcpy` still reads `*src`.)
+* **Reachability.** A client negotiates `CAP REQ :batch draft/multiline`, opens
+  `BATCH +tag draft/multiline #chan`, and sends a batched line with no text:
+  `@batch=tag PRIVMSG #chan`. No authentication or privilege required — a normal
+  connecting client crashes the server.
+* **Reproducer.** `fuzz/client/crashes/05-multiline-null-text/multiline_null_text.bin`
+  — base64 `T0JBVENIICttbDEgZHJhZnQvbXVsdGlsaW5lICNmdXp6CkBiYXRjaD1tbDEgUFJJVk1TRyAjZnV6eg==`;
+  mode `0x4f`, lines `BATCH +ml1 draft/multiline #fuzz` then
+  `@batch=ml1 PRIVMSG #fuzz`.
+* **Confirmed outside the fuzz config.** Plain ASan build:
+  ```
+  ==ERROR: AddressSanitizer: SEGV on unknown address 0x000000000000
+    #… __sanitizer::internal_strlen
+    #2 multiline_add_message ircd/m_batch.c:847
+  ```
+* **Suggested fix.** Treat NULL `text` as empty throughout:
+  `strcpy(msgcopy + 1, text ? text : "");` (or `if (len) memcpy(...)` and always
+  NUL-terminate). Guard matches the existing line-809 NULL tolerance.
+
+---
+
+## F-6 — Stack-buffer-overflow in `do_clearmode()` control-string build  (CONFIRMED)
+
+* **Severity:** Medium (oper-triggered out-of-bounds stack write).
+* **Where:** `ircd/m_clearmode.c:298`, `do_clearmode()`:
+  ```c
+  char control_buf[20];                        /* line 149 */
+  int  control_buf_i = 0;
+  ...
+  for (flag_p = flags;   flag_p[0]; flag_p += 2)  /* base modes */
+    if (del_mode & flag_p[0])   control_buf[control_buf_i++] = flag_p[1];
+  for (flag_p = exflags; flag_p[0]; flag_p += 2)  /* extended modes */
+    if (del_exmode & flag_p[0]) control_buf[control_buf_i++] = flag_p[1];
+  control_buf[control_buf_i] = '\0';           /* line 298: OOB when i >= 20 */
+  ```
+* **Root cause.** `control_buf` is a fixed `char[20]`, but the two mode tables
+  (`flags[]` + `exflags[]`) together define more clearable mode letters than 20,
+  and the append loops have **no bound check**. A `CLEARMODE` whose mode
+  argument selects enough distinct modes drives `control_buf_i` to 20, so both
+  the final `control_buf[20] = '\0'` and the last loop writes run off the end of
+  the stack array.
+* **Reachability.** An operator runs `CLEARMODE #chan <modes>` (reached via
+  `mo_clearmode`, oper-gated) with a mode string covering the full clearable
+  set. ASan reports the write at index 20 of the 20-byte buffer.
+* **Reproducer.** `fuzz/client/crashes/06-clearmode-overflow/clearmode_overflow.bin`
+  — base64 `U0NMRUFSTU9ERSAjZnV6eiB2YW1wT3JpYnNvY2tldE5MaGxD`; mode `0x53`
+  (register + OPER + join), line `CLEARMODE #fuzz vampOribsocketNLhlC`.
+* **Confirmed outside the fuzz config.** Plain ASan build:
+  ```
+  ==ERROR: AddressSanitizer: stack-buffer-overflow ... in do_clearmode
+    #0 do_clearmode ircd/m_clearmode.c:298
+    #1 mo_clearmode ircd/m_clearmode.c:384
+  ```
+* **Suggested fix.** Size the buffer for the worst case and bound the loops:
+  `char control_buf[sizeof(flags)/sizeof(flags[0])/2 +
+  sizeof(exflags)/sizeof(exflags[0])/2 + 1];` (or a generous constant such as
+  `[48]`), and/or guard each append with
+  `control_buf_i < (int)sizeof(control_buf) - 1`.
+
+---
+
 ## Known / excluded (not server bugs)
 
 ### K-1 — `-fsanitize=function` abort in `ircd/m_cap.c` (toolchain/UB-cast, excluded)

@@ -1,0 +1,2 @@
+OBATCH +ml1 draft/multiline #fuzz
+@batch=ml1 PRIVMSG #fuzz
