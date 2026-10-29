@@ -52,6 +52,7 @@ F20-bouncer-record-kcid-overread.bin|bouncer_record|heap-buffer-overflow
 F21-bouncer-record-time-overflow.bin|bouncer_record|signed integer overflow
 F22-crule-arglist-overflow.bin|crule|heap-buffer-overflow
 F23-crule-empty-operand.bin|crule|null pointer
+F24-parse_server-prefix-only-overread.bin|parse|heap-buffer-overflow
 LIST
 echo "$pass reproduced, $fail failed"
 [ $fail -eq 0 ]

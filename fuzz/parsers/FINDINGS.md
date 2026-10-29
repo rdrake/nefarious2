@@ -154,9 +154,12 @@ the request line, `Content-Length` and a valid `X-Webhook-Signature`.)
 -1 (`400`) when `buf_used >= buf_size`, before looking for the end of the
 headers.  `conn_readable()` grows the buffer only when the new bytes would
 *exceed* it (`buf_used + nbytes > buf_size`), so a `recv()` that fills the
-initial 4096-byte buffer exactly (any request >= 4096 bytes arriving in
-one segment) leaves no room for the NUL the parser wants and is refused —
-even though the headers are complete.
+initial 4096-byte buffer exactly leaves no room for the NUL the parser
+wants and is refused — even though the headers are complete.  `recv()`
+returns the full 4096 whenever that much of the request is already
+buffered, which is the normal case for a request of 4096 bytes or more on
+a local or fast link (the harness drives the real `conn_readable()` over a
+socketpair).
 
 **Reachability** the listener is the Keycloak SPI's delivery endpoint.
 Admin events that carry a full user representation (attributes, required

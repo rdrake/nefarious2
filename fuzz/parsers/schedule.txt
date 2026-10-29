@@ -1,12 +1,14 @@
 # target seconds -- the campaign schedule used for FINDINGS.md
 # (./run.sh campaign 4 schedule.txt).  Weighted toward input that arrives
 # from the network unauthenticated: WebSocket, SASL/JWT, the webhook
-# listener, chathistory selectors, ipmask/string parsing, webpush.
+# listener, the IRC line parser, chathistory selectors, ipmask/string
+# parsing, webpush.
 websocket 3600
 kc_jwt 3600
 kc_webhook 3600
 sasl_auth 3600
 chathistory 2400
+parse 2400
 ircd_string 2400
 webpush 2400
 paste_listener 1800
