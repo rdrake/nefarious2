@@ -1,0 +1,6 @@
+#OMARKREJD #fuzz
+MARKREAD #fuzz timestamp=2026-10-29T12:00:00.000Z
+MARKREAD fu=bad
+MARKREAD
+MARKREAD ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ#fuzz *
+MARKREAD #nochan timestamp=2026-10-29T1nnnnnnnnn2:00:00.000Z
