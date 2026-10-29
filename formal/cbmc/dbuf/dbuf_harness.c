@@ -47,7 +47,11 @@ void harness_getmsg(void)
   unsigned la = nondet_unsigned(), lb = nondet_unsigned(), L = nondet_unsigned();
   unsigned K = nondet_unsigned(), n, i, i0, p, r;
 
+#ifdef KFIX
+  K = KFIX;              /* run.sh runs each boundary offset separately */
+#else
   __CPROVER_assume(K >= DBUF_SIZE - 3 && K <= DBUF_SIZE);
+#endif
   __CPROVER_assume(la <= AMAX && lb <= AMAX && L >= 1 && L <= LMAX);
   for (i = 0; i < AMAX; i++) { a[i] = nondet_char(); b[i] = nondet_char(); }
   memset(filler, 'x', sizeof(filler));
