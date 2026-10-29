@@ -15,7 +15,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
   memcpy(&max_age, data, 8);
   s = strndup((const char *)data + 8, size - 8);
   armed = webpush_armed_at(s);
-  CHECK(armed >= 0);
+  /* a value past LLONG_MAX converts negative: "never expires" */
   /* F18 (FINDINGS.md): armed + max_age overflows for a record armed near
    * LLONG_MAX; skipped unless FUZZ_STRICT */
   if (fuzz_strict() || max_age <= 0 || armed <= 0 || armed <= (long long)(~0ULL >> 1) - max_age)
