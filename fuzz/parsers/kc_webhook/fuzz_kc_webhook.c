@@ -12,13 +12,16 @@
  * over a socketpair, so recv(), buffer growth and the header parser run
  * unmodified.
  *
- * Byte 0 selects a mode:
+ * Byte 0 selects a mode (low two bits) and the listener configuration
+ * (bit 4: a configured path, bit 5: legacy_secret on, bit 6: event queue
+ * of size 0, bit 7: no secret configured):
  *   0  raw: the rest is the whole HTTP request (unauthenticated surface)
  *   1  signed: byte 1 = flags, the rest is a JSON body; the harness wraps it
  *      in a POST with a correct Content-Length and a valid
  *      X-Webhook-Signature, so the JSON dispatch is reached.  Oracle: such a
  *      request is answered 200 (queued, duplicate) or 403 (other realm),
- *      never 400/401.
+ *      never 400/401.  Flag bit 6 sends the same body again signed one
+ *      second later (the SPI's retry: answered 200, not queued again).
  *   2  kc_webhook_sig_verify with a fuzz header against an OpenSSL HMAC()
  *      reference: OK iff the header is exactly t=<digits>,v1=<lower/upper
  *      hex of the reference MAC> within the window.
@@ -166,9 +169,20 @@ static void hexmac(const char *body, size_t blen, long long t, char out[65], int
     sprintf(out + 2 * i, upper ? "%02X" : "%02x", mac[i]);
 }
 
+static void configure(unsigned c)
+{
+  free(cfg_path);
+  cfg_path = (c & 0x10) ? strdup("/hooks/kc") : NULL;
+  cfg_legacy_secret = (c & 0x20) ? 1 : 0;
+  cfg_queue_max = (c & 0x40) ? 0 : 4;
+  free(cfg_secret);
+  cfg_secret = (c & 0x80) ? NULL : strdup(SECRET);
+}
+
 int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 {
   if (size < 2 || size > 70000) return 0;
+  configure((data[0] % 3) == 0 ? data[0] & 0xf0 : 0);
   switch (data[0] % 3) {
   case 0:
     (void)run_request((const char *)data + 1, size - 1);
@@ -187,6 +201,15 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
                 (flags & 0x20) ? "/webhook" : "/keycloak-webhook", blen, t, mac);
     memcpy(req + n, body, blen);
     st = run_request(req, n + blen);
+    if ((flags & 0x40) && st == 200) {
+      /* the SPI's retry: same body, signed again one second later */
+      hexmac(body, blen, t + 1, mac, flags & 0x10);
+      n = sprintf(req, "POST %s HTTP/1.1\r\nHost: x\r\nContent-Length: %zu\r\n"
+                  "X-Webhook-Signature: t=%lld,v1=%s\r\n\r\n",
+                  (flags & 0x20) ? "/webhook" : "/keycloak-webhook", blen, t + 1, mac);
+      memcpy(req + n, body, blen);
+      (void)run_request(req, n + blen);
+    }
     /* Known bug F3 (FINDINGS.md): a request whose first recv() fills the
      * initial 4096-byte buffer is answered 400 before its headers are
      * read.  Tolerated by default; FUZZ_WH_STRICT=1 makes it fatal. */

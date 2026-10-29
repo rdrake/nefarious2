@@ -49,7 +49,7 @@ for t in $targets; do
   $CC -fprofile-instr-generate "${objs[@]}" -o "$OUT/cov_$t" $libs
   rm -f "$od"/*.profraw
   dirs=(); for d in "$HERE/$t/corpus" "$HERE/$t/seeds" ${COV_EXTRA:+"$COV_EXTRA/$t"}; do [ -d "$d" ] && dirs+=("$d"); done
-  LLVM_PROFILE_FILE="$od/%p.profraw" FUZZ_WS_KNOWN_HANG= timeout 600 "$OUT/cov_$t" "${dirs[@]}" >/dev/null 2>&1 || true
+  LLVM_PROFILE_FILE="$od/%p.profraw" timeout 600 env -u FUZZ_WS_KNOWN_HANG -u FUZZ_STRICT "$OUT/cov_$t" "${dirs[@]}" >/dev/null 2>&1 || true
   llvm-profdata merge -sparse "$od"/*.profraw -o "$od/cov.profdata" 2>/dev/null
   # the harness may #include the ircd source: report on the harness's
   # files and every ircd file it links

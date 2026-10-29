@@ -16,7 +16,10 @@
  * AUTHENTICATE parameters, one per '\n'-terminated line, as m_authenticate
  * would pass them (at most 400 bytes, no NUL/CR/LF).  A line starting with
  * '!' is plaintext instead: the harness replaces "@N" with the server's
- * SCRAM nonce, "\\0" with a NUL byte, base64-encodes it and sends it in
+ * SCRAM nonce, "@P" (at the very end, after ",p=") with the base64 of a
+ * correct ClientProof for the password "pencil" (the canned Keycloak
+ * credentials are derived from it), "\\0" with a NUL byte,
+ * base64-encodes it and sends it in
  * 400-byte chunks the way a client does -- so the mechanism parsers past
  * the decoder (and the nonce check) are reachable.
  */
@@ -28,6 +31,8 @@
 #include <kc/kc_keycloak.h>
 #include <stdint.h>
 #include <openssl/evp.h>
+#include <openssl/hmac.h>
+#include <openssl/sha.h>
 #include <stdlib.h>
 #include <string.h>
 #include "sasl_stubs.h"
@@ -50,6 +55,42 @@ static const char ec_pub_pem[] =
   "PqmFTIkf5hMG2XkFjRDQFfpKPojzgabr2HNiG0nKW4vnINhySCBwlcAw0w==\n"
   "-----END PUBLIC KEY-----\n";
 
+/* SCRAM-SHA-256 credentials for "pencil" (RFC 7677 salt), derived once */
+static char scram_stored_b64[64], scram_server_b64[64];
+static unsigned char scram_client_key[32], scram_stored_key[32];
+static const char scram_salt_b64[] = "W22ZaJ0SNY7soEsUEjb6gQ==";
+
+static void derive_scram(void)
+{
+  unsigned char salt[32], sp[32], sk[32];
+  unsigned int l;
+  int sl = EVP_DecodeBlock(salt, (const unsigned char *)scram_salt_b64, 24) - 2;
+  PKCS5_PBKDF2_HMAC("pencil", 6, salt, sl, 4096, EVP_sha256(), 32, sp);
+  HMAC(EVP_sha256(), sp, 32, (const unsigned char *)"Client Key", 10, scram_client_key, &l);
+  SHA256(scram_client_key, 32, scram_stored_key);
+  HMAC(EVP_sha256(), sp, 32, (const unsigned char *)"Server Key", 10, sk, &l);
+  EVP_EncodeBlock((unsigned char *)scram_stored_b64, scram_stored_key, 32);
+  EVP_EncodeBlock((unsigned char *)scram_server_b64, sk, 32);
+}
+
+/* base64(ClientKey XOR HMAC(StoredKey, AuthMessage)) for the
+ * client-final-without-proof in final[0..flen) */
+static size_t scram_proof(struct SASLSession *s, const unsigned char *final, size_t flen,
+                          unsigned char *out)
+{
+  char am[2048];
+  unsigned char sig[32], proof[32];
+  unsigned int l;
+  int i, n;
+  if (!s || !s->scram_client_first_bare || !s->scram_server_first) return 0;
+  n = snprintf(am, sizeof am, "%s,%s,%.*s", s->scram_client_first_bare,
+               s->scram_server_first, (int)flen, (const char *)final);
+  if (n < 0 || (size_t)n >= sizeof am) n = (int)strlen(am);
+  HMAC(EVP_sha256(), scram_stored_key, 32, (unsigned char *)am, (size_t)n, sig, &l);
+  for (i = 0; i < 32; i++) proof[i] = scram_client_key[i] ^ sig[i];
+  return (size_t)EVP_EncodeBlock(out, proof, 32);
+}
+
 static void complete_pending(unsigned flags)
 {
   struct pending_kc p = pending;
@@ -62,8 +103,8 @@ static void complete_pending(unsigned flags)
     u.username = "alice";
     u.scram_salt = "W22ZaJ0SNY7soEsUEjb6gQ==";
     u.scram_iterations = (flags & 2) ? 0 : 4096;
-    u.scram_stored_key = (flags & 4) ? "short" : "WG5d8oPm3OtcPnkdi4Uo7BkeZkBFzpcXkuLmtbsT4qY=";
-    u.scram_server_key = "wfPLwcE6nTWhTAmQ7tl2KeoiWGPlZqQxSrmfPwDl2dU=";
+    u.scram_stored_key = (flags & 4) ? "short" : scram_stored_b64;
+    u.scram_server_key = scram_server_b64;
     u.ecdsa_pubkey = (flags & 8) ? NULL : (char *)ec_pub_pem;
     p.user_cb((flags & 1) ? KC_NOT_FOUND : KC_SUCCESS, &u, p.data);
     break;
@@ -107,7 +148,12 @@ static int send_plain(struct Client *cli, const char *src, size_t n)
   struct SASLSession *s = cli_saslsession(cli);
   size_t i, o = 0, bl, pos;
   for (i = 0; i < n && o < sizeof(plain) - 130; i++) {
-    if (src[i] == '@' && i + 1 < n && src[i + 1] == 'N') {
+    if (src[i] == '@' && i + 2 == n && src[i + 1] == 'P') {
+      if (o + 48 < sizeof(plain))
+        o += scram_proof(s, plain, o >= 3 && !memcmp(plain + o - 3, ",p=", 3) ? o - 3 : o,
+                         plain + o);
+      i++;
+    } else if (src[i] == '@' && i + 1 < n && src[i + 1] == 'N') {
       const char *nn = (s && s->scram_combined_nonce) ? s->scram_combined_nonce : "";
       size_t l = strlen(nn);
       if (l > 128) l = 128;
@@ -139,6 +185,7 @@ static int send_plain(struct Client *cli, const char *src, size_t n)
 int LLVMFuzzerInitialize(int *argc, char ***argv)
 {
   (void)argc; (void)argv;
+  derive_scram();
   if (sasl_local_init() != 0 || !sasl_local_available()) abort();
   memset(&pending, 0, sizeof pending);   /* the health-check token request */
   return 0;
