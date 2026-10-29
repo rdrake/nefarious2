@@ -11,7 +11,7 @@ stub and script is under `fuzz/parsers/`; no ircd source was modified.
   back into `<t>/corpus`; `./coverage.sh` gives source line coverage.
 * Reproduce: `./findings/reproduce.sh` replays every reproducer below
   through the plain ASan build with the known-bug guards off and checks its
-  signature (26/26 at the time of writing).
+  signature (30/30 at the time of writing).
 
 Each harness steps around the bugs already reported here so the campaign
 could keep looking past them; `FUZZ_STRICT=1` (and, for the WebSocket and
@@ -48,6 +48,9 @@ trusted-but-not-blindly, config operator-controlled).
 | F22 | Low (inherited) | `ircd/crule.c:742` | CRULE argument list overflows `arg[3]` (heap write) | ircd.conf / linesync |
 | F23 | Low (inherited) | `ircd/crule.c:767` / `:548-569` | CRULE `&&` with a missing operand: NULL / uninitialized child freed | ircd.conf / linesync |
 | F24 | Low (inherited) | `ircd/parse.c:2103` | `parse_server` reads up to 2 bytes past a prefix-only line | a linked server |
+| F25 | Low-Medium (inherited) | `ircd/ircd_res.c:711,719` | DNS A/AAAA rdata copied without checking it was received | the configured resolver, or a spoofer who guesses the id |
+| F26 | Low (inherited) | `ircd/ircd_reslib.c:1021` | bitstring label encoder: signed shift overflow | DNS names built from config / DNSBL queries |
+| F27 | Low (inherited) | `ircd/ircd_reslib.c:644` | `labellen` reads one byte past the DNS message | DNS replies |
 
 "Inherited" = the same code is in upstream ircu; it is reachable here all
 the same.  Informational notes (behaviour differences, latent hazards,
@@ -641,6 +644,78 @@ is dropped.
 
 **Fix** `if (!*ch) return 0;` after skipping the spaces (and test `ch[1]`
 before `ch[2]`).
+
+## F25 — DNS reply: A/AAAA rdata copied without checking it was received (Low-Medium, inherited)
+
+**Reproducers** (target `dns`, `FUZZ_STRICT=1` = reply in an exact-length
+buffer): `findings/F25a-dns-truncated-A-rdata.bin` — a reply to an A query
+whose answer has `rdlength 4` but only one rdata byte
+(`b64: AAASNIGAAAEAAQAAAAAEaG9zdAdleGFtcGxlA2NvbQAAAQABwAwAAQABAAACWAAEwA==`);
+`findings/F25b-dns-truncated-AAAA-rdata.bin` — the same for AAAA with 6 of
+16 bytes (`b64: AQASNIGAAAEAAQAAAAAEaG9zdAdleGFtcGxlA2NvbQAAHAABwAwAHAABAAACWAAQAAECAwQF`).
+
+```
+heap-buffer-overflow READ of size 4   #0 proc_answer ircd/ircd_res.c:711
+heap-buffer-overflow READ of size 16  #1 proc_answer ircd/ircd_res.c:719 (memcpy)
+```
+
+**Root cause** `proc_answer()` (`ircd/ircd_res.c:690-720`) checks only
+that the fixed RR header fits (`current + ANSWER_FIXED_SIZE < eob`) and
+that `rd_length` equals 4/16, never that `current + rd_length <= eob`.  A
+truncated reply makes it copy past the received bytes.  In the ircd the
+buffer is `res_readreply`'s stack array (`char buf[sizeof(HEADER) +
+MAXPACKET]`), so the copy does not fault — the tail of the "resolved"
+address is whatever an earlier reply left on the stack.
+
+**Reachability** `res_readreply` accepts a datagram whose source is a
+configured nameserver and whose 16-bit id matches a pending request: the
+resolver itself, an on-path attacker, or an off-path spoofer who wins the
+id race.  The forward lookup that confirms a client's PTR name
+(and DNSBL/connect lookups) then resolves to partly stale bytes.
+
+**Fix** `if (current + rd_length > (unsigned char *)eob) return 0;` before
+the switch (it also covers the CNAME/default `current += rd_length`).
+
+## F26 — reslib bitstring label encoder: signed shift overflow (Low, inherited)
+
+**Reproducer** `findings/F26-reslib-bitstring-shift.bin` (target `dns`, mode
+4, `FUZZ_STRICT=1`): `txt: \x04a\\.b\\065(\\[x41/8].c`.
+`ircd/ircd_reslib.c:1021:15: runtime error: left shift of 778191144 by 4
+places cannot be represented in type 'int'`.
+
+**Root cause** `irc_encode_bitsring()` (BIND-derived) accumulates hex
+digits with `value <<= 4` and never clears `value` after emitting a byte.
+
+**Reachability** text names passed to `irc_ns_name_pton` / `irc_dn_comp` /
+`irc_res_mkquery`: hostnames from Connect blocks, DNSBL query names
+(`dnsbl.c:520`), forward lookups of PTR names (whose text form, produced by
+`irc_ns_name_ntop`, escapes `\`, so a reply cannot inject `\[`).  UB only.
+
+**Fix** reset `value = 0` after `*tp++ = value`, or make it `unsigned`.
+
+## F27 — `labellen` reads one byte past the DNS message (Low, inherited)
+
+**Reproducer** `findings/F27-reslib-labellen-overread.bin` (target `dns`,
+mode 3, `FUZZ_STRICT=1`; `b64: AwECABwAAQMAQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUE=`).
+
+```
+heap-buffer-overflow READ of size 1
+#0 labellen               ircd/ircd_reslib.c:644
+#1 irc_ns_name_unpack     ircd/ircd_reslib.c:319
+#2 irc_ns_name_uncompress ircd/ircd_reslib.c:278
+#3 irc_dn_expand          ircd/ircd_reslib.c:255
+```
+
+**Root cause** for a label type byte `0x41` (EDNS0 bitstring) `labellen()`
+reads the bit count at `lp[1]` before `irc_ns_name_unpack` checks the
+label against `eom`.
+
+**Reachability** every name `proc_answer` expands from a DNS reply; one
+byte past the received datagram (inside the stack buffer, so no fault).
+
+**Fix** pass `eom` to `labellen` and reject a bitstring label whose count
+byte is not inside the message (or drop bitstring labels: they were
+retired by RFC 6891).
 
 ---
 
