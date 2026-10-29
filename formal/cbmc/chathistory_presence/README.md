@@ -36,7 +36,8 @@ consecutive windows separated by MORE than the 30 s coalesce gap.
 | `harness_union_sound` | fail-safe: every instant visible afterwards was visible before, is in the new window, or is within 30 s of covered time (a coalesced gap) | VERIFIED |
 | `harness_union_complete_below_cap` | with count < cap nothing previously visible and nothing in the new window is lost | VERIFIED |
 | `harness_union_cap_drops_oldest` | at the cap only instants OLDER than every retained window may be lost ("drop-oldest FIFO") | **FAILS** (P3) |
-| `harness_union_idempotent` / `harness_union_commutative` | union(A) twice == once; A-then-B and B-then-A give the same visible set | see run log (split from a 4-call harness that OOMed) |
+| `harness_union_idempotent` | union(r,A) twice == once, structurally (r: wf, <= 2 windows) | VERIFIED |
+| `harness_union_commutative` | A-then-B and B-then-A give the same visible set (r: wf, <= 1 window; runs with MiniSat in 9.5 GB -- CaDiCaL exceeded 6 GB) | VERIFIED |
 | `harness_join_part` | join idempotent (first start kept), open interval visible from its start, part clears `open_since`, keeps `wf`, the closed visit `[join, max(join,part)]` stays visible | VERIFIED |
 | `harness_next_visible` | `record_next_visible` is exact: t if visible; else the nearest visible instant after (forward) / before (reverse) t with nothing visible in between, or -1 | VERIFIED |
 | `harness_cap_clamp` | for every configured value the cap is in [1,255] < 256 (the F-CH3 uint8 wrap cannot recur) | VERIFIED |
