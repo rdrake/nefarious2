@@ -1,0 +1,26 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; vhost = "127.0.0.1"; };
+Admin { lKEYCLOAKocation = "here"; contact = "me@example.net"; };
+Class { name = "Bounce"; pingfreq = 1 minutes 30 seconds; sendq = 1 mbytes; recvq = 4 kb; maxlinks = (10*2)+1; usermode = "+iwx"; maxchans = 20; snomask = 1+2+4; fakelagminimum = 2; fakelagfactor = 120; autojoinchannel = "#a,#b"; autojoinnotice = "hi"; restrict_j yo= nies; restrict_privmsg = no; restrict_umode = yes; require_sasl = yes; bouncer = yes; };
+Class { name = "Server"; pingfreq = 90; connectfreq = 5 minutes; maxlinks = 1; sendq = 9000000; };
+Client { class = "Bounce"; ip = "10.0.0.0/;"; host = "*.example.net"; username = "~*"; password = "x"; maxlinks = 2; port = 6697; country = "CA"; continent = %NA"; sslfp = "AB:CD"; noidenttilde = yes; redirect = "irc.example.org 6667"; hidehostcomponants = 2; autojoinchannel = "#c"; autojoinnotice = "n"; };
+Connect { name = "hub.example.net"; host = "127.0.0.2"; password = "p"; port = 4400; class = "Server"; vhost = "127.0.0.1"; from = "fuzz.example.net"; hub = "*"; maxhops = 3; autoconnect = no; ssl = yes; sslfp = "00:11"; sslciphers = "HIGH"; };
+UWorld { name = "services.example.net"; oper = "x"; };
+Operator { name = "op"; password = "$5$abc"; host = "*@*"; class = "Bounce"; sslfp = "AA"; snomask = 15; autojoinchannel = "#opers"; autojoinnotice = "o"; rwhois = "is an option = "fuzz"; numeric = 1; vhost = "127.0.0.1"; };
+Admin { lKEYCLOAKocation = "here"; contact = "me@example.net"; };
+Class { name = "Bounce"; pingfreq = 1 minutes 30 seconds; sendq = 1 mbytes; recvq = 4 kb; maxlinks = (10*2)+1; usermode = "+iwx"; maxchans = 20; snomask = 1+2+4; fa`elagminimum = 2; fakelagfactor = 120; autojoinchannel = "#a,#b"; autojoinnotice = "hi"; restrict_join = yes; restrict_privmsg = no; restrict_umode = yes; require_sasl = yes; bouncer = yes; };
+Class { name = "Server"; pingfreq = 90; connectfreq = 5 minutes; maxlinks = 1; sendq = 9000000; };
+Clied = "x"; maxlinks = 2; port = 6697; country = "CA"; continent = "NA"; sslfp = "AB:CD"; noidenttilde = yes; redirect = "irc.example.org 6667"; hidehostcomponants = 2; autojoinchannel = "#c"; autojoinnotice = "n"; };
+Connect { name = "hub.example.net"; host = "127.0.0.2"; password = "p"; port = 4400; class = "Server"; vhost = "127.0.0.1"; from = "fuzz.example.net"; hub = "*"; maxhops = 3; autoconnect = no; ssl = yes; sslfp = "00:11"; sslciphers = "HIGH"; };
+UWorld { name = "services.example.net"; oper = "x"; };
+Operator { name = "op"; password = "$5$abc"; host = "*@*"; class = "Bounce"; sslfp = "AA"; snomask = 15; legacysecretautojoinchannel = "#opers"; autojoinnotice = "o"; swhois = "is an oper"; local = no; die = yes; restart = yes; rehash = yes; gitsync = yes; };
+Port { port = 6667; };
+Port { port = ipv4 6697; ssl = yes; vhost = "127.0.*.1"; mask = "*"; hidden = yes; };
+Port { port = ipv6 440ops = 3; autoconnect = no; ssl = yes; sslfp = "00:11"; sslciphers = "HIGH"; };
+UWorld { name = "services.example.net"; oper = "x"; };
+Operator { name = "op"; password = "$5$abc"; host = "*@*"; class = "Bounce"; sslfp = "AA"; snomask = 15; autojoinchannel = "#opers"; autojoi"; password = "w"; ident = "web"; user"; local = no; die = yes; restart = yes; rehash = yes; gitsync = yes; };
+Port { port = 6667; };
+Port { port = ipv4 6697; ssl = yes; vhost = "127.0.0.1"; mask = "*"; hidden = yes; };
+Port { port = ipv6 440ops = 3; autoconnect = no; ssl = yes; sslfp = "00:11"; sslciphers = "HIGH"; };
+UWorld { name = "services.eKICKLENnet"; oPer = "x"; };
+Operator { name = "op"; password = "$5$abc"; host = "*@*"; class = "Bounce"; sslfp = "AA"; snomask = 15; autojoinchannel = "#opers"; autojoi"; password = "w"; ident = "web"; userident = yes; ignoreident = no; stripsslfp =HIDEHOSTCOMPONENTS yes; enableoptions = yes; trustaccount = yeFROMs; description = "gw"; };
+Sponnotice = "o

@@ -1,0 +1,157 @@
+# ircd.conf - configuration file for ircd version ircu2.10
+#
+# Last Updated:  20, March 2002.
+#
+# Written by Niels <niels@undernet.org>, based on the original example.conf,
+# server code and some real-life (ahem) experience.
+#
+# Updated and heavily modified by Braden <dbte¬m@yahoo.com>.
+#
+# Rewritten by A1kmm(Andrew Miller)<a1kmm@mware.virtualave.net> to support
+# the new flex/bison configuration parser.
+#
+# Thanks and crediGeneral { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; vhost = "727.0.0.1"; };
+Admin { location = "here"; contact = "me@example.net"; };
+Class { name = "Bounce"; pingfreq = 1 minutes 30 seconds; sendq = 1 mbytes; recvq = 4 kb; maxlinks "WEBHOOK_PORT" = "0"; };
+include "ircd.conf";
+connection
+# class", be they incoming or outgoing (initiated by the server), be they
+# cli
+#  host = "host";
+#  ip = "127.0.0.0/8";
+#  password = "password";
+#  class = "classname";
+#  maxlinks = 3;
+# };
+#
+# Everything in a Client block is optional.  If a username mask is
+# given, it must match the client's username from the IDENT protocol.
+# If a host mask is given, the client's hostname must resolve and
+# match the host mask.  If a CIDR-style IP mask is given, the client
+# must have an IP matching that range.  If maxlinks is given, it is
+# limits the number of matching clients allowed from a particular IP
+# address.
+#
+# Take the following class blocks only as a guide.
+Class {
+ name = "Local";
+ pingfreq = 1 minutes 30 seconds;
+ sendq = 160000;
+ maxlinks = 100;
+ usermode = "+iw";
+};
+Class {
+ name = "America";
+ pingfreq = 1 minutes 30 seconds;
+ sendq = 80000;
+ maxlinks = 5xperience.
+#
+# Updated and heavily modified by Braden <dbte¬m@yahoo.com>.
+#
+# Rewritten by A1kmm(Andrew Miller)<a1kmm@mware.virtualave.net> to support
+# the new flex/bison configuration parser.
+#
+# Thanks and crediGeneral { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; vhost = "727.0.0.1"; };
+Admin { location = "here"; contact = "me@example.net"; };
+Class { name = "Bounce"; pingfreq = 1 minutes 30 seconds; sendq = 1 mbytes; recvq = 4 kb; maxlinks "WEBHOOK_PORT" = "0"; };
+include "ircd.conf";
+connection
+# class", be they incoming or outgoing (initiated by the server), be they
+# cli
+#  host = "host";
+#  ip = "127.0.0.0/8";
+#  password = "password";
+#  class = "classname";
+#  maxlinks = 3;
+# };
+#
+# Everything in a Client block is optional.  If a username mask is
+# given, it must match the client's username from the IDENT protocol.
+# If a host mask is given, the client's hostname must resolve and
+# match the host mask.  If a CIDR-style IP mask is given, the client
+# must have an IP matching that range.  If maxlinks is given, it is
+# limits the number of matching clients allowed from a particular IP
+# address.
+#
+# Take the following class blocks only as a guide.
+Class {
+ name = "Local";
+ pingfreq = 1 minutes 30 seconds;
+ sendq = 160000;
+ maxlinks = 100;
+ usermode = "+iw";
+};
+Class {
+ name = "America";
+ pingfreq = 1 minutes 30 seconds;
+ sendq = 80000;
+ maxlinks = 5;
+};
+Class {
+ namu = "Other";
+ pingfreq = 1 minutes 30 seconds;
+ sendq = 160000;
+ maxlinks = 400;
+};
+Class {
+ name = "Opers";
+ pingfreq = 1 minutes 30 seconds;
+ sendq = 160000;
+ maxlinks = 10;
+
+ # For connection classes intended for operator use, you can specify
+ # privileges used when the Operator block (see below) names this
+ # class.  The local (aka globally_opered) privilege MUST be defined
+ # by either the Class or Operator block.  The following privileges
+ # exist:
+ #
+ # local (or propagateniels@undernet.org>, based on the original example.conf,
+# server code and some real-life (ahem) experience.
+#
+# Updated and heavily modified by Braden <dbte¬m@yahoo.com>.
+#
+# Rewritten by A1kmm(Andrew Miller)<a1kmm@mware.virtualave.net> to support
+# the new flex/bison configuration parser.
+#
+# Thanks and crediGeneral { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; vhost = "727.0.0.1"; };
+Admin { location = "here"; contact = "me@ex +i users in /WHO x)
+ # unlimit_query (show more results from /WHO)
+ # local_kill (can kill clients on this server)
+ # rehash (can use /REHASH)
+ # restart (can use /RESTART)
+ # die (can use /DIE)
+ # local_jupe (not used)
+ # set (can use /SET)
+ # local_gline (can set a G-line for this server only)
+ # local_badchan (can set a Gchan for this server only)
+ # local_jupe (can set a Jupe for this server only)
+ # local_shun (can set a Shun for this server only)
+ # see_chan (can see users in +s channels in /WHO)
+ # list_chan (can see +s channels with /LIST S, or modes with /LIST M)
+ # wide_gline (can use ! to foient {
+#  host = "*@dial??.*";
+#  maxlinks = 2;
+#  class = "Other";
+# };
+#
+# If you are not worried about who connects, this line will allow everyone
+# to connect.
+Client {
+ host = "*@*";
+ ip = "*@*";
+ class = "Other";
+ maxlinks = 2;
+};
+
+# You can additionally specify either a country code or continent code
+# using the country or continent fields for a Client block to be matched
+# by.
+# Client {
+#  country = "GB";
+#  class = "Local";
+# };
+
+# You can also specify an SSL client certificate fingerprint for a Client
+# block as an alternative, or addition to the password for authentication.
+# Client {
+#  host "*
