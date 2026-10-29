@@ -2,10 +2,11 @@
  * on-disk layout v7..v12 (include/bouncer_session.h), plus multi-record
  * inputs (same account twice, two accounts).  Built and run by run.sh.
  *
- *   gen_bouncer_seeds OUTDIR [RECORDS_OUTDIR]
+ *   gen_bouncer_seeds OUTDIR [RECORDS_OUTDIR [REPRO_OUTDIR]]
  *
  * With RECORDS_OUTDIR it also writes fuzz_records seeds: keyed chunks for
- * the bouncer, presence and metadata column families.
+ * the bouncer, presence and metadata column families.  With REPRO_OUTDIR
+ * it writes the minimal bouncer-record reproducers named in FINDINGS.md.
  */
 #include "config.h"
 #include "bouncer_session.h"
@@ -181,6 +182,112 @@ static void emit_records(const char *dir, const struct BounceSessionRecord *r12)
   }
 }
 
+static void emit_file(const char *dir, const char *name, const void *a,
+                      size_t alen, const void *b, size_t blen)
+{
+  char path[1024];
+  FILE *f;
+  snprintf(path, sizeof(path), "%s/%s", dir, name);
+  f = fopen(path, "wb");
+  if (!f) { perror(path); exit(1); }
+  fwrite(a, 1, alen, f);
+  if (b) {
+    fwrite(REC_SEP, 1, sizeof(REC_SEP) - 1, f);
+    fwrite(b, 1, blen, f);
+  }
+  fclose(f);
+}
+
+/* The v8 layout as v8 builds actually wrote it (fa81e2f..5a1ce20, when
+ * BOUNCER_MAX_ALIASES was 4): struct BounceSessionRecord_v8 in the header
+ * sizes bsr_aliases with the live macro (16 since 4ad2cd8). */
+struct v8_as_written {
+  uint32_t bsr_version;
+  char     bsr_account[ACCOUNTLEN + 1];
+  char     bsr_sessid[BOUNCER_SESSID_LEN];
+  char     bsr_token[BOUNCER_TOKEN_LEN + 1];
+  char     bsr_name[BOUNCER_NAME_LEN];
+  char     bsr_origin[NICKLEN + 1];
+  int32_t  bsr_hold_override;
+  int64_t  bsr_created;
+  int64_t  bsr_disconnect_time;
+  int64_t  bsr_last_active;
+  int64_t  bsr_last_msg_time;
+  int64_t  bsr_total_active;
+  uint32_t bsr_attach_count;
+  uint32_t bsr_connect_count;
+  char     bsr_nick[NICKLEN + 1];
+  char     bsr_username[USERLEN + 1];
+  char     bsr_realhost[HOSTLEN + 1];
+  char     bsr_host[HOSTLEN + 1];
+  char     bsr_realname[REALLEN + 1];
+  char     bsr_account_name[ACCOUNTLEN + 1];
+  int64_t  bsr_acc_create;
+  struct irc_in_addr bsr_ip;
+  char     bsr_sock_ip[SOCKIPLEN + 1];
+  char     bsr_sockhost[HOSTLEN + 1];
+  uint16_t bsr_listener_port;
+  uint64_t bsr_agg_sendB;
+  uint64_t bsr_agg_receiveB;
+  uint32_t bsr_agg_sendM;
+  uint32_t bsr_agg_receiveM;
+  uint16_t bsr_histcount;
+  struct BounceConnHistory bsr_history[10];
+  uint16_t bsr_chancount;
+  struct {
+    char     name[CHANNELLEN + 1];
+    uint32_t modes;
+    int64_t  join_tv_sec;
+    int32_t  join_tv_usec;
+    char     join_msgid[16];
+  } bsr_channels[50];
+  uint16_t bsr_aliascount;
+  struct BounceSessionAliasRecord bsr_aliases[4];
+};
+
+static void emit_repros(const char *dir)
+{
+  static struct BounceSessionRecord r, r2;
+  static struct v8_as_written v8w;
+
+  /* F2: a current-version record whose nick is empty. */
+  FILL_COMMON(r, BOUNCER_DB_VERSION, 0);
+  memset(r.bsr_nick, 0, sizeof(r.bsr_nick));
+  emit_file(dir, "F2-bouncer-empty-nick.bin", &r, sizeof(r), NULL, 0);
+
+  /* F5: bsr_kc_id (the last field) and the tail padding all base64
+   * characters, no NUL: account_id_valid() walks off the record. */
+  FILL_COMMON(r, BOUNCER_DB_VERSION, 0);
+  memset(r.bsr_kc_id, 'A',
+         sizeof(r) - offsetof(struct BounceSessionRecord, bsr_kc_id));
+  emit_file(dir, "F5-bouncer-kcid-overread.bin", &r, sizeof(r), NULL, 0);
+
+  /* F9: identity fields nothing validates: a nick with spaces and CR LF
+   * (P10 line injection when the ghost is burst), a bad channel name,
+   * and a second session (other account) with the same nick. */
+  FILL_COMMON(r, BOUNCER_DB_VERSION, 0);
+  memset(r.bsr_nick, 0, sizeof(r.bsr_nick));
+  strcpy(r.bsr_nick, "x y\r\nAB SQ hub :pwn");
+  memset(r.bsr_channels[1].name, 0, sizeof(r.bsr_channels[1].name));
+  strcpy(r.bsr_channels[1].name, "#a b,0");
+  FILL_COMMON(r2, BOUNCER_DB_VERSION, 1);
+  strcpy(r2.bsr_nick, r.bsr_nick);   /* second session, same nick */
+  emit_file(dir, "F9-bouncer-unvalidated-identity.bin", &r, sizeof(r),
+            &r2, sizeof(r2));
+
+  /* F10: a live (unexpired) record exactly as a v8 build wrote it, next to
+   * an expired current-version record: the v8 one is not restored, and
+   * the expiry cleanup pass deletes it from the store. */
+  FILL_COMMON(v8w, 8, 0);
+  FILL_ALIASES(v8w, 2);
+  FILL_COMMON(r2, BOUNCER_DB_VERSION, 1);
+  r2.bsr_disconnect_time = 0;          /* expired */
+  emit_file(dir, "F10-bouncer-v8-as-written.bin", &v8w, sizeof(v8w),
+            &r2, sizeof(r2));
+  fprintf(stderr, "v8 as written: %zu bytes; struct BounceSessionRecord_v8:"
+          " %zu bytes\n", sizeof(v8w), sizeof(struct BounceSessionRecord_v8));
+}
+
 int main(int argc, char **argv)
 {
   static struct BounceSessionRecord_v7 r7;
@@ -190,8 +297,9 @@ int main(int argc, char **argv)
   static struct BounceSessionRecord_v11 r11;
   static struct BounceSessionRecord r12, r12b;
 
-  if (argc != 2 && argc != 3) {
-    fprintf(stderr, "usage: %s OUTDIR [RECORDS_OUTDIR]\n", argv[0]);
+  if (argc < 2 || argc > 4) {
+    fprintf(stderr, "usage: %s OUTDIR [RECORDS_OUTDIR [REPRO_OUTDIR]]\n",
+            argv[0]);
     return 2;
   }
   outdir = argv[1];
@@ -245,10 +353,12 @@ int main(int argc, char **argv)
   /* truncated / wrong-size records */
   emit2(&r12, sizeof(r12) - 1, NULL, 0);
   emit2(&r12, 4, NULL, 0);
-  if (argc == 3) {
+  if (argc >= 3) {
     FILL_COMMON(r12b, BOUNCER_DB_VERSION, 0);
     emit_records(argv[2], &r12b);
   }
+  if (argc >= 4)
+    emit_repros(argv[3]);
   fprintf(stderr, "wrote %d bouncer seeds (v12 record = %zu bytes)\n", seq,
           sizeof(r12));
   return 0;

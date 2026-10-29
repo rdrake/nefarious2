@@ -91,7 +91,19 @@ const void *__wrap_db_iter_value(const struct db_iter *it, size_t *vlen)
   if (!v)
     return v;
 #ifdef FUZZ_UNMASK_KNOWN
-  value_copy[slot].buf = malloc(*vlen ? *vlen : 1);
+  /* FUZZ_VALUE_OFFSET=n places the value n bytes into its allocation, as
+   * RocksDB's block buffer does: with a KEEP_ALIGN=1 build that shows
+   * FINDINGS.md F1 (struct overlays on unaligned values). */
+  {
+    static int off = -1;
+    if (off < 0) {
+      const char *e = getenv("FUZZ_VALUE_OFFSET");
+      off = e ? atoi(e) & 7 : 0;
+    }
+    value_copy[slot].buf = malloc(*vlen + off ? *vlen + off : 1);
+    memcpy((char *)value_copy[slot].buf + off, v, *vlen);
+    return (char *)value_copy[slot].buf + off;
+  }
 #else
   /* FINDINGS.md F5: the v12 path reads the unterminated last field
    * (bsr_kc_id) past the record; one NUL after the copy masks it. */
@@ -244,9 +256,16 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
 
   {
     int restored = bounce_db_restore();
-    if (getenv("FUZZ_VERBOSE"))
-      fprintf(stderr, "fuzz_bouncer: %d record(s), restored %d\n", nrec,
-              restored);
+    if (getenv("FUZZ_VERBOSE")) {
+      struct db_iter *it = db_iter_open(env, cf, NULL);
+      int left = 0, rc;
+      for (rc = db_iter_seek_first(it); rc == DB_OK && db_iter_valid(it);
+           rc = db_iter_next(it))
+        left++;
+      db_iter_close(it);
+      fprintf(stderr, "fuzz_bouncer: %d record(s), restored %d, %d left in "
+              "the store\n", nrec, restored, left);
+    }
   }
   destroy_all_sessions();
   free_value_copies();

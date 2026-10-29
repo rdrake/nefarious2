@@ -7,7 +7,10 @@
 #   (alignment checks are off by default: finding F1 fires on every
 #   restored record; KEEP_ALIGN=1 turns them back on)
 #   asan  plain ASan + UBSan, -O0, with repro_main.c as the driver (no
-#         libFuzzer) -- used to confirm findings outside the fuzzer
+#         libFuzzer) -- used to confirm findings outside the fuzzer;
+#         known-finding masks are off (FUZZ_UNMASK_KNOWN)
+#   cov   clang source-based coverage, repro_main.c driver, masks on --
+#         replay a corpus and llvm-cov report (see FINDINGS.md)
 #
 # The tree is exported with `git archive HEAD` into BUILD_DIR/src-<variant>
 # (so the checkout stays clean), configured like CLAUDE.md says and built;
@@ -32,6 +35,7 @@ JOBS=$(nproc)
 # (asan variant: always unmasked, it is the one that confirms them).
 FUZZ_DEFS=${FUZZ_DEFS:-}
 [ "$VARIANT" = asan ] && FUZZ_DEFS=-DFUZZ_UNMASK_KNOWN
+# The cov build runs masked (like fuzz) so a corpus replays to the end.
 
 NOALIGN=-fno-sanitize=alignment
 [ -n "${KEEP_ALIGN:-}" ] && NOALIGN=
@@ -46,7 +50,12 @@ case $VARIANT in
     CFLAGS="-g -O0 $SAN -fno-omit-frame-pointer"
     DRIVER="$HERE/repro_main.c"
     ;;
-  *) echo "usage: $0 [fuzz|asan] [BUILD_DIR]" >&2; exit 2 ;;
+  cov)
+    SAN=""
+    CFLAGS="-g -O0 -fprofile-instr-generate -fcoverage-mapping"
+    DRIVER="$HERE/repro_main.c -fprofile-instr-generate"
+    ;;
+  *) echo "usage: $0 [fuzz|asan|cov] [BUILD_DIR]" >&2; exit 2 ;;
 esac
 
 if [ ! -x "$SRC/ircd/ircd" ] || [ -n "${REBUILD:-}" ]; then
