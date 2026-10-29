@@ -18,12 +18,13 @@ conv=--conversion-check
 mkdir -p "$dir/logs"
 log="$dir/logs/$fn.log"
 start=$(date +%s)
+ulimit -v ${CBMC_MEM_KB:-6000000} 2>/dev/null
 cbmc "$src" -I "$root/include" -I "$here" \
   --function "$fn" \
   --bounds-check --pointer-check --pointer-overflow-check \
   --signed-overflow-check --undefined-shift-check $conv \
   --unwind "$unwind" --unwinding-assertions \
-  --sat-solver cadical --trace "$@" > "$log" 2>&1
+  --object-bits 12 --sat-solver cadical --trace "$@" > "$log" 2>&1
 rc=$?
 secs=$(( $(date +%s) - start ))
 if grep -q "VERIFICATION SUCCESSFUL" "$log"; then
