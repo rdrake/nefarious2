@@ -1,0 +1,36 @@
+_WHO #fuzz
+WHO * %nuhsrfdlaotc,1
+WHO fuzz* oÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆÆ
+WHO 0 o
+WHO #fuzz %
+WHO :x y z
+WHOIS fuzzB fuzzB
+WHOIS *
+WHOIS fuzz.test.net fuzzB
+WHOWAS fuzzB
+WHOWAS fuzzB 4 fuzz.test.net
+ISON fuzzB nWHO #fuztÛ‘et
+ISON fuzzB nobody 'fuzzA
+USERHOST fuzzA fuzzB x
+USERIP fuzzB
+LUSERS
+LUSERS * fuzz.testfnet
+MOTD
+VERSION
+ADMINÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿdraft/uzz :fuzzA:
+WHOIS *
+WHOIS fuzz.éééééétest.net fuzzB
+chghostWuzzA
+USERHOST fuzzA fuzzB x
+USERIP fuzzB
+LUSERS
+LUSERS * fuzz.testfnet
+MOTD
+VERSION
+ADMINÿÿÿÿÿÿ fuzzB
+LUSERS
+LUSERS * fuzz.testfnet
+MOTD
+VERSION
+ADMz
+WHO * %nobod

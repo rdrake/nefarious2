@@ -1,0 +1,8 @@
+_PRIVMSG fuzzA :a
+_OPER fuzzoper fuzzoperpass
+MODE fuzzA +s +9cdk
+SNO +x
+WALLOPS :PRIVMSG fuzzB hi
+WALLUSERS :hi
+GLIN:b
+NIEC +

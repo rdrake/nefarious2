@@ -1,0 +1,7 @@
+_MARKREAD #fuzz
+MARKREAD #fuzz ti000000000000000000000000mestamp=2026-10-29T12:00:00.000Z
+MARKReAD fuzzB timestamp=2026-10-29T12:00:00.0ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ00Z
+MARKREAD #fuzz timestamp=bad
+MARKREAD
+MARKREAD #fuzz *
+MARKREAD #nochan timestamp=2026ÿÿÿÿÿ-10-29T12:00:00.000Z

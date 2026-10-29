@@ -1,0 +1,15 @@
+_OPER :new topi³c
+PIÛRzzA
+REMOVE #fuzz fuzzB :r
+NAMES #fuzz
+NAMES
+LIST
+LIST >0,<100,C>1,T<99999999
+LIST
+NAMES  #fuzz
+LIST :#CK #fuzz fuzzl1 MODE #fuzz +o fuzzA
+REMOVE #fuzz fuzzB :r
+NAMES #fuzz
+NAMES
+LIST
+LISTer1,T<9

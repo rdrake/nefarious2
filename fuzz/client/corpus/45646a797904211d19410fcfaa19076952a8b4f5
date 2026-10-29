@@ -1,0 +1,17 @@
+_PERSISTENCE SET ON
+PRIVMSG #fuzz :before drop
+
+PRIVMSλλλλλλλλλλλλλλλλλλλλλλλλλλλλλλλλλλλλλλλλλλλλλλλλλG fuzzA :while held
+PRIVMSG #fuzz :chan while held
+
+
+BOUNCER LISTCLIENTS
+PRIVMSzz :chan while held
+
+
+BOUNCER LISTCLIENTS
+G #fuzz :after
+
+BOUNCER LISTSESSIONS
+QUIT
+Γ

@@ -1,0 +1,11 @@
+connectJOIOIN 0
+JOIN #a,#a,#a
+JOIN #c0,#c1,#c2,#c3יcertfp-sha-512יייייייייי,#c4,#,5c#c6,#c7,#c8,#ass
+MODE fuzzA +s +cdk
+SNO +x
+WALLOPS :hi
+WALLUSERS :hi
+GLINE%n*@1.2.3.4 600 :bad
+GLINE
+GL_OPER fuzzoper fuzzoperpass
+MODE fuzzA +s )*@1OIN #a,#a,#§ץµ°¶±ßÜc0,#cיייייֹייייייייייייcertfp-xxxxyyyyyyyyyyyyyyyyyyyyyyyyyyyxxxxxx

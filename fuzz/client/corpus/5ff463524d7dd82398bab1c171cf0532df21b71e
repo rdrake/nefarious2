@@ -1,0 +1,14 @@
+_N:
+NICK #chan
+NICK nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn
+NICK -bad
+NICK aÃ©¯b
+NICK ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿNICK fuzzA2
+NICK fuzzB
+NICK fuzza2
+NICK 0
+NICK fuzzA
+(
+NICK aNICK aNICK aNICK aNICK aNICK aNICK aNICK aNICK aNICK a
+SETNAME :new ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿname
+SÿÿÿÿÿÿÿÿET

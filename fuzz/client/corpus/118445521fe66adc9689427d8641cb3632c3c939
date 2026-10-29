@@ -1,0 +1,18 @@
+_MODE #fuzz +o fuzzA
+TOPIC #fuzz :new topi³c
+PIC #fuzz
+KICK #fuzz fuzzB :out
+JOIN #fu-z
+INVITE fuzzB #fuzz
+INVITE
+KICK #fuzz fuzzA
+KICK #fuzz fuzzA :x
+JOIN #fuzz
+CLEARMODE #fuzz ovbkl
+OPMODE #fuzz +o fuzzAJREMOVE #fuzz fuzzB :r
+NAMES #fuzz
+NAMES
+LIST
+LIST >0,<100,C>1,T<99999999
+LIST #fuzz
+LIST :#f*

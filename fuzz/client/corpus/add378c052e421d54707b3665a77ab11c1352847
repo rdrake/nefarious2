@@ -1,0 +1,12 @@
+_NICK
+NICK :
+NICK #chaj
+NICK nnnnnnÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ
+INVITE
+KICK #fuzz fuBOUNCER INFO
+BOUNCER LISTSESSIONS
+BOUNCER LISTCLIENTS
+BOUNCER SETTINGS
+BOUNCA :x
+JOIN #fuzz
+CLEARMODE #fuz * :r

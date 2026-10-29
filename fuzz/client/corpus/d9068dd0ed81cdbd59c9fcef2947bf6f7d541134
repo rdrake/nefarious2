@@ -1,0 +1,37 @@
+WHO #fuzz
+WHO * %uzz* o
+WHO 0 o
+WHet
+ISON fuzzB nobody fuzzA
+USERHOST fuzzA fuzzB x
+USERIP fuzzB
+LUSERS
+LUSERS * fuzz.test.net
+MOTD
+VERSION
+ADMIN
+TIME
+INFO
+LINKS
+LINKS * *.netATPM
+
+RACE
+TRACE fuzzB
+STATS
+STATS u
+STATS m
+STATS p
+STATS webpush
+STATS chathistory
+STATS metadata
+STATS f
+HELP
+HELP PRIVMSG
+ISUPPP
+HELP PRIVMSG
+ISUPPORT
+RULES
+OPERMOTD
+PRIVS fuzzA
+IRCOPS
+ISNEF

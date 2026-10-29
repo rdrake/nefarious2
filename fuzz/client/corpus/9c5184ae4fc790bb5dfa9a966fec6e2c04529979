@@ -1,0 +1,8 @@
+CAP L20S3 LS 302
+CA
+
+P LIa :hi
+NOTICE #a :n
+PART #a :bye
+M L_CAP LS 302
+CAP GAP

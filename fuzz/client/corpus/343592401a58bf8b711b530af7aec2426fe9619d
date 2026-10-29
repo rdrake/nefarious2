@@ -1,0 +1,6 @@
+_RENAME #fuzz #fuzz2 :moving
+RENAME #fuzz2
+RELOCATE #fuzz2 #fuzz3
+LIST
+RENAME #nochan #x
+RENAME #fuzz3 &local

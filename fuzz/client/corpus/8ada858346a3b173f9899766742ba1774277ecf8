@@ -1,0 +1,7 @@
+CAP LS 302
+CAP REQ : :dract/account-reg.com :pass 0 *=:rword123
+RA EGIPCLS 302
+CAP REQ :draft/accoÎSTER neN*=:rword123
+REGICAP LS 302
+CAP RE 302
+CAP REQ : :dract/acct * hunn

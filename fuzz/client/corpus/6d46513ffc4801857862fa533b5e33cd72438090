@@ -1,0 +1,9 @@
+CAP LS 302
+CAP LIST
+CAP REQ :s #a :hi
+Nasl message-taGs
+CAP REQ :-sasl
+CAP CLEAR
+C[JOIN #a
+PRIVMSE #a :hi
+NOTICAE P EN#

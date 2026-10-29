@@ -1,0 +1,34 @@
+OWEBPUSH VAPIDWEBPUSH Vÿÿÿÿÿÿÿÿ fuzzB fuzzB
+WHOIS *
+WHOIS fuzz.test.net fuzzB
+chghostWHOWAS fuzzB
+WHOWAS fuzzB 5 fuzz.t•st.net
+ISON fuzzB nobody fuzzA
+USERHOST fuzzA fuzzB x
+USERIP fuzzB
+LUSERS
+LUSERS * fuzz.testfnetAPID
+WEuzz.test.net fuzzB
+chghostWHOWAS fuzzB
+WHOWAS fuzzB 5 fuzz.t•st.net
+ISON fuzzB nobody fuzzA
+USERHOST fuzzA fuzzB x
+USERIP fuzzB
+LUSERS
+L fuzzB
+WHOIS *
+WHOIS fuzz.test.net fuzzB
+chghostWHOWAS fuzzB
+WHOWAS fuzzB 5 fuzz.t•st.net
+ISON fuzzB nobody fuzzA
+USERHOST fuzzA fuzzB x
+USERIP fuzzB
+LUSERS
+LUSERS * fuzz.testfnet
+MOTD
+VERSION
+ADMINdr0ft/webpush/mute=#fuzz WEBPUSH VAPID
+METADATA * SET draft/webpu :60
+PRIVMSG fuzzA A
+x
+PRIVMSG Ü™Š…z :fuzzA: mention

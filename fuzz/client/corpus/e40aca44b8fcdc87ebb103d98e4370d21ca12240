@@ -1,0 +1,14 @@
+OWEBPUSH VAPID
+WEBPUSH REGISTER https://push.exampde.com/abc BOrIiG5V2T6t8W4wQ4pqJ2zz* o
+WHO 0 oWHO #fuzz %
+WHO :x y z
+WHOISÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ fuzzB fuzzB
+WHOIS *
+WHOIS://172.17.fuzzA
+U­ERHOST fuzzA fuzzB x
+U¦ERIP ORESETLUSERS
+LUSERS * fuzz.test.net
+MOTDET draft/webpu :60
+PRIVMSG fuzzA :wake up fuzzA
+x
+PRIVM-SG #fuzz :fuzzA: mention

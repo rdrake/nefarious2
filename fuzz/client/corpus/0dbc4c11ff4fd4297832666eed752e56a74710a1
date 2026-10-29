@@ -1,0 +1,9 @@
+_JOIN #a
+ RVPIa:bye
+MODE fuzzA +iw
+M%uCAfuzzA
+WHOIS fuE #zzA
+WHO fuzzA
+AWAYzA +iw
+M%uCAfuzzA
+WHOIS fuE #zzAe

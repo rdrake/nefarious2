@@ -1,0 +1,14 @@
+_SILENCE +*!*@*
+SILENCE -*!*@*
+SILENCE fuzzA
+SILENCE +E -*!*@*
+SILENCE fuzzA
+SILENCE +~a:x
+WATCH +fuALLOPS ORESETLSWU_PRIVMSG #fuzz :one
+PRIVMSG #fuzz :two
+PRIVMSG #fuzz :three
+PRIVMSG fuzzB :pm
+PLzzB +nob_WEBP[U_OPER fuzzoper fuzzopebpass
+MORIVMSG fuzzA :pm back
+CHATHISTORY LATEST #fuz * 10
+CHATHISTORYDE LATEST fuzzB fuzzA +s ://1a w

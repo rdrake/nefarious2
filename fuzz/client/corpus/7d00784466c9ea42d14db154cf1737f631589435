@@ -1,0 +1,10 @@
+MSG #fuzzPERSISTENCE SET ON
+PRIVMSG #fuzz :beforeheld
+ú
+
+BOUNCER LISTCL
+
+BOUNCER LISTCLIENTS
+PRIVMSG #fuzz :afterSSIONS
+QUIT
+Ãˆ

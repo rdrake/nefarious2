@@ -1,0 +1,10 @@
+CAP LS 302
+CAP LIST
+CAP REQ :sasl 
+
+ag+OtaNs
+CAP REQ :-sasl
+CIP CLEAR
+CAP END
+NICK u1
+USR  Eu0 * :u

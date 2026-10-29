@@ -1,0 +1,21 @@
+_NICK
+NICK :
+NICK,#chan
+NICK nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn
+NICK -bad
+NICK a√©b
+NICK SVSIDENTChanServ
+USER
+USER a
+USER NICK
+NICK :
+NICK,#chan
+NICK nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn
+NICK -bad
+NICK a√©b
+NICK SVSIDENTChanServ
+USER
+USER a
+USER a b cäNICK ok
+USER uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuua b cäNICK ok
+USER uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu 5 * :b

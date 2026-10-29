@@ -1,0 +1,5 @@
+_MODE #fuzz +o fuzzA
+TOPIC #fuzz :new topic
+TOPIC #fuzz
+KICK #fuzz fuz_MODE #fuzz +o fuzzA
+TOPIC #fuzz :new to

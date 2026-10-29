@@ -1,0 +1,6 @@
+OPRIVMSG #fuzz :café 😀
+SETNAME :éè
+TOPIC numzz :ÿþ invalid
+JOIN #ét�VMSG #fuzz :café 😀
+SETNAME :éè
+TOP�

@@ -1,0 +1,12 @@
+_OPER f:uzzopTer f://[::1]erpass
+M+reply=zA +s +cdk
+SNO +x
+WALLOPS :hi
+WALLUSERS :hi
+GLINE +*@1_OPER fuzzoper f+evilnet.github.io/chat f:uzzopTer f://[::1]erpass
+M+reply=zA +s +cdk
+SNO +x
+WALLOPS :hi
+WALLUSERS :hi
+GLINE +*@1_OPER fuzzoper f+evilnet.github.io/chathistory-gap +x´´´´´´´ctNE
+GLINE PUSH R2SH R2 smE

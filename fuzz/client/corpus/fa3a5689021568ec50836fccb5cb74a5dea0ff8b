@@ -1,0 +1,8 @@
+MODE #fuzz +o fuzzA
+TOPIC #fuzz :new topic
+TOPIC #fuzz
+KICK uzz
+NAMES
+LIST
+LIST >0,<1
+LIST :#f*

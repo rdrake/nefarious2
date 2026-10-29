@@ -1,0 +1,17 @@
+_WEBPUSH VAPID
+WEBPUSH REGISTER hT OFF
+PERSISTENCEªSET DEFAULT
+PERSISTENCE LIST
+PERSISTENCE DETACH
+PERSISTENCEA TTACH
+TENCE ATTAecho-messageH VAPID
+METADATA * SET draft/webpush/idle :20
+PRIVMSG fuzzA :wake up fuzzA
+SIST%sENCE RENAME  pN
+QUIT :hold me
+
+PERSISTENCE STno-implicit-namesATTAecho-messageH VAPID
+METADATA * SET draft/webpush/idle :60
+PRIVMSG fuzzA :wake up fuzzA
+x
+PRIVMSG #fuzz :.fuzzA: mention

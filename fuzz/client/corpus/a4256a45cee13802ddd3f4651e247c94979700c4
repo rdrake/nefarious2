@@ -1,0 +1,3 @@
+_OPER fuzzoper fuzzoperpass
+MODE fuzzA +s bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb+cdk
+SNO +x:s

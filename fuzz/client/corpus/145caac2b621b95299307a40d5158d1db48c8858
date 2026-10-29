@@ -1,0 +1,40 @@
+_OPER fuzzoper fuzzoperpass
+MODE fuzzA +s +cdk
+SNO +x
+WALLOPS :hi
+WALLUSERS :hi
+GLINE +*@1.2.3.4 600 :bad
+GLINE
+GLINE -*@1.2.3.4
+ZLINE +1.2.3.0/24 600 :z
+SHUN +*@1.2.3.5 600 :s
+JUPE +fake.server 600 :j
+TEMPSHUN fuzzA :t
+KILL fuzzA :k
+CHECK dnsbl
+STATS gitsync
+CONNECT fake.server 4400
+SQUIT fake.server :x
+UPING fuzz.test.net
+SET MAXCONNECTIONS 10
+RESET MAXCONNECTIONS
+GET MAXCONNECTION
+S
+DIE
+RESTART
+REHASH
+MKPASSWD hunter2
+MKPASSWD hunter2 smd5
+STORE INFO
+XQUERY fuzz.test.net abc :q
+HASH
+DNS l
+PRIVS fuzzA
+OPMODE #fuzz +o fuzzA
+SVSNICK fuzzA x
+SVSJOIN fuzzA #o
+FAKE fuzzA fake.host
+MARK fuzzA x y
+GITSYNC
+DESYNCH :d
+ASLL fuzz.test.net

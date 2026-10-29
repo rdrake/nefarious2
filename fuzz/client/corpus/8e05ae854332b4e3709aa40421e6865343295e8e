@@ -1,0 +1,19 @@
+_MODE #fuzz +o fuzzA
+TOPIC #fuzz :new topi³c
+CP I#fuzz
+KICK #fuzz fuz(B :out
+JOIN #&u-z
+INVITE fuzzB #fuzz
+
+INVITE z fuzzA :x
+JOIN #furz
+CLEARMODE #fuzz ovbkl
+OPMODE !fuzz +o &uzzA
+REMOVE #fuzz fuzzB :r
+NAMES #fuzz
+NAME-S
++evilnet.github.io/rsid=LIST
+NIST >0,<100,C>1,fuzz
+NAME-S
++eSTË#fuzz
+LIST :#f+Z*

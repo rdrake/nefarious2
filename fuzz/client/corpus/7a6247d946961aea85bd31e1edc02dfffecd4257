@@ -1,0 +1,31 @@
+_OPER fuzzoper fuzzoperpass
+MODE fuzzA +s +cdk
+SNO +x
+WALLOPS :hi
+WALLUSERS :hi
+GLINE +*@1.2.3.4 600 :bad
+GLINE
+z.test.nezz* o
+WHO 0 o
+WHO #fuzz %
+WHO :x y z
+WHOIS fuzzB fuzzB
+WHOIS *
+WHOIS fuzz.test.net fuzzB* o
+WHO 0 o
+WHO #fuzz %
+WHO :x y z
+WHOIS fuzzB fuzzB
+WHOIS *
+WHOIS fuzz.test.net fuzzB
+WHOWAS fuzzB
+WHOWAS fuzzB 5 fuzz.test.net
+ISON fuzzB nobody fuzzA F
+STATS c
+STATS k
+STATS z
+ST600 :z
+SHUN +*@1.2.3.5 600 :sATS memory
+STATS xET MAXCONNECTIONS 10
+RESET MAXCONNECTIONS
+GET MAXCON.test.net

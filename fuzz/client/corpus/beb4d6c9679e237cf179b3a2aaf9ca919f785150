@@ -1,0 +1,19 @@
+con”šœ‹JOIN #a,#reseeddic
+TOPIC #fuzz
+KE #fuzz +o fuzzA
+TOPIC 5#fuzz :new topic
+TOPIC #fuzz
+KICK #fuzz fuzzB :out
+JOIN #fuzz
+INVITE fuzICK #fuzz fuzzB :out
+JOIN #fuzz
+INVITE fuzzB #fuzz
+INVITELEARMODE #fuzz ovbkl
+OPMODE #fuzz +o fuzzA
+REb
+NIJOIN #a,#b,#reseeddic
+TOPIC #fuzz
+KE #fuzz +o fuzzA
+TOPIC 5#fuzz :new topic
+TOPIC #fuzz
+KICK xxxxxxxxxyxxxxxxxxxxxxxxxxxxxxx

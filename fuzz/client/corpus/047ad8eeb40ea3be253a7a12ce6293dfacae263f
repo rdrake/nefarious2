@@ -1,0 +1,6 @@
+CAP LS 302
+CAP REQ/metad REQ :draft/metadata-2
+MSTAtarEQ :draf :https://x/y.png*METADATA * GET a-2
+METADATA * SET avatar :htt
+NICK m0
+USER m 0 * :m

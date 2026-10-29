@@ -1,0 +1,8 @@
+ÿÿÿÿÿÿÿÿÿÿÿOMETADATA * SET avatar :https://example.com/a.png
+METADATA * SET display-name :Fuzzy
+METADATA * GET avatar dikkkkkkkkkO@label=abc PRIVMSG #fuzz :labeled
+@label=x;+typing=done PRIVMSG fuzzB :t
+@label=LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL PING x
+@time=2020-01-01T00:00:00.000Z;msgid=fake PRIVMSG #fuzzkkkkkkkkkkkkkZkkkkkk :v
+M NICK wNAHAACaGIcxmETADA :spoof
+@TA * S

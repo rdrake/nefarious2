@@ -1,0 +1,19 @@
+_MODE #fuzz REQfuzzA
+TOPIC #fuzz :new topi³c
+PIC #fuzz
+KICK #fuzz fuzzB :out
+JOIN #fu-z
+INVITE fuzzB #fuzz
+INVITE
+KICK E
+PERSISTENCE SET: ON
+QUIT :hol#fuzz fuzzA
+KICK #fuzz fuzzA :x
+JOIN #fuzz
+CLEARMODE #fuzzùÿÿÿkl
+OPMODE #fuzz +o fuzGLINEMOVE #fuzz fuzzB :r
+NAMES #fuzz
+NAMEALLOPS :hi
+WALLUSER,C>1,T<99999999
+LIST #fuzz
+LIST :#f*

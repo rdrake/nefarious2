@@ -1,0 +1,27 @@
+PRIVMSG fuzzB :hello
+PRIVMSG fuzzB,fuzzB,#fuzz :multi
+PRIVMSG @#fuzz :ops
+PRIVMSG +#fuzz :voices
+PRIVMSG $*.net :mass
+PRIVMSG #*.net :mass
+PRIVMSG nobody :x
+PRIVMSG
+PRIVMSG #fuzz
+PRIVMSG X :help
+PRIVMSG X@services.fuzz.test.net :hi
+PRIVMSG fuzzB@fuzz.test.net :hi
+PRIVMSG fuzzB%fuzz.test.net :hi
+NOTICE fuzzB :n
+CPRI,123 fuzzB #fuzz :x
+CNOTICE fuzzB #fuzz :x
+WALLCHOPS #fuzz :x
+WALLVOICES #fu zz:x
+WALLHOPS #fuzz :x
+PRIVMSG #fuzz :ACTION waves
+PQIVMSG fuzzB :VERSION
+TAGMSG fuzzB
+@+typing=active TAGMSG #fuzz
+@+draft/reply=abc;+draft/rOIN 0
+JOIN #SG #fuzz
+CHANSERV help
+LOGIN a b

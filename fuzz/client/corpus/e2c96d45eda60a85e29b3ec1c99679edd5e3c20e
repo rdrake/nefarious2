@@ -1,0 +1,13 @@
+_NIOWEBPUSHuse_derivation
+WHOIS *
+WHOIS fuzz.test.net fuzzB
+WHOWAS fuzzB
+WHOWAS fuzzB SERS * fuzz.test.net
+MOTD
+VERSION
+ADMINdraft/AUTHENTICATEwebpush/mute=#fuzz SVSIDENTWEBPUSH VAPID
+MEVERSION* SET draft/wbepu :60
+PRiVMS€ fuzzA :wake up fuzzA
+x
+PRIVMSG #fCuzK
+NICz K 

@@ -1,0 +1,7 @@
+CAP LS 302
+CAP <<<<<<<<<<<<<<<<<REQ :+typing=paused-2
+METALIST
+CAP END
+NICK m1
+USER m  m1
+USER m   * :m

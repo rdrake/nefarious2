@@ -1,0 +1,10 @@
+PRIVSG fuzzA :x
+PRIVMSx
+PRIVMSzzA““ :x
+PRIVMSG fuzzA :x
+
+PING :after fl Ë‡õ¯ooMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+
+PING :after flood

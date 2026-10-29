@@ -1,0 +1,23 @@
+_OPER fuzzoper fuzzoperpass
+MODE fuzzA +s +cdk
+SNO +x
+WALLOPS :hi
+WALLUSERS :hi
+GLINE ING fuÿÿÿ+*@1.2.3.4 600 :bad
+GLINE
+GLINE -*@1.2.3.4
+ZLINE +00 :s
+JUPE +fal
+STATS gkeylec
+CONNECT fake.server 4400
+SQUIT fake.server :x
+UPING fuÿÿÿÿÿÿÿÿÿÿÿzz.testent.
+SET MAXCONNECTIONS 10
+RASET MAXCONNECTIONS
+GET MAXCONNECTION
+S
+DIE
+RESTART
+REHASH
+MKPASSWD huntSTART
+REHASt

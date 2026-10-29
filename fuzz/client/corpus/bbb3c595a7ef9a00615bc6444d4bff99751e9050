@@ -1,0 +1,11 @@
+_OPER fuzzoper fuzzoperpass
+MODE fuzzA +s +cdk
+SNO +x
+WALLOPS :hi
+WALLUSERS :hi
+GLINE +*@1.2.3zzA x
+SVSJOIN fuzzA #o
+FAKE fuzzA fake.host
+MARK fuzzA x y
+GITSYNC
+DES§±¼·ßÅ›÷ASLL fuzz.test.net

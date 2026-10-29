@@ -1,0 +1,14 @@
+_@label=mITE
+KICK #fuzz fuzzA
+KICK #fuzz fuzzA :x
+JOIN LATEST #fuzz * 1
+REDACT #fuzz AHAAAaGIXmLBGV :oops
+REDACT #fuzz nosuch'msgid
+REDAC be redacted
+CHATHISTORY LATEST #fuzz * 1
+REDACT #fuzz AHAAAaGIuchmsgid
+REDACT fuzzB x :r
+REDACT
+REDACT #fuzz
+REDACT #nochan abc
+REDACT #fuzz abc :x

@@ -1,0 +1,19 @@
+_OPER fuzzoper fuzzLOPS :hi
+WALLUSERS :hi
+GLINE +*@1.2.3.4 600 :bad
+GLINE
+GLINE ­*00 :z
+SHUN +*@1.2.3.5 680  :bad
+GLINE
+GLINE ­*00 :z
+SHUN +*@1.2 :bad
+GLINE
+GLINE ­*00GLINE
+GLINE ­*00 :z
+SHUN +*@1.2 :bad
+GLINE
+GLINE ­*00 :z
+SHUN +*5 600 :s
+JS fuOLINE
+GLINE ­*00 :z
+SHUN +§±¼·ßÅ›÷ASLL fuzz//////.test.net

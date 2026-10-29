@@ -1,0 +1,5 @@
+›››EBPUSH VAPID
+WEBPUSH REGISTER https://push.example.com/abc BOrIiG5V2T6t8W4wQ4pqJ2HqYJwNw9w7FhJm2xJqCq1Q-0r0pH1tJm8b9h8f8f(f8f8f8f8f8f8f8f8f8f8f8f8f8 AAAAAAAAAAAAAAAAAAAAAA
+WEBPUSH SETTINGS/webpush/mute=#fuzz WEBPUSH VAPID
+METADATA * SET draft/w›››››››››››ebpush/idle :31
+PRIVMSG fuzzA :wa›

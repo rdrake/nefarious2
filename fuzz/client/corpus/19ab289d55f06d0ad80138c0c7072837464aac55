@@ -1,0 +1,9 @@
+_NICK
+NICK :
+NICK #chSVSNICK nNCE STO-BATCH +ml1 d+gft/multiline #fuzz
+@batch=mlÖ PRIVMSG #fuz,+p,,,,,,,,,,,,,,,,,,,,,,,,ÿÿT×¤­´`,,,,,,,,,,,,authtoken,,,,,,,,=ml1;draft/multilin€e-concat PRIVMSG #_NICKfuzz :cont
+@
+NICK :
+NICK #chatch=ml1;draft/multilin€e- aÃ©b
+NICK ChanServnn
+NICK -bz

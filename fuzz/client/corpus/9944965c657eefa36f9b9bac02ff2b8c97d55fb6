@@ -1,0 +1,13 @@
+O@label=abc PRIVMSG #fuzz :labeled
+@label=x;+typing=done PRIVMSG fuzzB :t
+@label=LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL PING x
+@time=202SILENCE +*!*@*
+SILENCE -*!*@*
+SILENCE fuzzA
+SILENCE +~a:x
+0-01-01T00:00:00.000Z;msgid=fake PRIVMSG #fuzzWATCH +fuzzB +nobody l L
+WATCH S
+WATC :spoof
+@H C
+WATCH -fuzzB
+MONITObaR +

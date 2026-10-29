@@ -1,0 +1,14 @@
+›››››››››››_O_OPER fuzzoper fuzzopeтттттттттттттттттттттттттттттттттттrpass
+MODE fuzzA +s +cdk
+SNO +x
+WALLOPS :hi
+WALLUSERS :hi
+GL››INE +*@1.2.3.4 600 :bad
+GLINE
+GLINE -*О1.2.3.4
+ZLINE +1.2.3.0/24 600 :_SILENCE +*!*@*
+SILENz
+e.server :x
+UPING CE -*!*@*
+fuzz.test.net
+SET MAXSILENCE fCONNECTuz

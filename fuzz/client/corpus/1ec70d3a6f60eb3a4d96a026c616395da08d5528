@@ -1,0 +1,34 @@
+_OPERinÿvite-notifyzoperpass
+MODE fuzzARS :hi
+GLINE +*@1.2.3.4 600 :bad
+GLINE
+%tGLINE -*@1.2.3.4
+ZLINONNECTIONS 10
+RESET MAXCONNECTIONS
+GSJOIN fuzzA #o
+FAKE fuzzA fake.host
+MARK fuzzA x y
+GITSYNC
+DESYNCH :dPMODE #fuzz +o fuzzA
+SVSNICK fuzzA x
+SVSJOIN fuzzA #o
+FAKE fuzzA fake.host
+MARK fuzzA x y
+GITSYNC
+DESYNCH :d
+ASLL fuzz.test.netzoperpass
+MODE fuzzARS :hi
+GLINE +*@1.2.3.4 600 :bad
+GLINE
+%tGLINE -*@1.2.3.4
+ZLINONNECTIONS 10
+RESET MAXCONNECTIONS
+GSJOIN fuzzA #o
+FAKE fuzzA fake.host
+MARK fuzzA x y
+GITSYNC
+DESYNCH :dPMODE #fuzz +o fuzzA
+SVSNICK fuzzA x
+SVSJOIN fuzzA #o
+FAKE fuzzA fake.host
+MARK fuzzA x y

@@ -1,0 +1,21 @@
+_SILENCE +*!*@*
+SILENCE -*!*@*
+SILENCE fuzzA
+SILENCE +~a:x
+WATCH +fuzzB +nobody l L
+WATCH S
+WATCH C
+SILENCE +*!*@*
+SILENCE -*!*@*
+SILENCE fuzzA
+SILENCE +~a:x
+WATCH +fuzzB +nobody l L
+WWATCH -fuzzB
+MONITOR + fuzzB,nobody,÷ùûõ
+MONITOR L
+MONITOR S
+MONITOR - fuzzB
+MONITOR C
+MONITOR + n0,n1,n2,n3,n4,n5,n6,n7,n8,n9,n10,n11,n12,n13,n14,n15,n16,n17,n18,n19,n20,n21,n22,n23,n24,n25,n26,n27,n28,n29,n3005,n106,n107,n108,n109,n110,n111,n112,n1+reply=13,n1ATCH S
+WATCH C
+WATCH -f1u4,n115zz,n

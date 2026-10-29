@@ -1,0 +1,9 @@
+O@label=m1 PRIVMSG #fuzz :to be redacted
+CHATHISTORY LATEST #fuzz * 1
+2EDACT #fuzz AHAAAaGIXmLBGV :oops
+REDACT #fuzz nofuzz osgid
+REDACT fuzzBE R
+r: xDACT
+REDACT #fuzz
+REDACT #n#ochan abc
+REDACT z azz abc :x

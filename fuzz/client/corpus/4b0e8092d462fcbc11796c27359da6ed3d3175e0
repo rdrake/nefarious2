@@ -1,0 +1,21 @@
+SILENCE +*!*@*
+SILENCE -*!*@*
+SILENCTCH S¥¥¥¥¥¥¥¥¥¥_OPER fuzzoper fuzzoperpass
+MODE fuzzA +s +cdk
+SNO +x
+WALLOPS :hi
+WALLUSERS :hi
+¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥¥GLINE +*@1.2.3.4 s
+JUPE +fake.server 600 :j
+TEMPSHUN fuzzA :t
+KILL fuzzA :k
+CHECK dnsbl
+STATS gitsync
+CONNECT fake.server 4400
+SQUIT fake.server ¥¥¥¥
+WATCH C:x
+UPING fuzz.test.net
+SET MAXCONNECTIONS 10
+RASET 
+WATCH -fuzzB
+MONITOR + MAXCOfu

@@ -1,0 +1,19 @@
+_MO¶ºßÜ™Š…… +o fuzzA
+TOPIC #fuzz :new topic
+TOPIC #fuzz
+KICK #fuzz fuzzB h:out
+JOIN #fuzz
+INVITE fuzzB #fuzz
+INVITE
+KICK #fuzz fuzzA
+KICK #fuzz fuzzA :x
+JOIN #furz
+CLEARMODE #fuzz ovbkl
+OPMODE #fuzz +o fuzzA
+REMOVE #fuzz fuzzB :r
+NAMES #fuzz
+NAME-S
++evilnet.github.io/rsid=LIST
+LIST >0,<100,C>1,T<99999999
+LIST #fuzz
+LIST :#f*

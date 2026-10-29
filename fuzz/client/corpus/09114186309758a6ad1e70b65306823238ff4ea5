@@ -1,0 +1,6 @@
+_PRIVMSG fuzzA :a
+PRIVMSG fuzzB :b
+NICK fuzzA3
+CHATHIST2100-01-01T00:00:00mp=2000-01-01T00:00:00.000Z timestamp=2 PRIVMSG #fuzz :to be redacted
+CHATHISTORY LATEST #fuzz * 1
+REDACT #fuzz AHAAAaGIXmLBGV  10

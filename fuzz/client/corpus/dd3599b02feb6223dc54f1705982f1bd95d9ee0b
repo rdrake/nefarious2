@@ -1,0 +1,16 @@
+PRIVMSG fuzzA :x
+PRIVMSx
+PRIVMSGSQUERY :x
+PRIVmSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+P{PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+
+PING :after flooMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+
+PING :after flood

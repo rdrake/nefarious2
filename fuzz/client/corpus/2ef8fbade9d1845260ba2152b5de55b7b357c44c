@@ -1,0 +1,21 @@
+connectJOIN #a,#bzz %
+WHO :x y gz
+WHOIS zfuzB fuzzB
+WHOIS *
+WHSERIP fuzzB
+LRS :hi
+GLINE +*@1.4.21
+REDACT #fuzz AHERS :hi
+GLINE +*@1.4.2zzB
+WHOIS *
+WHSERINICKP fILENCE +*!*@*
+SzzB,nobody,#bad
+MONITOR stc.net
+MÃzz %
+WHO :x y z
+WHOIS fuzzB fuzzB
+WHOIS *
+WHSERINICKP fILENCE +*!*@*
+SzzB,nobody,#bad
+MONITOR stc.net
+MÃ¿xxxxxxxxxxxxxxxxxx

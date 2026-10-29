@@ -1,0 +1,12 @@
+_OPER fuzzoper fu-zo://172.30.perpass
+MODE fuzzA +s +cdk
+SNO0 :s
+JS fuzzA
+OPMODE #@0.2.3.4
+ZLINfuzz +o fuzzA
+SVSNICK fuzzA x
+SVSJOIN fuzzA #oFAKE fuzzA fake.<ost
+MARK fuzzA x y
+GITSYNC
+DESYNCH :d
+ASLL fuzz.test.net

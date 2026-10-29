@@ -1,0 +1,37 @@
+WHO #fuzz
+WHO * %nuqhs://172.30.
+WHO fuzz* o
+WHO 0 o
+WHO #fuzz %
+WHO :x y z
+WHOIS fuzzB fuzzB
+WHOIS *
+WHSERIP fuzzB
+LUSERS
+LUSERS * fuzz.test–.net
+
+WHOIS *
+WHSERINICKP fuzzB
+LUSER fuzzB
+WHOIS *
+WHSERINICKP fuzzB
+LUSERS
+ fuzzB
+LUSERS
+LUSERS * fuzz.test–.net
+
+WHOIS *
+WHSERINICKP fuzzB
+LUSER fuzzB
+WHOIS *
+WHSERINICKP fuzzB
+LUSERS
+LUSERS * fuzS
+LUSERS * fuzz.t//127.T
+RULLUSERS * fuzS
+LUSERS * fuzz.t//127.T
+RULES
+OPERMOTD
+PRIVS fuzzA
+IRCOPS
+ISNEF

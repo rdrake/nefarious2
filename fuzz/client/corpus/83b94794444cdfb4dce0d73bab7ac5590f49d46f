@@ -1,0 +1,8 @@
+_MARKREAD #fuzz
+MARKREAD #fuzz timestamp=20μμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμzz
+MARKREAD #fuzz timestamp=20μμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμμ26-10-29T12:00:00.000Z
+MARKR=bad
+MARKREAD
+MARKREAD #fuzz *
+MARKREADzzA :while held
+PRIVMSG #fu00:00n000 

@@ -1,0 +1,6 @@
+_@label=m1 PRIVMSG #fuzz :to:toACT #fuzz AHAAAaGI?mLBGoVo:EsR
+ DpACT #fuzz no_OPWHO #fuzz
+WHO * %nuMAGITSYNCRKREADER suchmsgidfuzzoper fuzzoperpass
+MODE fu
+REDAC bzzhsrAe redacted
+CHfdlaotc +s,

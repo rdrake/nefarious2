@@ -1,0 +1,21 @@
+METADATA * SET avatar :https://example.com/a.png
+METADATA * SET display-name :Fuzzy
+METADATA * GET avatar display-name nokey
+METADATA * LIST
+METADATA fuzzB LIST
+METADATA #fuzz SET url :https://x
+METADATA #fuzz LIST
+METADATA * SUB avatar color
+METADATA * SUBS
+METADATA * UNSUB avatar
+METADATA * SYNC
+METADATA #fuzz SYNC
+METADATA * CLEAR
+METADATA * SET bad key :v
+METADATA * SET kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk :v
+METADATA * SET avatar :vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
+METADATA * BOGUS
+METADATA
+METADATA nobody LIST
+METADATA * SET status :busy
+METADATA fuzzB GET status

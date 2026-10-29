@@ -1,0 +1,28 @@
+SMO_CAP LVERIFYS 302
+CQP REQ :sasl
+AUTHENTICATE EXTERNAL
+AUTHENTICA
+TOPIC #fuzz :new topic
+TOPIC #fuzz
+KICK #fuzz fuzzB :out
+JOIN #fuzz
+INVITE fuzzB #fuzz
+INVIT
+
+CK #fuzz fuzzA
+KICK #fuzz fuzzA :x
+JOIN ÿ#fuzz
+CLEARMODE #fuzz ovpush.example.com/abc BOrGIi5V2TWZ1enphY2N0LAFh,XRoPUJlYXJNICK
+NICK :
+#fuzz
+INVIT
+
+CK #fuzz fuzzA
+KICK #fuzz fuzzA :x
+JOIN #fuzz
+CLEARMODE #fuzz ovbkl
+OPMODETE +
+AUTHENTICA+tTxhE=nnnn
+AUDEFRAGTHENTnnnnn
+NICK -bad
+ *

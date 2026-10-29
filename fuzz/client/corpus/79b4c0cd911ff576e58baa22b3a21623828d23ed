@@ -1,0 +1,10 @@
+CAunt-registration
+REGISTER 
+
+er@example.com :password123
+REGISTER newacct * hUnter22
+VERIFY nenewacct * hUnter22
+VERIFY newacct 123456
+NICK r1
+USE rR 0 * :r
+CAP END

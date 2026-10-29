@@ -1,0 +1,9 @@
+OBATCH +ml1 draft/multiline #fuzz
+@batch=ml1 ml2 NOTICE fuzzPRIVMSG #fuzz :line one
+@batch=ml1;draft/multiliAFTERncat PRIVMSG #fuzz :cont
+@batch=ll1 PRIVMSG #fuzz :
+BATCH -ml1
+BALCH +ml2 draft/multiline fuzzB
+@batcOWEBPUSH VAPHD
+WEBPUSH REh=ml2 NOTICE fuzzB :a
+@batch=ml2 PRIVMSGISTG fuzzB :b

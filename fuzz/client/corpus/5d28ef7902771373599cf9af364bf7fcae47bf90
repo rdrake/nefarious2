@@ -1,0 +1,31 @@
+OWEBPUSH VAPID
+WEBPUSH REGISTER https://push.example.com/abc BOrIiG5V2T6t8W4wQ4pqJ2HqYJwNw9w7FhJm2xJqCq1Q-0r0pH1tJm8b9h8f8f8f8f8f8f8f8f8f8f8f8f8f8f8g8 AAAAAAAAAAAAAAAAAAAAAA
+WEBPUSH REGISTER http://insecure.example/x a b
+WEBPUSH REGISTEWEBPUSH UNREGISTER https://push.example.com/abc
+WEBPUSH LIST
+WEBPUSH EBPUSH BOGUS
+@+dAAAAAAAAAAAAAAAAAAA
+WEBP_OPER fuzzoper fuzzoperpass
+MODE fuzzA +s +cdkUSH REGISTER http://AAAAAAAAAAAAAAAAA
+WEBPUSH REGISTER http://insecure.example/x a b
+WEBPUSH REGISTEWEBPUSH UNREGISTER https://push.example.com/abc
+WEBPUSH LIST
+WEBPUSH EBPUSH BOGUS
+@+dAAAAAAAAAAAAAAAAAAA
+WEBP_OPER fuzzoper fuzzoperpass
+MODE fuzzA +s +cdkUSH REGISTER http://insecure.example/x a b
+WEBPUSH REGISTER.com/abc
+WEBPUSH LIST
+WEBPUSH EBPUSbc
+WEBPUSH LIST
+WEBPUSH EBPUSH BOGUS
+@+dAAAAAAAAAAAAAAAAAAA
+WEBP_OPER fuzzoper fuzzoperpass
+MODE fuzzA +s +cdkUSH REGISTER http://insecure.example/x a b
+WEBPUSH REGISTER
+WEBPUSH UNREGISTER https://push.example.com/abc
+WEBPUSH LIST
+WEBPUSH EBraR
+WEBfake.servA * SET draft/webpu :29
+PRIVMSG fuzzA :wakÿeer :x
+UPING fuzz 

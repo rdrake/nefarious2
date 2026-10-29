@@ -1,0 +1,22 @@
+OMETADATA * SET avatar :https://example.com/a.png
+METADATA * SET display-name :Fuzzy
+METADATA * GET avatar display-name nokey
+METADATA * LIST
+METADATA fuzzB LIST
+METADATA #fuzz SET url :https://x
+METvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvk2,n103,n104,n105,n106,n107,nu108,kkkkkkkkkkkkkkkkkkkkkkkk :v
+METADATA * SEMETADATA * BOGUS
+METADATA
+METADATA nobody LIST
+METADATA * SET TA *us :bvvvvvvvvvvwvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvk2,n103,n104,n105,n10vvvvvvvvvvvvvvvvvvvvv
+METADATA * BOGUS
+METADATA
+METADATA nobody LIST
+METADATA * SET TA *us :b6,n107,nu108,kkkkkkkkkkkkkkkMETADATA nobody LIST
+METADATA * SET TA *us :b6,n107,nu108,kkkkkkkkkkkkkkkkkkkkkkkk :v
+METADATA * SET avvvvvvvvvvvvvvvvv·vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
+METADATA * BOGUS
+METADATA
+METADATA nobody LIST
+METADATA * SET TA *us :busy
+METADATA fuzzB GET status

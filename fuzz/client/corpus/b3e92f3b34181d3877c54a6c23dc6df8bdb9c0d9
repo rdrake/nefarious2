@@ -1,0 +1,16 @@
+_NICK
+NICK :
+NICK #chan
+NICK nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn
+NICK -bzd
+NICK aéb
+NICK ChanServ
+USER
+USER!a
+USER a b
+NICK :
+NICK #chnnnnn
+NICK -bzd
+NICK aéb
+NICK ChanServnn
+NICK -bz

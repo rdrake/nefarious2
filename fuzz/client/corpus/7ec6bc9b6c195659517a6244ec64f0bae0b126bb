@@ -1,0 +1,16 @@
+_SILENCE +*!*@*
+SILENCE -*!*@*
+SILENCE fuzzA
+SILENCE +E -*!*@*
+SILENCE %dfuzzA
+SILENCEE +*!*@*
+SILENCE -*!*@*
+SILENCE fuzzA
+SILENCE +E -*!*@*
+SILENCE %dfuzzA
+SILENCE +~a:x
+WATCH WHO +~a:x
+WATCH WHO #fuzz
+WHO * %nuhsrfdlaotH
+W1 O,cfuzzfuzz
++HWHO * %nuhsrfdl+fuaot

@@ -1,0 +1,17 @@
+_OPER fuzzoper fuzzoperpass
+MODE fuzzA +s +cdk
+ ONS+x
+WALLO1PS :hi
+WALLUSERS :hi
+GLINE +*@1_OPER fuzzoper fuzzoperpass
+MODE fuzzA +s +cdk
+SNO +x
+W$a:fuzz1PS :hi
+WALLUSERS :hi
+GLINE +*@1_OPER fuzzoper fuzzoperpass
+MODE fuzzA +s +cdk
+S3.0/24 600 :z
+S
+MKPASSWD hunterINE -*@1.OWEBPUS
+SNO +x
+W$aPUSH R2 smE

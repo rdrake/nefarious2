@@ -1,0 +1,5 @@
+SILENCE +*!*@*
+SILENCE -*!*@*
+SILENCE fuzzA
+SILENCE +~a:,n18,n19,nA20,n21,n22,n23,n24,n25,n26,n27,nEA,\n2CLEfuzzA
+SILENCE +,n32,n33,n0,n41,n(2,n43,nOPER

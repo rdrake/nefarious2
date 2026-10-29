@@ -1,0 +1,6 @@
+_OPER fuzzoper fuzzoperpass
+MODE fuzzA +s gggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggggg+cdk
+SNO  L+cdk
+SNO +x
+WALLOPS :hi
+WALL_OPEtl

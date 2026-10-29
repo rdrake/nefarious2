@@ -1,0 +1,8 @@
+_PERSISTENCE STATUS
+PERSISTEN fuzzA
+TOPIC #fuz
+CLEARMODE #fuzz ov#fuzz
+KICK #SIS¾MSG #fuzz :line one
+@batch=ml1;draft/mulN
+QUI_MARKREAD #fuzz
+T :h

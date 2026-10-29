@@ -1,0 +1,42 @@
+_WHO #fuzz
+HOW * %nuhsrfdlaotc,1
+WHO fuzz* zA fuzzB x
+USERIP fuzzB
+LUSERS
+LUSERS * fuzz.test.net
+MOTD
+VE #fuzz:x-SHA-256
+AUTHENTICATE biwsbj1mdXp6YWNjdCxCE
+TRACE fuzzB
+STATB x
+USERIP fuzzB
+LUSERS
+LUSERS * fuzz.test.net
+MOTD
+VERSION
+ADMIN
+TIME
+INFOLINKS
+L.net
+MOTD
+VE #fuzz:x-SHA-256
+AUTHENTICATE biwsbj1mdXp6YWNjdCxCE
+TRACE fuzzB
+STATB x
+USERIP fuzzB
+LUSERS
+LUSERS * fuzz.test.net
+MOTD
+VERSION
+ADMIN
+TIME
+INFOLINKS
+LINKS * *?net
+MAP
+TRACE
+TRACE fuzzB
+STATS
+TSATS u
+SA
+IRCOPS
+ISNEF

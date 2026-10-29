@@ -1,0 +1,12 @@
+_N:
+NICK #chan
+NICK nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn
+NICK -bad
+NICK a√©Øb
+NICK SVSIDENTChanServ
+USER
+USER a
+USER a b c
+NICK OPERSISkeTENTA TCSEUS
+PERSISTENCE GET
+PERSISok

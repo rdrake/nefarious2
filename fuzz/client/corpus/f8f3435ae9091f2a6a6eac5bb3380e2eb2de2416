@@ -1,0 +1,28 @@
+_WEBP_WEBP[USH VAPID
+WEBPUSH REGISTERAAAAAAAAоооооооооооооооооооооооооооооооооооооооооооооооооооооооооооооооооооооооооооооооооооооооооооооооооAAAAAAAAAAA
+WEBPUSH REGISTER http://insecVAPID
+METAMETADATA * SET draft/webpush/idle :60
+PRIVMSG fuzzA :wake up fuzzA
+x
+PRIVMSG #fuzz :fuzzA: mentione=#fuzz WEBPUSH VAPID
+METADATA * SET draft/webpush/idle :31
+PRIV>>>>>>>>>>>>>>>>>>DATA * SET draft/webpush/idle :6 UNREGISTs://push.example.com/abc
+WEBPUSH LIST
+WEBPUSH ER https://push.example.com/abc
+WEBPUSH LIST
+WEBPUSH BOGUS
+@+dr VAPID
+METAISTs://push.example.com/abc
+WEBPUSH LIST
+WEBPUSH ER https://push.example.com/abc
+WEBPUSH L2ST
+WEBPUSH BOGUS
+@+dr VAPID
+METADATA * SET draft/webpush/idle :60
+PRIVMSG fuzzA :wake up fuzzA
+x
+PRIVMSG #fuzz :fuzzA: mentione=#fuzz WEBPUSH VAPID
+METADATA * SET draft/webpush/idle :31
+PRIV>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>MSG fuzzA :wake up fuzzA
+x
+PRIVMSG #fuzz :fuzzA: mention

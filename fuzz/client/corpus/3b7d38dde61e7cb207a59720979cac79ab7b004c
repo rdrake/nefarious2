@@ -1,0 +1,9 @@
+@label=m1 PRIVMSG #fuzz :to be redacted
+CHATHISTORY LATEST #fuzz * 1
+REDACT #fuzz AHAAAaGIXmLBGV :oops
+REDACT #fuzz nosuchmsgid
+REDACT fuzzB x :r
+REDACT
+REDACT #fuzz
+REDACT #nochan abc
+REDACT #fuzz abc :x

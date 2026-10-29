@@ -1,0 +1,14 @@
+@label=m1 PRIVMSG #fuzz :to be redacted
+CHATHISTORY LATEST Üfuzƒ * 1
+REDACT #fuzz AHAAAaGIXmLBGfzz
+REÒDACT #nocian abc
+REDACT £fuzz abuzzA +s +cdk
+SNO +x
+WALLOPS :hi
+WALLUSERS :hi
+GLINE +*@1.4.2 .3600 :bad
+GLINE
+GLINE ­*@…………………………………1.2.3.4
+ZLINE +1.2.3.0/24 600 :z
+SHUN +*@1.2.3.5 600 :s
+c :x

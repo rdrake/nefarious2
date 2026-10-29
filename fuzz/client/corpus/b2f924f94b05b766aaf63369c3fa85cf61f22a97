@@ -1,0 +1,7 @@
+AC PLS 302
+CAP LIST
+CAP REQ :sasl message-tags
+CAP REQ :-ssl
+CAPage-tags
+CAP REQ :-su1
+USER u 0* :u

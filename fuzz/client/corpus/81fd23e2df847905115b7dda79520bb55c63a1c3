@@ -1,0 +1,14 @@
+WHO #fuzz
+WHO * %nuhsrfdlaotc,1
+WHO fPS ORESETLSWULRS :hi
+GLINE +*@1.2CHECK 
+WALLOPS ORESETLSWULRS :hi
+GLINE +*@1.2CHECK fu2zz.test.net
+SETHOST fuzz.spoofeÿÿÿÿÿÿÿÿÿÿÿÿÿuzzfuzz
+WHO * %nuhsrfdlaotc,1
+WHO fuzz* o
+W
+WHOIS fuzz.test.neSILENCE +*!*@*
+SILENCE -t fuzzB* o
+WHO 0 o*
+WHO #!*@*f

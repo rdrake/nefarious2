@@ -1,0 +1,15 @@
+_OPER fuzzoper fuzzoperpass
+MODE fuzzDE fuzzA +s OAUTHBEARERx
+WALLOPS :hi
+WALLUSERS :hi
+GLINE +*@1.2.3.4 600 ∆ùûõı∏≥æNE
+UpgradeGLINE ≠*00 :z
+SHUN +*fuzzA #o@1.2.3.5$600  :bad
+GLINE
+GLINE ≠*00 :z
+SHUN +*@1.2.3.5 600 :s
+JS 66666666666666fuODE #fuzz +o FuzzA
+SVSNICK fuzzA x
+SVSJOIN fuzzA #o
+TSYNC
+DESß±º∑ﬂ≈õ˜ASLL fuzz.test.net

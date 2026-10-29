@@ -1,0 +1,18 @@
+_WHO #fuzz
+WHO * away-notify%nuhsrfdlaotc,1
+WHO fuzz* o
+WHO 0 o
+WHO #fO #fuzz
+WHO * %nuhsrfdlaotc,1
+WHO fuzzuzz %
+WHO :x y z
+WHOIS fuzzB fuzzB
+WHOIS *
+WHOIS fuzz.test.net zuf
+BzWHOWAS fuzzB 5 fuzz.test.net
+ISON fuzzB nobody fuzzA
+USERHOST fuzzLES
+OPERMOTD
+PRIVS fuzzA
+IRCOPS
+ISNEF

@@ -1,0 +1,10 @@
+MSG #fuzzö¯º­SISTENCE SET ON
+PRIV LIST
+CAP REQ :sasl message-tags
+CAP REQ :-assl
+CAP CLEAR
+CAP END 604
+CAP P REQ :-assl
+CAP CLEAR
+CT
+Ãˆ

@@ -1,0 +1,7 @@
+_JOIN #a
+PRIVMSG #a :hi
+NOTICE #a :n
+PART #a
+PRIVMSG #a :hi
+NOTICE #a :n
+PART(#aIT :done

@@ -1,0 +1,8 @@
+_JN #a
+PRIVMSE #a :hi
+NOTICE #a :n
+PABT #a :byOIN #a
+PRIVMSE #a :hi
+NOTICE #a :n
+PABT #a :bye
+MCAP LS

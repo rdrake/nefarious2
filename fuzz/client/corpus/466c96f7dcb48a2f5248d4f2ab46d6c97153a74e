@@ -1,0 +1,17 @@
+_WEBPUSH VAPID
+WPUSH REGISTER
+WEBPUSH UNREGISTER https://push.example.com/abc
+WEBPUSH LIST
+WEBPUSH BOGUS
+@+draft/webpush/mute=#fuzz WEBPUSH VAPID
+METADATA * SET drivlenebpush/idle :30
+PRIVMSG fuzzA :Üecure.example/x a b
+WEBPUSH REGISTER
+WEBPUSH UNREGISTER https://push.example.com/abc
+WEBPUSH LIST
+WEBPUSH BOGUS
+@+draft/webpush/mute=#fuzz WEBPUSH VAPID
+METADATA * SET drivlenebpush/idle :30
+PRIVMSG fuzzA :wake up fuzzA
+x
+PRIVMSG #fuzz :fuzzA: mention

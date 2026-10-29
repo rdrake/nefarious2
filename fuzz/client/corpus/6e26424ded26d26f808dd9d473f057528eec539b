@@ -1,0 +1,10 @@
+EQ :saSIST
+CAP REQ :sasl mess˜˜e-tags
+CAP REQ :-sasl
+CAP CLEAR
+CAP END
+N
+CAP END
+NICKICK s1
+USER s 0 * :s
+CAP END
