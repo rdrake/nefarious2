@@ -12,6 +12,7 @@
 #include <time.h>
 #include "../common/cbmc_util.h"
 #include "../common/strtoull_model.h"
+#include "../common/libc_models.h"
 
 #include "../../../ircd/webpush_mute.c"
 
