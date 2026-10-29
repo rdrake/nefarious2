@@ -101,7 +101,7 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <signal.h>
-#include <ftw.h>
+#include <dirent.h>
 
 extern char *configfile;
 extern struct Connection me_con;
@@ -645,18 +645,30 @@ static void fz_write_conf(const char *tmpl_path)
   fclose(out);
 }
 
-static int fz_rm_cb(const char *path, const struct stat *sb, int flag,
-                    struct FTW *ftw)
+static void fz_rm_rf(const char *path)
 {
-  (void)sb; (void)flag; (void)ftw;
-  return remove(path);
+  DIR *d = opendir(path);
+  struct dirent *e;
+  char sub[1024];
+
+  if (d) {
+    while ((e = readdir(d))) {
+      if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, ".."))
+        continue;
+      snprintf(sub, sizeof(sub), "%s/%s", path, e->d_name);
+      fz_rm_rf(sub);
+    }
+    closedir(d);
+    rmdir(path);
+  } else
+    unlink(path);
 }
 
 /* Best effort: each (fork-mode) worker makes its own RocksDB dir. */
 static void fz_cleanup(void)
 {
   if (fz_dir[0] && !getenv("FUZZ_CLIENT_KEEP_TMP"))
-    nftw(fz_dir, fz_rm_cb, 16, FTW_DEPTH | FTW_PHYS);
+    fz_rm_rf(fz_dir);
 }
 
 static struct Listener *fz_make_listener(int websocket)
