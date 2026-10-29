@@ -1,0 +1,8 @@
+out/
+crash-*
+timeout-*
+leak-*
+oom-*
+slow-unit-*
+*.profraw
+*.profdata
