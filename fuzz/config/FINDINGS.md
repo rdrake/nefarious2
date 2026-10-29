@@ -86,6 +86,20 @@ previously allocated by thread T0 here:
     #3 add_listener      ircd/listener.c:355:16
 ```
 
+**Plain REHASH variant** (`repro/F12-listener-uaf-rehash.conf`): an admin
+edits `Port { port = 6667; vhost = "192.0.2.1"; };` to
+`Port { port = ipv6 6667; vhost = "192.0.2.1"; };` and REHASHes:
+
+```
+ERROR: AddressSanitizer: heap-use-after-free
+    #0 close_listeners   ircd/listener.c:483:31
+    #1 rehash            ircd/s_conf.c:1429:3
+freed by thread T0 here:
+    #1 free_listener     ircd/listener.c:92:3
+    #2 add_listener      ircd/listener.c:397:5
+    #4 yyparse           ircd/ircd_parser.y:1049:5
+```
+
 Without the third block the next walk of `ListenerPollList`
 (`close_listeners()` at the end of the REHASH, `start_all_listeners()`,
 `STATS P`) hits the freed entry.
