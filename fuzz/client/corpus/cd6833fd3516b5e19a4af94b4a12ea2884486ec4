@@ -1,0 +1,22 @@
+_OPER fuzzoper fuzzoperpass
+MODE fuzzA +s +cdk
+SNO +x
+WALLOPS :h+
+WALLUSERS ,#bad
+MONITOR L
+MONITOR S
+MONITOR - fuzzB
+MONITOR C
+MONITOR + n0,n1,n2,n3,n4,n5,7.zA2
+NICK fuzzB
+NICK fuzza%
+NICK 0
+NICK fuzzA
+(
+NICK aNICK aNI 4400
+SQUIT fakGET / HTTP/1.1
+HofuzJOIN #a,#b,#c,&d k1,k2
+JOIN 0
+JOIN #a,#a,#a
+JOIN #c0JOIN #a,#b²²²²z.testent.
+SET MAXCONNE²²²CTI²ONS²

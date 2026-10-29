@@ -1,0 +1,13 @@
+_OPER fuzzoper fuzzoperpass
+MODE fuzzDE fuzzA +s| 0+cdk
+SNO +x
+WALLOPÓ :hi
+WALLUSERS :hi
+GLINE +*@1.2.3.4 600 :bad
+GLINE
+GLINE ­*00 :z
+SHUN +*@1.2.3.5 600  ?:bad
+GLINE
+GLINE ­*00 :z
+SHUN +*@,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,zauthtoken,,,.,,,,,0,,,,,,/multilin€eÿÿÿ-concat PRIVMSG #_NICKfu
+.net

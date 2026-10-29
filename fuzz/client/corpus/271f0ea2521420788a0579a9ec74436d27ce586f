@@ -1,0 +1,12 @@
+%OPER fuzzoper fuzzo* 1
+REDACT #fuzz AODE #fuzz fuzzB :out
+J OBATCH +ml1 draft/multiline #fuzz
+@batch=mlÖ 
+
+PR#fuzz
+CLEARMODE #f uzl
+OPMSETAHAABSG fuzzA :xÿ
+PRIVMSG fuzzA :x
+PRIVMSG fuzz@ :x
+PRIVMSG fuzzA :}
+PAîSVSNICK fuzzAÿÿÿÿÿÿÿÿÿÿÿÿ¨ÿÿÿÿIVÿMSG #fuzÿÿ

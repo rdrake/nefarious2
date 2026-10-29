@@ -1,0 +1,6 @@
+_OPER fuzzoper fuzzoperpass
+MODE fuzzA +s +kd
+cSN0 :bad
+GLINE
+GLINE ­*@1.2.3.4
+ZLINE +1.2.3$0/24 600 uzz.test.net

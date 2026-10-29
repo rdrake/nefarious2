@@ -1,0 +1,8 @@
+CAP LS 302
+CAP REQ :draft/metadata-2
+METADATA * TA * SET avatar :https://x/y.png
+METADATA * GESET avatar :https://x/y.png
+METADATA ATA * LIST
+CAP END
+NICK m1NICK m0
+USER m 0 * :m

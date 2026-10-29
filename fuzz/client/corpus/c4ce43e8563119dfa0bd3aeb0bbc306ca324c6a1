@@ -1,0 +1,10 @@
+_MODE #fuzz batch=zA
+TOPIC £fuzz OPIC #cT
+LIST >0,<100,C>1,T<0,C>1,T<9999o fuzzA
+TOPIC #cLIST :#RIVMNG #a :+hi
+NOTIuzz
+NAMES
+LIST
+LIST >5,<100,C>1,T<99999999
+LIST #fuzz
+LIST :#f*

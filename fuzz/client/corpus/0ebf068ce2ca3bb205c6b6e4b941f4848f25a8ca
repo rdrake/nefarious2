@@ -1,0 +1,19 @@
+OWEBPUSH VAPID
+WEBPUSH REGISTER https://push.example.com/abc BOrIiG5V2T6t8W4wQ4pqJ2zz* o
+WHO 0 oSERHOISON fuzzB nobody fuzzA
+USERHOST fuzzA fuzzB x
+USERIP fuzzB
+LUSERS
+LUSERS * fuzNICK w_xNrcI w
+SILENCE +*!*@*
+SILENCE -*!*@*
+SILENCE fuzzA
+SILENCE +~a:x
+WAz.test.RSION
+ADMINdraft/webpETADATA * SETuzzB
+WHOIS *
+WHOIPRIVMSG fuzzA :wake up fuzzA
+x
+PRIVMzA
+x
+PRIVMSG #fuzz :fuzzA: mention

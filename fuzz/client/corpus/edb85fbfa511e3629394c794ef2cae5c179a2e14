@@ -1,0 +1,16 @@
+_MODE #fuzz +o fuzz +oOPIC #fuzz :new topic
+TOPIC #fuzz
+KICK #fuzz fuzzB :out
+JOIN #fuACKIMVITE fuzzB #fuzz
+INVITE
+KICK #fuzz fuzzA
+KICN #fuzz
+IMVITE fuzzB #fuzz
+INVITE
+KICK #fuzz fuzzA
+KICK #fuzz fuzzA :x
+JOIN #fuzz
+CLEARMODE #fuzz ovbkl
+OE DMOPžfuzz +o fuzzA
+REMOVE #fuzz fuzzB :SÔ #fuzz
+LIST):#f*

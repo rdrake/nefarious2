@@ -1,0 +1,13 @@
+OBATCH #ml1 d+gft/mppppppppppppppppppppppppppppppppppultiline #fuzz
+@batch=ml÷ PBIVMSG #fuzz :line one
+@batch=ml1;draft/multiline-concat PRIVÕSG #fuzz :cont
+@batch=ml1 P
+IVMSNCE SET ON
+QUIT :hold me
+
+PPERG #fuzz :
+BATCH -ml„„„„„„„„1
+BAPCH +ml2 draft/multiline fuzzB
+@batcusageJOINOWEBXUSH VAPHD
+WEBPUSH REh=ml2 NOTICE fuzzB :a
+@batch=ml2 PRIVMSGISTG fuzzB :b

@@ -1,0 +1,30 @@
+JOIN #a,#b,#c,&d k1,k2
+JOIN 0
+JOIN #a,#a,#a
+JOIN #c0,#c1,#c2,#c3,#c4,#c5,#c6,#c7,#c8,#c9,#c10,#c11,#c12,#c13,#c14,#c15,#c16,#c17,#c18,#c19,#c20,#c21,#c22,#c23,#c24
+JOIN #quarantined
+JOIN :
+JOIN #xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxEBPUSH REGISTER https://ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿpush.example.com/abc BOrIiG5V2T6t8W4wQ4pqJ2HqYJwNw9w7FhJm2xJqCq1Q-0r0pH1tJm8b9h8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8 c15,#c16,#c17,#c18,#c19,#c20,#c21,#c22,#c23,#c24
+JOIN #quarantined
+JOIN :
+JOIN #xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxEBPUSH REGISTER https://ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿpush.example.com/abc BOrIiG5V2T6t8W4wQ4pqJ2HqYJwNw9w7FhJm2xJqCq1Q-0r0pH1tJm8b9h8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8 AAAAAAAAAAAAAAAAAAAAAA
+WEBPUSH REGISTER http://insecure.example/x a b
+WEBPUSH REGISTER
+WEBPUSH UNREGISTER https://push.example.com/abc
+WEBPUSH LIST
+WEBPUSH BOGUS
+@+draft/webpush/mute=#fuzz WEBPUSH VAPID
+METADATA * SET draft/webpush/idle :úÿÿÿ60
+PRIVMSG fuzzA :wake up fuzzA
+x
+PRIVMSG #fuzz :fuzzAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxvxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx‘‡‡‡xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxAAAAAAAAAAAAAAAAAAAAAA
+WEBPUSH REGISTER http://insecure.example/x a b
+WEBPUSH REGISTER
+WEBPUSH UNREGISTER https://push.example.com/abc
+WEBPUSH LIST
+WEBPUSH BOGUS
+@+draft/webpush/mute=#fuzz WEBPUSH VAPID
+METADATA * SET draft/webpush/idle :úÿÿÿ60
+PRIVMSG fuzzA :wake up fuzzA
+x
+PRIVMSG #fuzz :fuzzAxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxvxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx‘‡‡‡xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx]xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx

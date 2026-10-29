@@ -1,0 +1,17 @@
+OWEBPUSH VAPID
+WEBPUSH REGISTER https://push.example.com/abc ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~BOrIiG5V2T6t8W4wQ4pqJ2HqYJwNw9w7FhJm2xJqCq1Q-0r0pH1tJm8b9h8f8f8f8f8f8f8f8f8f8f8f8f8f8f8f8 AAAAAAAAAAAAAAAAAAAAAA
+WEBPUSH REGISTER0 :bad
+GLINE
+GLINE -*@1.2.3.4
+ZLINE +1.2.3.0/24 600 :z
+SHUN +*@1.2.3.5 600 :s
+JUPE +fake.server 600 :j
+TEMPSHUN fuzzA :t
+KILL fuzzA :k
+CHECK fuzzA
+CHECK #fuzz
+CHECK fuzz.test.net
+SETHOST fuzz.spoofed.host spoofpass
+SETHOST undo
+SWHOIS fuzzA :sw
+CLOSE:fuzzA: mention

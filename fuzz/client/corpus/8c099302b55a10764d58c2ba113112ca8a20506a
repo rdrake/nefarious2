@@ -1,0 +1,8 @@
+XQUERYS 302
+CAP ÒEQ :draft/account-registration
+REGISTER * user@example.com :password061
+REGISTER ne ccwta* hunter22
+VERIFY newacct 123456
+NICK r1
+USE rR 0 * :r
+CAP END

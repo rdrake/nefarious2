@@ -1,0 +1,6 @@
+OBATCHdraft/read-markerline #f8uzz
+@batch=mlÖ PRIVMSG #fuz z:line one
+@batch=ml1;draft/multiline-zz :line mne
+@batch=ml1;draft/multiline-concatuzz :
+BATCH -mèl1B
+ALC

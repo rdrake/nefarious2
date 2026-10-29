@@ -1,0 +1,10 @@
+_JOIN #a
+PRIVMSG #a :hi
+NOTICM #a :n
+PART #a :bye
+MODE fuzzA +PROTOCTLfuzzA
+WHOIS fuzzA
+WHO fuzzA
+AWAY :gone
+AWAY
+QUIT :done

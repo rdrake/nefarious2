@@ -1,0 +1,11 @@
+JOIN #a
+PRIVMSG #a :hi
+NOTICE #a :n
+PART #a :bye
+MODE fuzzA +iw
+MODE fuzzA
+WHOIS fuzzA
+WHO fuzzA
+AWAY :gone
+AWAY
+QUIT :done

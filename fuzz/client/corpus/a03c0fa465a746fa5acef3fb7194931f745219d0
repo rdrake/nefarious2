@@ -1,0 +1,5 @@
+_JOIN #a
+PRIVMSE #a :hi
+NOTICE #a0:n
+PART #a :bye
+MCAP LS

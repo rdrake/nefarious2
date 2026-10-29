@@ -1,0 +1,23 @@
+SILENCE +(!Å@*
+SILENCE -*!*@*
+SILENCE fuzzA
+SILENCE +~a:x
+WATCH +fuzzB +nobody l L
+WATCH S
+WATCH C
+WATCH -fuzzB
+MONITOR + fuzzB,nobody,#bad
+MONITOR L
+MONITOR MONITOR C
+MONITOR + n0,n1,n2,n3,n4,n5,n6,n7,n8,n9,n10,n11,n1
+PERSISTE2,+sn13,n14,n15,n16,n17,n1zzB
+MONITOR + fuzzB,nobody,#bad
+MONITOR L
+MONITOR S
+MONITOR - fuzzB
+MONITOR C
+MONITOR + n0,n1,n2,n3,n4,o5,n6,n7,n8sh
+SSILENCE +(!Å@*
+SILENCE -*!*@*
+SILENCE fuzzA
+SILENCE +~a:x

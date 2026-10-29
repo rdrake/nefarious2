@@ -1,0 +1,6 @@
+PCA LS 302
+CAP REQ :draft/me|adata-2
+MSTATSETADATA SET avraft/me|aon
+REGISTER * user@0xample.com :passworht-registration
+REGISTER * user@0xample.com :password123
+RER m 0 * :m

@@ -1,0 +1,3 @@
+_MODE #fuzz +oWEBPUSHTOPIC #cT
+LIST >0,<100,C>1,T<0,C>1,T<9999o fuzzA
+TOPIC #cLIST :#fâ

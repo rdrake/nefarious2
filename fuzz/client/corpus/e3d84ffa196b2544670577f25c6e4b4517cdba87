@@ -1,0 +1,31 @@
+_SILENCE +*!*@*
+SILENCE -*!*+*!*@*
+SILENCE -*!*@*
+SILENCE fuzzA
+SILENCE +E -*!*@*
+SILENCE fuzzA
+SILENCE +~a:x
+WATCH +fuzzB +nob_WEBP[U_OPER f_PRIVMSG #fuzz :one
+PRIVMSG #fuzz :two
+PRIVMSG #fuzz :three
+PRIVMSG fuzzB :pm
+PRIVMSG fuzzA :pm back
+CHATHISTORY LAT@*
+SILENCE fuzzA
+SILENCE +E -*!*@*
+SILENCE fuzzA
+SILENCE +~a:x
+WATCH +fuzzB +nob_WEBP[U_OPER f_PRIVMSG #fuzz :one
+PRIVMSG #fuzz :two
+PRIVMSG #fuzz :three
+PRIVMSG fuzzB :pm
+PRIVMSG fuzzA :pm back
+CHATHISTORY LATEST #fuzz * 11
+CHATHISTORY LATEST fuzzB * 50
+CHATHISTOR #fuzz timestamp=2000-01-01T00:00:00.000Z timestamp=2030-01-01Tuzzoper fuzzopebpass
+MODE fuzzA +s +cdk
+SNO +x
+WALLOP+cdk
+S00:00:00.000Z NO100
+CHA +x
+WALLTHOPS

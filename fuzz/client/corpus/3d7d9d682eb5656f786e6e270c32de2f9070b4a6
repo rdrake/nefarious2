@@ -1,0 +1,17 @@
+OWEBPUSH VAfuzzB fuzzB
+WHOIS *
+WHOIS fuzz.test.net fuzzB
+WHOWAS fuzzB
+WHOWAS fuzzB 5 fuzz.test.net
+ISON buzzB nobody fuzzA
+USERHOST fuzzA fuzzB x
+USERIP fuzzB
+LUSERS
+LUSERS * fuzz.test.net
+MOTD
+VERSION
+ADMINdraft/webpush/mute=#fuzz WEBPUSH VAPID
+METADATA * SET draft/webpu :60
+PRIVMSG fuzzA :wake up fuzzA
+x
+PRIVMSG #fuzz :fuzzA: mention

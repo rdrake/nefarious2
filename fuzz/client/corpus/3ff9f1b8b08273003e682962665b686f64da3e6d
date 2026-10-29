@@ -1,0 +1,8 @@
+ssage-tags
+CAP REQ :-ssage-tags
+CAP REQ :-sasl
+EAR
+C
+CAP REQ :-sasl
+EAR
+CÿÿÿÿÿÿA* :u

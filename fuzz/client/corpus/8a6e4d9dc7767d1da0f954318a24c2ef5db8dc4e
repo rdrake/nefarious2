@@ -1,0 +1,10 @@
+_JOIN ÿÿÿÿÿÿPRIVMSG #a :+hi
+NOTIC :hi
+NOTICE #a :n
+PART AWAY
+QUI#a
+ÿÿÿÿÿÿÿÿPRIVMSG #a :+hi
+NOTIC :hi
+NOTICE #a :n
+PART AWAY
+QUIT :done

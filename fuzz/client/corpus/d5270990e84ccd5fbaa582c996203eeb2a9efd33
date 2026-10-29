@@ -1,0 +1,16 @@
+_MODE #fuzz +p+o fuzzA
+TOPIC #f://10.uzz :new topic
+TOPIC #fuzz
+TER https://push.example.com/abc BOrIiG5V2T6t8W4wQ4pqJ2zz* o
+WHO 0KIfuzz +o fuzzA
+REMO,<100,C>1,T<999999TE fuzzB #fuzz
+IN*ITE
+KIC[ #fuzz fuzzA
+KICK #fu†…ß™Š……´ :x
+JOIN #fuzz
+CLEARMODE #fuzz ovbkl
+OPMODE 'fuzz +o fuzzA
+REMO,<100,C>1,T<99999999
+LIMODE #fuzz ovbkl
+OPMODEST #fuzz
+LIST :#f*

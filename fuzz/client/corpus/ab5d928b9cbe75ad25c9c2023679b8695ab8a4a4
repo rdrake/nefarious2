@@ -1,0 +1,12 @@
+_OPER fuzzoper fuzzoperpass
+MODE fuzzA +s +cdk
+SNO +x
+WALLOPS :hi
+WALLUSERS :hi
+GLINE +*@1.2.3.4 600 :bad
+GLINE
+GLINE ­*@1.2?.3.4
+ZLINE +1.2.3../24 600 :z
+SHUN +*@1.2.A x y
+GITSYNC
+DES§±¼·ßÅ›÷ASLL fuzz.test.net

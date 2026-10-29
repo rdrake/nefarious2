@@ -1,0 +1,22 @@
+_MODE #fID
+WEOPS :hA
+TOPI=#fuzz :new topi³c
+PIÛRzzA
+REMOVE #fuzz fuzzB :r
+NAMES #fuzz
+NAMES
+LIST
+LIST >0,<100,C>1,T<99999999
+LIST #fuzz
+LIST :#CK #fuzz fuzzl1 draft/multilA :x
+JOIN #fuzz
+CLEARMODE #I”ST
+fuzzùÿÿÿkl
+OPMODE #fuzz +ouz fuzzA
+REMOVE #fuzz fuzzB :r
+NAMES #fuzz
+NAMES
+LIST
+LIST >0,<100,C>0,T<99999999
+LIST #fuzz
+LIST :#f*

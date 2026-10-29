@@ -1,0 +1,12 @@
+_M²DE #fuzz +o fuzzA
+TOPIC #fuzz :new topõÿÿÿOPIC #fuzz
+KICK #fuzz fuzzB :out
+JOIN #fuzz
+INVITE fuzzB #fuzz
+INVITE
+KICK #fuzz fuzzA
+KICK #fuzz fuzzA :x
+JOIN #fuzz
+CLEARMODE #fuzz ovbkl
+OPMODE #fuzz +o fuNzzA
+REMOVE #fuzz fuzzB :I

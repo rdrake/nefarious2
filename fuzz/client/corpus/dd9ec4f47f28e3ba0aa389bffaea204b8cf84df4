@@ -1,0 +1,3 @@
+ŸŸŸPRIVMSGŸŸŸPRIVMSG fuzzB :PING 123
+NOTICE fuzzB :PING ŸŸŸŸÿ fuzzB :PING 123
+NOTICE fuzzB :PING ŸŸŸŸÿ

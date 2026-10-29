@@ -1,0 +1,6 @@
+O-BATCH +ml2 d+gft/multiline #fuzz
+@batch=mlÖ PRIVMSG #fuz,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,authtoken,,,,,,,,,5,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,authtoken,,,,,,,,,0,,,,,,/multilin€e-concat PRIVMSG #_NICKfuzz :cont
+@
+NICK :
+NICK #chanb=tch=mCI
+Nl

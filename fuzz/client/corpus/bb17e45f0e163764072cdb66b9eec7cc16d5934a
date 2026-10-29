@@ -1,0 +1,21 @@
+SMO_CAP LVERההההההההההההההההההההההההההההההההIFYS S
+LUSERS * fuzz.test.net
+MOTD
+VERSION
+ADMIN
+TIME
+INFO
+LINKS
+LINKS * *.net
+MAP
+TRACE
+TR302
+CQP REQ :sasl
+AUTHENTICATE EXTERNAL
+AUTHENTICA
+TOPIC #fuzz :new topilYXJNICK
+NICK :
+#fuzz
+INVIT
+*CK #fuzz fuzzA
+KICK #fuzz  *

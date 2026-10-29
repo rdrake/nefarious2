@@ -1,0 +1,8 @@
+_CAP LS 302
+CAP LIST
+CAP REQ :sasl message-tags
+CAP REQ :-sasl
+CAP CLEAR
+CAP END
+NICK u1
+USER u 0 * :u

@@ -1,0 +1,33 @@
+OMETADATA * SET avatar :https://example.com/a.png
+METADATA * SET display-name :Fuzzy
+METADATA * GET avatar display-name nokey
+METADATA * LIST
+METADATA fuzzB LIST
+METADATA #fuzz SET url :https://x
+METADATA #fuzz LIST
+METADATA * SUB avatar color
+METADATA * SUBS
+METADATA * UNSUB avatar
+METADATA * SYNC
+METADATA #fuzz SYNC
+METADATA * CLEAR
+METADATA * SET bad key :v
+METADATA * SET kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkush.example.com/abc
+WEBPUSH LIST
+WEBPUSH EBPUSH BOGUS
+@+dAAAAAAAAAAAAAAAAAAA
+WEBPUSH REGISTER http://insecure.example/x a b
+kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk :v
+METADATA * SET avatar :vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
+METADATA * BOGUS
+METADATA
+METADATA nobocom/a.png
+METADATA * SET display-name :Fuzzy
+METADATA * GET avatar display-name nokey
+METADATA * LIST
+METADATA fuzzB LIST
+METADATA #fuzz SET url :https://x
+METADATA #fuzz LIST
+METADATA * SUB avatar colovvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvdy LIST
+METADATA * SET status :busy
+METADATA fuzzB GET status

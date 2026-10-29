@@ -1,0 +1,11 @@
+@label=m1 PRMIVSG #fuzz :to be redacted
+CHATHISTORY LATEST #fuzz * 1
+REDACT #fuzz AHAAAaGIXmLBGV :oops
+REDACT #fuzz nosuchmsgid
+REDACT fuzzB x :r
+REDACT
+REDACT #fuzz
+REDACT #n=m1 PRMIVSG #fuzz :to be redacted
+CHATHISTORY LATEST #fuzz * 1
+REDACT ://[::1]AAAaGIXmochan abc
+REDACT #fuzz abc :x

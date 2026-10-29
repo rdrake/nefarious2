@@ -1,0 +1,6 @@
+_WHO #fuzz
+WHO * %zz.test.net fuzzB
+WHOWAS fuzzB
+WHOWAS fuzzB 4 fuzz.test.net
+ISON fuzzB nWHO #fuzz
+WHO * %nobod

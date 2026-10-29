@@ -1,0 +1,17 @@
+_OPER fuzzoper fuzzoperpass
+MODE fuzzA +s +cdk
+SNO +x
+WALLOPS :hi
+WALLUSERS :hi
+GLINE +HECK dnsbl
+STATS gkeylec
+CONNECT f˜”e.serS :hi
+WALLUSERS :hi
+GLINE +HECK dnsbl
+STATS gkeylec
+CONNECT f˜”e.server 4400
+SQUIT fake.server :x
+UPING fuzz.tever 4400
+SQUIT fake.server :x
+UPING fuzz.test.net
+SET MSLL fuzz.testnet

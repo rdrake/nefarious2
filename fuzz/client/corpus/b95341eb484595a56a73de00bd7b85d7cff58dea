@@ -1,0 +1,4 @@
+_PRIVMSG #fuzz 88888888888888888888888:café 😀
+SETNAME :éè
+TOPIC #fuzz :ÿþ invalid
+JOIN)#été

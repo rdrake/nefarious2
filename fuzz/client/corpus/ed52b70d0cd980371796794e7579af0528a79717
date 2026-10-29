@@ -1,0 +1,5 @@
+SQUITLS 302
+CAP REQ :draft/accoord1w:password123
+REGISTER newacct * hunteGISTER newacct * hunter22
+VERIFY new:R r 0 * :r
+CAP END

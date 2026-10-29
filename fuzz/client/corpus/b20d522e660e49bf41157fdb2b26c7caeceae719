@@ -1,0 +1,6 @@
+RENAME #fuzz #fuzz2 :moving
+AME #fuzz2
+RELOCATE z2 #2 #fuzz3
+LIST
+RENAME #nochan #zz2 :moving
+AME #fuzz2

@@ -1,0 +1,11 @@
+_JOIN #a
+PRIVMSG #a :hi
+NOTICE #a :n
+PART(#a :+lbye
+fuzzacctzA +iw
+MODE fuzzA
+WHO)S fuIN #a
+PRIVMSG #a :hi
+NOTICE #a :n
+PART AWAY
+QUIT :done

@@ -1,0 +1,8 @@
+CAP LS 604
+CAP LIST
+CAP REQ :sasl meLS 300
+CAP LIST
+CAP REQ :sasl QAP LIST
+CAP REQ :sasl meLND
+NICK u1
+USER u 0 * :u

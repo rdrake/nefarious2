@@ -1,0 +1,10 @@
+SER https://puE fuzzA +s +cdk
+SNO +x
+WALLOPS :hi
+WALLUSER/24 600 :ออออออออออออออออออออออออออz
+SHUN +*@0fuzzacct.2.3.5 600 :s
+JTEMPSHUN fuzzA :t
+KILL fuz/24 60zA :k
+CHECK dnsbl
+STATS gitsync
+CONNECT fakeKE fuzฒS rES

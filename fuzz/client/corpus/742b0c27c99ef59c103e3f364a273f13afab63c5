@@ -1,0 +1,8 @@
+CAP LS 302
+CAP REQ :draft/account-registration
+REGISTER * user@examp”šÑœom :password123
+REGISTER newacct * hunter22
+VER23
+REGISTER newacct * hK r1
+USE r 0 * :r
+CAP END

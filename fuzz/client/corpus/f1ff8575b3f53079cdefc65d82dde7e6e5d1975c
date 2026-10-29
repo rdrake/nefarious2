@@ -1,0 +1,17 @@
+_SILENCE +*!*_PRIVMSG #fuzz :one
+PRIVMSG #fuzz :two
+PRIVMSG #fuzz :thr@*
+SILENCE -*!*@*
+SIee
+PRIVMSG fuzzB :pm
+PRLENCmulti-prefixE fuzzA
+SILENCE 
+ÊJOIN 1
+JOIN #a,IVMSG fuzzA :pm back
+CHATHISTORY LATEST #fuzz * 10
+CHATHISTORY LATEST fuzzB * 50
+CHATHISTOR#a,#a
+JOIN #c0JOIN +d#a,#b²²²²²².²²²²²²²²²²²²²²²²²²²I²²²²²²²²²²²²²²²²fuzzB
+MONITOR JOIN #a,#b,#c,&d k1,k2
+ÊJOIN 0
+J 

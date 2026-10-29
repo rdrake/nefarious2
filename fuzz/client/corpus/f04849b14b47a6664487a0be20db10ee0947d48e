@@ -1,0 +1,16 @@
+PERSISTENCE SET ON
+PRIVMSG #fuzz :before drop
+
+PRheld
+
+
+BOUNCER LISTCLIENTS
+PRIVMSG #fuzz :after
+
+BOUNCER LISTSESSIONS
+QUIT
+Ã:after
+
+BOUNCER LISTSESSIONS
+QUIT
+Ãˆ

@@ -1,0 +1,13 @@
+_WHO #fuzz
+WHO hsrfdlaotc,1
+WHO fuzz* or
+WHO  o
+,WHO #fuzz %
+WHO :x y Ã©z
+WHOIS fuzzB 4 fuzz.tes* %nuhsrfdlaotc,1
+WHO fuzz* or
+WHO  o
+,WHO #fuzz %
+WHO :x y Ã©z
+WHOIS fuzzB 4 fuzz.test.net
+ISOn fuzzBdraft/oper-tagþÿÿÿHO * %nobod

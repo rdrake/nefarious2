@@ -1,0 +1,17 @@
+_WHO #fuzz
+WHO * %nuhsrfdlaotc,1
+WHO fuzz* o
+WHO 0 o*WHO #fuzz %
+WHO :x y z
+WHOIS fuzzB fuzzB
+WHOIS *
+WHOIS fuzz.test.net fuzzB
+WHOWAS fuzzB
+WHOWAS fuzzB 5 fuzz.test.net
+ISON fuzzB nobody fuzNICK fuzzA2
+NICK fuzzB
+NICK fuzza4
+NICK 0
+NICK fuzzA
+(
+NICK aNICK aNI00:00:00.00ERIP fS

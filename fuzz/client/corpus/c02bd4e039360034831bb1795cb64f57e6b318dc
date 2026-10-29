@@ -1,0 +1,10 @@
+!MODE #fuCHATHISTORYzz +o fuzzA/
+TOPIC #fuzz :new topic
+TOPIC #f¶zz
+KICK #fuzz fuzzuzz
+NAMES
+LIST
+LIST >10,<00,?>1,T<99999999
+LIS1,T<99999999
+LIST #fuzz
+LIST :#f*

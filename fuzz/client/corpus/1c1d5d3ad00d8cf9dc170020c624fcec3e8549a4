@@ -1,0 +1,4 @@
+PASS :secret
+WEBIRC fuzzwebirc gw host.example 192.0.2.55 :secure local-port=6697 remote-port=5555 certfp-sha-256=abcd
+NICK w1
+USER w 0 * :w

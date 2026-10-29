@@ -1,0 +1,9 @@
+CAP LS 302
+CAP
+
+ :draft/account-             rezistr\tion
+REGISTER * uCAP LS _JOIN #a
+PRIVMSG #a :hi
+ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿNOTICE #a 3:n
+P02
+ARTCAPM

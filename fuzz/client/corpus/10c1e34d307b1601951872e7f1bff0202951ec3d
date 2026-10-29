@@ -1,0 +1,7 @@
+fCAP LS 3ÇÍ
+CAP LIST
+CAP REQ :sasl P REQ :tags
+C AQR
+P
+EQ :-sasl
+CP ACLCK u8888888O, 8 * :u

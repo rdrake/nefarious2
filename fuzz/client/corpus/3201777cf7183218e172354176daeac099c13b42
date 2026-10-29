@@ -1,0 +1,14 @@
+PR	VSG fuzzA :x
+PRIVMSx
+PRIVMSGSQUERY :x
+PRIVmSG fuzz:Ax 
+PRIVMSG fuzzA Ë‡õ¯RIVMSG fuzzA :x
+PRIV?SG 2uzzA :x
+p€{PRIVMSG fuzzA :x
+PRIVÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿMSG fuzzA :x
+PRIVMSG fuzzAØ:x
+àõ¯¶NG :after flooMSG fuzzA :x
+PRIªVMSG fuzzA :x
+PRIVMSG fuzzA :x
+
+PING :after flood

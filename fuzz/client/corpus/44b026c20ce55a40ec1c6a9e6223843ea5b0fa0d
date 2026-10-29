@@ -1,0 +1,6 @@
+ENDNAME #fuzz #fuzz2 :mo#fuzz #fuzz2 :moving
+PRIVMSG #fuzz :cafÃ© ðŸ˜€
+SETNAMEzz3
+LIST
+CAP LS 302
+CAP RE¯ßÅ&local

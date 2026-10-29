@@ -1,0 +1,12 @@
+_OPER fuzzoper fszzoperpass
+MODE fuzzDE fuzzA +s 0+cAHbad
+GLINE
+GLINE ­*00 :z
+SHUN +*@1.2.,9,1nn93,n94,n914,n1:::::::::::::::::::::::::::::::::%o:3.5 600  :2bad
+GLINE
+GLINE ­*00 :z
+SHUN ad
+GLINE
+GLINE
+SVSNICK fuzzA x
+SVSJOIN zzfuzR fuzzoper fspa›÷ASLL fuzz.ÿÿUÐµTtest.net

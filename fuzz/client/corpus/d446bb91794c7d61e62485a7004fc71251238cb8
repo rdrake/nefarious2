@@ -1,0 +1,10 @@
+C0 *AP LS 302
+CAP LIST
+CAP REQ :sasl message-tags
+CAP REQ :-sasl
+UpgradeAR
+CAP END 302
+CAP LIST
+CAP
+NICK :1
+USER u 0 * :u

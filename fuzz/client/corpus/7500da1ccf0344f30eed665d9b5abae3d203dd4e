@@ -1,0 +1,16 @@
+SILENCE +*!*@*
+SILENCE -*!*@*
+SILENCE fuzzA
+SILENCE +~a:x
+WATCH +fuzB +nobody l L
+WAT1793290740.890ATCH -fuzZB
+MONITOR + fuzzB,nobody,#bad
+MONITOR L
+MONITOR S
+MONITOR - fuzz2
+MR ITNOCO
+MONCE fuzzA
+SILENCE +~a:x
+WATCH +fuzn42,n43,n44,n45,n46,n47n132,n133,n134,n135,n136,n137,n138,n139
+NICK fuzzB2
+QUIT :gone

@@ -1,0 +1,15 @@
+PRIVMSG fuzzB :hello
+PRIVMSG fuzzB,fuzzB,#fuzz :multi
+PRIVMSG @#fuzz :ops
+PRIVMSG +#fuzz :voices
+PRIVMSG $*.net :mass
+PRIVMSG #*.net :mass
+PRIVMSG nobody :x
+PRIVMSG
+PRIVMSG #fuzz
+PRIVMSG X :help
+PRIVMSG X@services.fuzz.test.net :hi
+PRIVMSG fuzzB@fuzz.test.net :hi
+PRIVMSG fuzzB%fuzz.test.net :hi
+NOTICE fuzzB :n
+CPRIVMSG@label=1 CAP LS 30aaa a

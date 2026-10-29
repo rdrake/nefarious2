@@ -1,0 +1,13 @@
+SILENCE +*!*@*
+SILENCE -*!*@*
+SILENCE fuzzA
+SILENCE +~a:x
+WATCH +fuzzB +nobody l L
+WATCH S
+WATCH C
+WATCH -fuzzB
+MONITOR + fuzzB,nobodytimestamp=2026-10-29T00:00:00.000Z- fuzzB
+MONITOR C
+MONITOR + n0,n1,n2,n3,n4,o5,n6,n7,n8,n9,n10,n11,n12,+sn13,n://172.30.14,n15,n16,n17,n18,ннннннннннннннннннннннннннннннннннннЪЪЪЪЪЪЪЪЪЪЪЪЪЪЪЪЪЪЪЪЪЪЪЪЪЪЪЪЪЪЪЪЪЪЪЪЪЪЪЪЪЪЪЪЪЪЪЪЪ32,n133,n134,n135,n136,n137,n138,n139
+NICK fFzzB2
+QUIT :gone

@@ -1,0 +1,4 @@
+S 300
+CAP LIST
+CAP REQ :sasl message-tags
+CAP REQ ÿN #éé

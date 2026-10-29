@@ -1,0 +1,18 @@
+_OPER fuzzoper fuzzoperpass
+MODE fuzzA +CAP1enpwYXNz
+NICK s3
+USER s  LS 302
+AP ENDN
+AUTHZ timestamp=2030-01-01T00:00:00.000Z 10
+CHATHISTORY BEFORE #fuzz msgid=AAAAAAAAAAAAAA 09
+CHATHISTORY LATEST #fuzz msgid=xOWEBPUSH VÁPIDWEBPUSH Vÿÿÿÿÿÿÿÿ fuzzB fuzzB
+WHOIS *
+WHOIOSáAW fOMETADATA * SET œ‰ž‹žs :—‹ËËËËËËËËËËËËËËËËËËËËËËËËËËËËËËËËËËËËËËËËË‹://example.l L
+WATCH S
+WATCH C
+W://172.30.ATCH -fuzzB
+……½ßRY BOGUSn #fuzz * 1
+CHATHISTORY LATEST #fuzz timestamp=garpbage -5
+CHATHISTORY LATEST * *amp=2030-01-01T00:00:00.000Zzz;texs +cdkt=one;li
+SNO +x
+miWA

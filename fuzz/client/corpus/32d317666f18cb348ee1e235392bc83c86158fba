@@ -1,0 +1,20 @@
+_WEBP[USH VAPID
+WEBPUSH REGISTE, https://push.example.com/abc BOrIiG5V2T6t8W4wQ4pqJ2HqYJwNw9w7FhJm2xJqCq1Q-0r0pH1tJm8b9h8f8f8f8f8¾f8ÿÿÿÿiãé®f8f8f8f8f8f8 AAAAAAAAAAAAAAAAAAAAAA
+2xJqCq1Q-0r0pH1tJm8b9h8f8f8f8f8¾f8ÿÿÿÿiãé®f8f8f8f8f8f8 AAAAAAAAAAAAAAAAAAAAAA
+WEBPUSH REGISTER http://insecVAPID
+METADATA * usy
+METADATA fuzzB GET s6 UNREGISTs://push.example.com/abc
+WEBPUSH LIST
+WEBPUSH ER https://push.example.com/abc
+WEBPWEBPUSH REGISTER http://insecVAPID
+METADATA * usy
+METADATA fuzzB GET s6 UNREGISTs://push.example.com/abc
+WEBPUSH LIST
+WEBPUSH ER https://push.example.com/abc
+WEBPUSH G5V2T6t8W4wQ4pqJ2HqYJwNw9wLIST
+WEBPUSH BOGUS
+@+dr VAPID
+METADATA * SET draft/webpush/idle :60
+PRIVMSG fuzzA :wake up fuzzA
+x
+PRIVMSG #fuzz :fuzzA: mention

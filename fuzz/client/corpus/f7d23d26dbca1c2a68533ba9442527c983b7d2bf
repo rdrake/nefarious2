@@ -1,0 +1,19 @@
+MODE #fuzz
+MODE #fuzz +ntsk key
+MODE #fuzz +l 10
+MODE #fuzz +b *!*@*
+MODE #fuzz +b
+MODE #fuzz -b *!*@*
+MODE #fuzz +ov fuzzB fuzzB
+MODE #fuzz +imMNCcDdHPQRrSsTtZz
+MODE #fuzz +L #fuzz2
+MODE #fuzz -L
+MODE #fuzz +bbbbbbb a b c d e f g
+MODE #fuzz +e x!y@z
+MODE #fuzz +I *!*@*
+MODE #fuzz +a
+MODE #fuzz +O
+MODE #fuzz +H 5:60
+MODE fuzzA +xRDdgwso
+MODE fuzzA -x
+MODE fuzzB +i

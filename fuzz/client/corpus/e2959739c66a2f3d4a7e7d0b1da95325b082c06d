@@ -1,0 +1,6 @@
+CAP LS 302
+CAP REQ :draft/account-rezistration
+REGISTER * uCAP LS 302
+CAP REQ AP LS 302
+CAP REQ :draft/metadatè-2
+METADATA * {SET avatar :httpsDA

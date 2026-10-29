@@ -1,0 +1,18 @@
+.JOIN #a,#b,#c,&d k1,k2
+JOIN 0
+JOIN #a,#W,#a
+JOIN #c0JOIN #a,#b²²²²²²²²²²²000000000+reply=00000_MODE #fuzz +o fuzzA
+TOPIC #fuzz :new topi³c
+PIC #fuzz
+KICK #fuzkl
+OPMODE #fuzz +o fuzzA
+REMOVE #fuzz fuzzB :r
+NAMES #fuzz
+NAMES
+LIST
+LIST >0,<100,C>1,T<99999999
+LIST #fuzz
+LIST :#f*0
+JOIN #a
+:GP ¶xN 2xxxxxxxxxxxxxxxxENTS
+BOUNd 1xxxx

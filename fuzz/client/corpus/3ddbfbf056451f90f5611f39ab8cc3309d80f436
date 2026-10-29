@@ -1,0 +1,18 @@
+OMETADAOMETADATA * SET úâûãûs :óããèè://example.l L
+WATCH S
+WATCH C
+WATCH -fuzzB
+MONITOR + fuzzB,nobE +*!*@*
+SILENCE -*!*@*
+SILENCE fuzzAWHO #fuzz
+WHO * %nuhsrfdlaotc,1
+WHO fuzr* o
+WHO 0 o
+WHO #fuzz %
+WHO :x? y z
+WHOIS fuzzB fuzzB
+WHOIS *
+WHOIS fuzz.test.net fuzzB
+WHOWAS fuzzB
+WHOWAS fuzzB 5 fuzz.test.net
+ISTA *O

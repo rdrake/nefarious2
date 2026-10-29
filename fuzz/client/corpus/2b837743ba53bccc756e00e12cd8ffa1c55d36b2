@@ -1,0 +1,10 @@
+PRIVMSG fuzzA :x
+POWEBPUSH VAPID
+WEBPUSH REGISTER https://push.example.com/abc BOrIiG5V2T6t8W4wQ4pqJ2HqYJwNw9w7FhJm2xJqCq1Q-0r0pH1tJm8b9h8f8f8f8f8+f8f8f8f8f8f8f8f8f8f8g8 AAAAAAAAAAAAAAAAAAAAAA
+WEBPUSH REGISTER http://insecure.example/x a b
+WEBPUSH REGISTEWEBPUSH UNRERIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG zufAz :x
+PRIVMSG fuzzA :x
+PRIVmSG fuzzA :x
+PRIVMSG fuzGISTEZ https://push.example.com/zA a:

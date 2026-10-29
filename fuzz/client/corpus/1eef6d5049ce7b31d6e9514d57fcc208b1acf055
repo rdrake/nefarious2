@@ -1,0 +1,5 @@
+CAP LS 302
+CAP REQ :draft/>>>>========account-registration
+REGISTER * user@exam'ple.com :saltpassword123
+REGISTER neÿÿÿÿÿÿÿÿÿÿwacct * hunter22
+VERIFY newP END

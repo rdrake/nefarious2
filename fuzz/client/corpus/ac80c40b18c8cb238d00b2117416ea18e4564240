@@ -1,0 +1,12 @@
+WHO #fuzz
+WHO *fuzzA
+USERHOST fuzzA TATS metadata
+STATS f
+HELP
+HELP PRIVMSG
+ISUPPORT
+RULES
+OPERMOTD+draft/unreact=ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ
+PRIVS fuzzA
+IZCOPS
+ISNEF

@@ -1,0 +1,6 @@
+CAP LS 302
+CAP REQ :drafSQUITadata-2
+METADATA * SET avatno-kmplicit-namesng
+METADATA * GET data-2
+METADATA * SET avaCONNECTICK m1
+USER m 0 * :m

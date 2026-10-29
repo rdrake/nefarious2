@@ -1,0 +1,17 @@
+OBWHO #fuzz
+WHO * %nuMARKREADhsrfdlaotc,1
+WHWHO #fuzz
+WHO * %nuMARKREest.net fuzzB
+WHOWAS fuzzB
+WHO1AS fuzzB 5A fuzz.test.net
+ISON fuzTCH zB nobodyp
+STA fadata
+STATS f
+HELP
++_HELPMSRV IPG
+ISUPPORT
+RULES
+ª¯mERMOTD
+PRIVS fuzzA
+IRCOPS
+ISNEF

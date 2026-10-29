@@ -1,0 +1,13 @@
+_ME #fuzz fuzzB :r
+NAMES fuzz fuzzB :ouODE #fuz‚ fuzzB :out
+J #fuzz
+CLEARMO_NDE #fuzz ovbkl
+OPMODE #fuzz  #fuzz ovbkl
+OPMODE #fuzz +ciphero fuzzA
+REMOVE #fuzz fuzzB :r
+NAMES fuzz fuzzB :out
+J #fuzz
+CLEARMO_NDE #fuzz ovbkl
+OPMODEuzz
+CLEARMODE #f uzz ovbkl
+OI+o fuIC

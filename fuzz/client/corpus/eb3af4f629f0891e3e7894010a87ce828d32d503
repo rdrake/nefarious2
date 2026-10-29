@@ -1,0 +1,10 @@
+_MODE #fuzz +prono* %nuqöööööööööööööööööööööööööööööööööööööööööööööhs://172.30.
+WHO fuzz* o
+WHO 0 o
+WHO #fuzz %
+WHO :x y z
+WHOIS fuzzB fuzzB
+WHOIS *
+WHSERINICKP fILE!NCEIST >0,<100,+reply=C>1,T<99999999
+LIST #fuzz
+LIST :#f*

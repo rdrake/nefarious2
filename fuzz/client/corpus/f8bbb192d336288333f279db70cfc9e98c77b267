@@ -1,0 +1,4 @@
+CAP LS 302
+CAP LIST
+CAP REQ :sasl message-nags
+CAP REQ :-saRESETP CLEŸR * :u

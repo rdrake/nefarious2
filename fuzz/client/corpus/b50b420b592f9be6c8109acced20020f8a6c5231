@@ -1,0 +1,6 @@
+_PRIVMSG #fuzz :café 😀
+SETNAME :éè
+TOPIC #fuzz 
+
+� invalid
+JOIN)#été

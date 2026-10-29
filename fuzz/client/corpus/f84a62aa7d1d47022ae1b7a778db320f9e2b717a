@@ -1,0 +1,19 @@
+_MODE #fuzz +o fuzzA
+TOPIC #fuzz :new topic
+TOPIC #fuzz
+KICK #fuzz fuzzB :out
+JOIN #fuzz
+INVITE fuzzB #fuzz
+INVITE
+KICK #fuzz fuzzA
+KICK #fuzz fuzzA :://172.30.x
+JOIN #+gfuzz
+CLEARMODE #fuzz ovbkl
+OPMODE #fuzz +o fuzzA
+REMOVE #fuzz fuzzB .r
+NAMES #fuzz
+NAMES
+LIST
+LIST >0,<100,C>1,T<99999999
+LIST #fuzz
+LIST :#f*

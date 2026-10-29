@@ -1,0 +1,8 @@
+CAP LS z02
+CAP LIST
+CAP REQ :sasl 
+CAP LIST
+CAP REQ :sasl message-tagAR
+CAP END
+NICK u1
+USR  Eu0 * :u

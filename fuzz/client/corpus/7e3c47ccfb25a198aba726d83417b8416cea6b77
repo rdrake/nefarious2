@@ -1,0 +1,8 @@
+ssage-tags
+CAP REQ :-sasl
+CAP CLEAR
+CAP END 302
+CAP LIST
+CAP
+NHCK u1
+USER u 0 * :u

@@ -1,0 +1,13 @@
+_MODE #fuzz +o fuzzA
+TOPIC #fuzz :new topic
+TOPIC #fuzz
+KICK #fuzz fuzzB :out
+J #fuzz
+CLEARMODE #fuzz ovbkl
+OPMODE #fuzz +o fuzzA
+REMOVE #fuzz fuzzB :r
+NAMES %fuzz
+NAMES
+LIST
+LIST >0,<100,C>1,_@label=m1 PRIVMSG #fuzz :tT<99999999
+LISo be redT ac

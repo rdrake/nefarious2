@@ -1,0 +1,25 @@
+_OPER fuzzoper fuzÜêèöçèûås
+MODE fuzzA +s +cdk
+SNO +x
+WALLOPS :hi
+WALLUSERS :hi
+GLINE +*@1.2.3.4 600 :bad
+GLINE
+GL_OPER fuzzoper fuzzoperpass
+MODE fuzzA +sfuzzB
+STATS
+STATS t
+STATS m
+STATS p
+STA fadata
+STATS f
+HELP
+HELPMSRV IPG
+ISUPPORT
+RULES
+™ØERMOTD
+PRIVS fuzzAhunterINE -*@1.OTATS
+STATS u
+STATS m
+STATSWEBPUSH VAPID
+WEBPUSH R2 smE

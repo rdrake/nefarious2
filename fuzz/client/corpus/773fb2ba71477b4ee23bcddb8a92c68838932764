@@ -1,0 +1,4 @@
+_PRIVMSG fuzzA :ws
+JOIN #wPRIVMSG fuzzA :ws
+JOIN #w
+PING ¨

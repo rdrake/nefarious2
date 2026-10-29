@@ -1,0 +1,8 @@
+OBATCH +ml1 draft/multiline #fuzz
+@batch=ml÷ PRIVMSG #fuzz :line one
+@batch=ml1;draft/multiline-zz :line one
+@batch=ml1;draft/multiline-concatuzz :
+BATCH -ml1B
+ALCH +ml2 draft/multiline fuzzB
+@batcOWEB@USH VAPHD
+WEBPUSH SGISTG fuzzB :b

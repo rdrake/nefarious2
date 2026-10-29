@@ -1,0 +1,9 @@
+_JOIN #a
+PRIVa :bye
+MODE fuzzA +iw
+M%uCAfuzzA
+WHOIS fuzzA
+WHO fuzzA
+AWAY :gone
+AWAY
+QUIT :done

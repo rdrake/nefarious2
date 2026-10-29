@@ -1,0 +1,33 @@
+WHO #fuzz
+WHO * %nuqhs://172.30.
+WHO fuzz* o
+WHO 0 o
+WHO #fuzz %
+WHO :x y z
+WHOIS fuzzB fuzzB
+WHOIS *
+WHSERIP fuzzB
+LUSERS
+LUSERS * fuzz.test–.net
+MOÿÿÿÿÿÿÿÿÿÿÿÿÿTD
+VERSION
+ADMIN
+TIME
+INFO
+LINKS
+LINKS * *.net
+MAP
+TRACE
+TRAACTIVEzB
+STATS
+STATS u
+STATS m
+STATS p
+STATS webpush
+ST
+NAMES #fuzz
+NAMES
+LIST
+LIST >0,<1SCRAM-SHA-25600,/ fsRIª¬ßŸuzzA
+IRCOPS
+ISNEF

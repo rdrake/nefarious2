@@ -1,0 +1,12 @@
+OWEBB fuzzB
+WHO fuzzB x
+USERIP fuzzB
+LUSERS
+LUSERS * fuzz.testfnet
+MOTD
+VERSION
+ADMINdraftPUSH VAPIDWEBPUSH Vÿÿÿÿÿÿÿÿ fuzzB fuzzB
+WHO fuzzB x
+USERIP fuzzB
+LUSERS
+LUSERS * fuzz.tA: mention

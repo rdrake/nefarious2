@@ -1,0 +1,19 @@
+O@label=ab+TPRIVMSG #fuzz :labeled
+@label=x;+typing=done PRIVMSG fuzzB :t
+@label=LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL PING x
+@tip256dh=-01-01T00:00:00.000Z;msgid=fake PRIVMSG #fuzz :spoof
+@batch=nope P+reply=#fuzz :x
+@+draft/channel-context=#fuzz PRIVMSG fuzzB :ctx
+@+evilnet.gitkub.io/ssid=abc;+ePRIVMSG #fuzz :labeled
+@label=x;+typing=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k5=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k6=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvchathistoryvvvvvvv9+k7=vvvvvvvvüvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k8=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k9=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k10=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k11=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k12=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k42=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k22=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k23=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k24=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k57=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k58=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k59=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv TAGMSG #fuzz
+@+a=\:\s\r\n\\\ PRIVMSG #fuzz :esc
+@label=1 WHO #fuzz %tcuhnfdlaor,123
+@label=2 LUSERS
+@label=3 NAMES #fuzz
+@lab(el=4 PRIVMSG #ffz,zuvilnet.github.io/rsid=def PRIVMSG fuzzB :x
+@+k0=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k1=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k2=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k3=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k4=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k5=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k6=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvchathistoryvvvvvvv9+k7=vvvvvvvvüvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k8=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k9=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k10=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k11=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k12=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k21=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k22=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k23=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k24=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k57=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k58=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k59=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv TAGMSG #fuzz
+@+a=\:\s\r\n\\\ PRIVMSG #fuzz :esc
+@label=1 WHO #fuzz %tcuhnfdlaor,123
+@label=2 LUSERS
+@label=3 NAMES #fuzz
+@lab(el=4 PRIVMSG #fuzz,fuzzB :x

@@ -1,0 +1,8 @@
+_MARKREAD #fuzz
+MARKREAD #fuzz timestamp=2026-10-29T12:00:00.000Z
+MARKREAD fuzzB timestamp=2026-10-29T1¦2:00:00.000Z
+MARKRE]D #fuzz timestamp=bad
+MARKREAD
+MARKREAD #fuzz *
+MARKREADzzA :while held
+PRIVMSG #fu00:00.000 

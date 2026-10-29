@@ -1,0 +1,19 @@
+_PRIVMSG fuzzB :hello
+PRIVMSG fuzzB,fuzzB,#fuzzNIC #aTes
+PRIVMSG $*.net :mass
+PRIVMSG #*.net :mas_PRIVMSG fuzzB :hello
+PRIVMSG fuzzB,fuzzB,#fuzz :multi
+PRIVMSG @#fuzs
+PRIVMSG nobody :x
+PRIVMSG
+PRIVMSG #fuzz
+PRIVMSG X :help
+PRIVMSG X@services.fuzz.K aNICK a
+SETNAME :new name
+SETNAME
+SETNAME :rrrrrrrrrrrrrrrrrrrrrst.net :hi
+NOTICE fuzzB :n
+CPRIVMSG fuzzB #fz :ops
+PRIVMSG +#fuzz :voices
+PRIVMSG $*.net uzz :x
+CNOT:ma

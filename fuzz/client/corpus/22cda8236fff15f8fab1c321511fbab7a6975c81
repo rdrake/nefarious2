@@ -1,0 +1,19 @@
+_PRIVMSG #fuzz :one
+PRIVMSG #fuzz :two
+PRIVMSG #fuzz :three
+PRIVMSG fuzzB :pm
+PRIVMSG fuzzA :pm back
+CHATHISTORY LATEST #fuzz * 11
+CHATHISTORY LATEST fuzzB * 50
+CHATHISTOR #fuzz timestamp=2000-01-01T00:00:00.000Z timestamp=2030-01-01T00:00:00.000Z 100
+CHATHISTORY TARGETS timestamp=2000-01-01T00:00:00.000Z timestamp=2030-01-01T00:00:00.000Z 10
+CHATHITSORY BEORE #fuzz msgid=AAAAAAAAAAAAAA 10
+CHATHISTORY LATEST #fuzz msgid=x 0
+CHATHISTORY LATEST  chnona#* 10
+CHATHISTORY
+CHATHISTORY BOGUS #fuzz * 1
+CHATHISTORY LATEST #fuzz timestamp=garbage -5
+CHATHISTORY LATEST * * 10
+SEARCH inr#fuzz;text=one;limit=5
+SEARCH from=fuÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿzzB
+SEARCH :

@@ -1,0 +1,11 @@
+CAP LS 302
+CAP LIST
+! :hi
+Nasl message-taGs
+CAP REQ LATEST
+CAP CLEAR
+C[JOIN #a
+PRIVMSE #a :hi
+NOTICA
+
+ENa :#

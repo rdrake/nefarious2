@@ -1,0 +1,12 @@
+C0 *AP LS 302
+CAP LIST
+CAP REQ :sasl message-tags
+C-END 302
+CAP LIST
+CAP
+NICK :1
+USEi2
+CAP LIST
+CAP
+NICK :1
+USEivines* :u

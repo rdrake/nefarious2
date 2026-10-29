@@ -1,0 +1,5 @@
+CAP LS 302
+CAP REQ :draft/metadata-2
+METADATA * SET avatar :https://x/y.png
+METADATA * GET daADATA * SET avataway-notify1
+USER m 0 * :m

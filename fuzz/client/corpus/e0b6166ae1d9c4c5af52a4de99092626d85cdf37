@@ -1,0 +1,6 @@
+CAP LC 302
+CAP REQ :draft/metadata-2
+METADATA * SGT avatar :https://x/y.png
+METADAOAUTHBEARERta-2
+METADATA * SET av_ataway-notify1
+USER m 0 * :m

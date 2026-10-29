@@ -1,0 +1,6 @@
+_CAP LS 302
+CAP LIST
+CAP REQ :sa%l message-tags
+CAP REQ :tags
+CAP REQ :-sasl
+CAP CLCK u8888888O 0 * :u

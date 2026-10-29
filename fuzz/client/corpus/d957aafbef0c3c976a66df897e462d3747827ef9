@@ -1,0 +1,7 @@
+_MARKREAD #fuzz
+MARKREAD #fuzz timestamp=1013-10-29T12:00:00.000Z
+MARKReAD fu-zB timestaÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ00Z
+MARKREAD #fuzz timestamp9T12:
+MARKREAD #fuzz timestamp=1013-10-29T12:00:00.000Z
+MARKReAD fu-zB timestaÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ00Z
+MARKREAD #fuzz timestamp9T12:00:000:00.000Z

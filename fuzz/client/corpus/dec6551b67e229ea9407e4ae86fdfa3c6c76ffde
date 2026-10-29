@@ -1,0 +1,10 @@
+_JOINz :beforeewebsocket
+BOUNCER LISTCLIENTS
+PRIVMSG #fuOUNCER JOIN0*a
+PRI
+UPOSTMSG CE #a :n
+PART
+WHO  :n
+PART
+WHO $fuA
+WH

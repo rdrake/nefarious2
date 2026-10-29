@@ -1,0 +1,6 @@
+±½¾©CH +ml1 draatPRIVMSG #fuzz :cont
+@batch=ml1 PRIVMSG #fuzz ft/—ultiline Ð#fuzz
+@batch=ml1 PRIVMSG #fuzz :line one
+@batch=ml1;draft/multiline-concatPRIVMSG #fuzz :cont
+@batch=ml1 PRIVMSG #fuzz server-timeh=ml2 NOTICE fuzzB :a
+@batch=ml2 PRIVMSGISTG fuzzB :b

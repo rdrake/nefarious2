@@ -1,0 +1,22 @@
+_MO¶ºßÜ™Š…… +o fuzzA
+TOPIC #fuzz :new topic
+TOPIC #fuzz
+LCK #fuzz
+ fuzzB h:out
+ûJOIN #fuzz 'fuzz
+NAz fuzzB :r
+NAMES #fuzz
+NAME-S
++eviloet.gŠ…… +o fuzzA
+TOPIC #fuzz :newE #fuzz +o fuzzA
+-REMOVE #fuzz fuzzB :r
+NAMES 'fuzz
+NAz fuzzB :r
+NAMES #fuzz
+NAME-S
++eviloet.gŠ…… +o fuzzA
+TOPIC #fuzz :new topic
+TOPIC #9998
+
+T #fuzz
+LIST :#f*

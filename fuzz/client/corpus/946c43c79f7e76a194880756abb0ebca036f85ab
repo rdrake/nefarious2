@@ -1,0 +1,20 @@
+_]PER fuzzoper fuzzop;erpass
+MODE fuzzA +s +cdk
+SNO +ENDx
+WALLOPS :hi
+WALLUSERS :hENDLINE +
+GLINE
+GLINE ­*@1.2.Å›÷ASLL fuzz.test.*@1.2.3.4 600 :bad
+GLINE
+GLINE ­*@1.2.3.4
+ZLINE +1.2.3.ÍÐ24 600 0:z
+SHUN +*@1.2.3.5 600 :s
+J% fuzzA
+O+kODE #fLINE
+GLINE ­*@1.2.3.4
+ZLINE +1.2.3.ÍÐ24 600 0:z
+SHUN +*@1.2.3.5 600 :s
+J% fuzzA
+O+kODE #fuzz +o fuzzA
+SVSNICK fuzz·ßGh
+:iLINE +*@

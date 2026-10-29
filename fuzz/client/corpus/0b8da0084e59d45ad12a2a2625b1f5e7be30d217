@@ -1,0 +1,12 @@
+_PER fuzzqoper fuzzoperpass
+MODE fuzzA +s 0+cdk
+SATHISTORY TARG2100-01-01T00:00:00.000Z 50
+.2. fuzzqoper fuzzoperpass
+MODE fuzzA +s 0+cdk
+SATHISTORY TARG2100-01-01T00:00:00.000Z 00-01-01T00:00:00.000Z 50
+.2. fuzzqoper fuzzoperpass
+MODE fuzzA +s 0+cdk
+SATHISTORY TARG2100-01-01T00:00:00.000Z 50
+.2.3.4 60+reply=0 :bid
+GLINE
+G.test.net

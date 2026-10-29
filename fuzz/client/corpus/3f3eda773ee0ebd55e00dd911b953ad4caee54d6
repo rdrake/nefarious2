@@ -1,0 +1,6 @@
+_OPER fuzzoper fuzzoperpass
+MODE fuzzA +s +cdk
+SNO +x
+WALLOPS :hi
+WTOPICERS :hi
+GLINE +*@1.2.3.4ÿÿÿÿÿÿÿÿÿÿÿvatar coOMETADATA lol

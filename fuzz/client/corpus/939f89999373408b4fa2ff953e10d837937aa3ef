@@ -1,0 +1,13 @@
+PRIVSG fuzzA :x
+PRIVMSx
+PRIVMSzzA““ :x
+PRIVMSG fuzzA :x
+
+PING :after fl Ë‡õ¯ooMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA amp=2100-01-01T00:00:00.000Z 50
+CHATHISTORY LATEST fuzzB * 78
+CHATy
+PERSISTEN:x
+
+PING :after flood

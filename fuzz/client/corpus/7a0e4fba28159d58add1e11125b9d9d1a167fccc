@@ -1,0 +1,10 @@
+connectJOIN #aˆ#b,#c,&d k1,k2
+JOIN 0
+JOIN #a,#a,#a
+JOIN #c0,#-1,#c2,#_OPER fuzzoper fuzzoperpass
+MODE fuzzA +s N #a,#b,#c,&+cdk
+SNO +x
+WALLOPS :hi
+WALLUSERS :hi
+GLId k1,k2
+JOINN E 

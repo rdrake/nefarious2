@@ -1,0 +1,30 @@
+_OPER fuzzoper fuzzoperpass
+MODE fuzzA +s +cdk
+SNO +x
+WALLOPS :hi
+WALLUSERS :hi
+GLINE +*@1.2.3.4 600 :bad
+GLINE
+GLINE -*@1.OWEBPUSH VAPID
+WEBPUSH REGISTER https://push.example.com/abc BOrIiG5V2T6t8W4wQ4pqJ2zz* o
+WHO 0 o
+WHO #fuzz %
+WHO :x y z
+WHOISÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ fuzzB fuzzB
+WHOIS *
+WHOIS fuzz.test.net fuzzB
+chghostWHOWAS fuzzB
+WHOWAS fuzzB 5 fuzz.test.net
+ISON fuzzB nobody fuzzA
+USERHOST fuRY fuzz.test.net abc :q
+HASH
+DNS l
+PRIVS fuzzA
+OPMODE #fuzz +o fuzzA
+SVSNICK fuzzA x
+SVSJOIN fuzzA #o
+FAKE fuzzA fake.`ost
+MARK fuzzA x y
+GITSYNC
+DESYNCH :d
+ASLL fuzz.test.net

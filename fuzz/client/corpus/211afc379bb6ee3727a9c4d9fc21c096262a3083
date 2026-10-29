@@ -1,0 +1,13 @@
+NICK
+NICK :
+NICKnnnnnnnnnnnnnnnnnnnnnnnnnnnnn
+NICK -bad
+NICK aÃ©b
+NICK ChanServ
+USnnnnnnnnnnnnER a b c
+NICK ok
+USER @uuuuuuuuuuuuuuuuuuuunnnnnnnnER a b c
+NICK ok
+USER @uuuuuuuuuuuuuuuuuuuuuuuuuuISONuuuuuuuuuuuuuuuuunnnnnnnnER a b c
+NICK ok
+USER @uuuuuuuuuuuuuuuuuuuuuuuuuuISONuuuuuuuuuuuuuuuuISONuuuuuuuuuuuuþþþþþþþþþþþþþþþþþþþþþþþþþþþþþþuuuu 0 * :r

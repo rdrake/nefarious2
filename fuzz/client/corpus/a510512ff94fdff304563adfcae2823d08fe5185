@@ -1,0 +1,19 @@
+_OPER fuzzoper fuzzoperpass
+MODE fuzzNICK aNICK aNI 4400
+SQUIT fake.server :x
+UPING fuzJOIp256dh=N #a,#b,#c,&d k1,k2
+JOIN&0
+JOIN #a,#a,#a
+JOIN #c0JOIN A +s +cdk
+SNO +x
+WALLOPS :h+
+ICK 0
+NICK fuzzA
+(
+NICK aNICK aNI 4400
+SQUIT fake.server :x
+UPING fuzJOIp256dh=N #a,#b,#c,&d k1,k2
+JOIN&0
+JOIN #a,#a,#a
+JOIN #c0JOIN #a,#b²²²²z.testent.
+SET MAXCONNE²²²CTI²ONS²

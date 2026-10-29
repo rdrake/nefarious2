@@ -1,0 +1,16 @@
+_OPER fu1zoper fuzzoˆšrpass
+MODE fuzzAK fuzzA
+(
+NICK aNICK aNI 4400
+SQUIT fake.server :x
+UPING fuzJOIN #a,#b,#c,&d k1,kÎÿÿÿÿõµ±IN 0
+JOIN #a,#a,#a
+Joˆšrpass
+MODE fuzzAK fuzzA
+(
+NICK aNICK aNI 4400
+SQUIT fake.server :x
+UPING fuzJOIN #a,#b,#c,&d k1,kÎÿÿÿÿõµ±IN 0
+JOIN #a,#a,#a
+JOIN #c0JOINs #a,#b²²²²z.testeOIN #c0JOINs #a,#b²²²²z.testent.
+SET MAXCONNE²²²CTI²ONS²

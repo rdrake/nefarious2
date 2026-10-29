@@ -1,0 +1,13 @@
+WHO #fuzz
+WHO * %nuhsrfdlaotivlenc,1˜
+WHO fuzz* o
+WHO 0 o
+WHO #fuzz %
+WHO :x y z
+WHOIS fuzzB fuzzB
+WHOIS *
+WHOIS fuzz.test.OWEBPUSH VAPI=WEBPUSH Vÿÿÿÿÿÿÿÿ fuzzB fuzzB
+WHOIS ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ*
+Wnet fuzzB
+WHOWAS fuzzB
+WHOWHOIS fuzz.test.net AS ff

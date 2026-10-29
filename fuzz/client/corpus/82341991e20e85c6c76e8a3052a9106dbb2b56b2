@@ -1,0 +1,8 @@
+_JOINJa
+PRIVMSG #a :hi
+NOTICE #a üüü:-
+PAR,T #a :bye
+MODE fuzzA +-accounx-nocounx-notify :bye
+fuzzaEzz
+WHO $fuA
+WH
