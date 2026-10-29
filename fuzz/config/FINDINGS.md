@@ -33,6 +33,7 @@ are bouncer records (14 KB, mostly zeros); they are given below as
 | F5 | Low | `ircd/bouncer_session.c:3114`, `:3591` | v12 record used in place: unterminated `bsr_kc_id` read past the record | boot, corrupt/torn record |
 | F9 | Low (hardening) | `ircd/bouncer_session.c:3082-3206` | restored identity strings are not validated (CR/LF, spaces, duplicates) and are burst verbatim | boot, corrupt/foreign record |
 | F1 | Low | `ircd/bouncer_session.c:3320`, `:3479`, `:3529`, `:3728` | struct overlays on RocksDB value buffers that are not aligned | boot, every record |
+| F11 | Low | `ircd/chathistory_presence.c:336` | `presence_norm_time` left-shifts millisecond-era stamps out of `int64_t` | boot (presence CF) and S2S `PN` |
 | F4 | Low | `ircd/s_auth.c:2017-2026` | `fork()` failure in `auth_spawn` leaves deleted sockets with live fds; next REHASH deletes/closes them again | REHASH under fork failure |
 
 Severity is for this codebase's threat model: the conf is trusted admin
@@ -72,6 +73,11 @@ ERROR: AddressSanitizer: SEGV on unknown address
     #4 read_configuration_file ircd/s_conf.c:1277:3
     #5 rehash               ircd/s_conf.c:1416:3
 ```
+
+This is not an ASan-only effect: a fuzzed conf with a damaged `CRule` from
+the corpus also killed the coverage build (no sanitizer, glibc `malloc`)
+with SIGSEGV, since a recycled chunk hands back a stale pointer in
+`arg[1]`.
 
 **Root cause.** `crule_parseorexpr()` allocates the `||` node with
 `MyMalloc()` (crule.c:481, not zeroed) and sets only `funcptr`, `numargs`,
@@ -411,6 +417,44 @@ branches and `presence_init()` already do.
 
 ---
 
+## F11 — presence time normalisation overflows `int64_t`
+
+**Severity:** Low.  Signed-shift UB; in practice the stamp wraps to a
+negative or unrelated value, which corrupts strict-presence intervals (who
+may read which history), and a negative value is not caught by the
+`start == 0 || end == 0` guard in the `PN` handler.
+
+**Reproducer** (`repro/F11-presence-time-shift.bin`, a `fuzz_records`
+input: CF 1 = presence, key `"\0\0last_alive"`, value int64 LE
+200000000000000):
+
+base64: `AQwAAGxhc3RfYWxpdmUAgPQg5rUAAA==`
+
+```
+chathistory_presence.c:336:12: runtime error: left shift of 200000000000000 by 16 places cannot be represented in type 'int64_t'
+    #0 presence_norm_time  ircd/chathistory_presence.c:336:12
+    #1 presence_init       ircd/chathistory_presence.c:542:20
+```
+
+The fuzzer reached the same line through `record_norm_ms()` on persisted
+presence records (`open_since`/interval bounds).
+
+**Root cause.** `presence_norm_time()` (chathistory_presence.c:325-338)
+treats values in [1e11, 1e15) as milliseconds and returns
+`PRESENCE_TIME_FROM_MS(v)` = `((int64_t)v) << 16`
+(include/chathistory_presence.h:74-76).  Anything above
+2^47 ms (~1.4e14, year 6429) shifts out of `int64_t`.  Inputs: the boot
+sweep (`last_alive`, chathistory_presence.c:542; every record via
+`record_norm_ms`, 359-364) and the S2S `PN` token
+(`ms_presencesync`, m_markread.c:469-470), where any linked server
+supplies the value.
+
+**Fix.** Treat values with `v > INT64_MAX >> 16` in the millisecond band
+as invalid (return 0, which both callers already reject or skip), or do the
+shift on `uint64_t` and range-check the result.
+
+---
+
 ## F4 — `auth_spawn` fork failure: double socket delete at next REHASH
 
 **Severity:** Low.  Needs `fork()` to fail (RLIMIT_NPROC, ENOMEM on a
@@ -467,7 +511,7 @@ harness:
 
 ## Masks used to keep fuzzing past known findings
 
-The `fuzz` build masks F3, F5, F6, F7, F8 and the F2 teardown so the
+The `fuzz` build masks F3, F5, F6, F7, F8, F11 and the F2 teardown so the
 campaign does not stop on them; `-DFUZZ_UNMASK_KNOWN` (always on in the
 `asan` build) removes the masks:
 
@@ -476,6 +520,7 @@ campaign does not stop on them; `-DFUZZ_UNMASK_KNOWN` (always on in the
 | F3 | `--wrap=dnsbl_add_server` drops non-index characters |
 | F5 | value copies get one trailing NUL |
 | F6 | `/` outside strings/comments becomes `+`; `y.tab.c` built without `-fsanitize=signed-integer-overflow` |
+| F11 | `chathistory_presence.c` built without `-fsanitize=shift` |
 | F7 | conf campaign runs with `ASAN_OPTIONS=malloc_fill_byte=0` |
 | F8 | `--wrap=init_lexer_file` caps include depth at 2 |
 | F2 | teardown renames (and re-hashes) a nameless ghost |
@@ -497,4 +542,4 @@ executed); `include` of a non-regular file (fifo, `/dev/stdin`) is refused.
 
 ## Campaign statistics
 
-(pending)
+(campaign in progress; final numbers to follow)
