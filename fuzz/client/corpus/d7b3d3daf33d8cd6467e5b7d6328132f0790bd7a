@@ -1,0 +1,13 @@
+_WHO #fuzz
+WHO *% nuhsrfdlaotc,1
+WHO fuzz* o
+WHO 0 o
+WHO #fuzz %
+WHO ÿÿÿ( z
+WHOIS fuzzB fuzzB
+WHOIS *
+ÿWHOIS duzz.test.net fuzzB
+WHOWAS fuzzB
+WHOWAS fuzzB 4 fuzz.tHOIS duzz.test.net fuzzB
+WHOWAS fuzzB
+WHOWAS fuzzB 4 fuzz.test**.d

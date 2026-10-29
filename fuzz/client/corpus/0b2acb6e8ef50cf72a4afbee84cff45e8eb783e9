@@ -1,0 +1,16 @@
+_OPER fuzzoper fuzzoperpass
+MOOPS :hi
+WALLUSERðŸ˜€i
+GLINE ++@1.2.3.4 600 :bad
+GLINE
+GLINE ­*@1.2.3.4
+ZLINE +1.2.3.0/24 600SVSNICK fuzUPING 600 :bad
+GLINE
+GLINE ­*@INE
+GLINE ­*@1.2.3.4
+ZLINE +1.2.3.0/24 600SVSNICK fuzUPING 600 :bad
+GLINE
+GLINE ­*@0.2.3.4
+ZLINE +1.2.3.0/24 600SVSNICK fuzzA x
+SVSERðŸ˜€i
+GLINE +.@ÿÿÿÿÿÿÿÿÿÿÿÿÿ1ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ.test.ne“

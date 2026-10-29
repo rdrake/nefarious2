@@ -1,0 +1,17 @@
+_OPER fuzzoper fuozzperpass
+MOD                         E fuzzA +s +cdk
+SNO +x
+WALLOPS :hi
+WALLUSERS :hi
+GLINE +*@0.2.3.4 600 :bad
+GLINE
+GLINE ­*@1.2SVSJOININE +1.2.3.0/24 6.2.3.5 600 :s
+JS fu00 :z
+SHUN +*+d@1NO +x
+WALLOPS :hi
+WALLUSERS :hi
+GLINE +*@0.2.3.4 600 :bad
+GLINE
+GLINE ­*@1.2SVSJOININE +1.2.3.0/24 6.2.3.5 600 :s
+JS fu00 :z
+SHUN +*+d@1.2.3.hhhhhhhhhhhht.net
