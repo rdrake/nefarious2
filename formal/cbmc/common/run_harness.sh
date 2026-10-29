@@ -23,7 +23,7 @@ cbmc "$src" -I "$root/include" -I "$here" \
   --bounds-check --pointer-check --pointer-overflow-check \
   --signed-overflow-check $conv \
   --unwind "$unwind" --unwinding-assertions \
-  --trace "$@" > "$log" 2>&1
+  --sat-solver cadical --trace "$@" > "$log" 2>&1
 rc=$?
 secs=$(( $(date +%s) - start ))
 if grep -q "VERIFICATION SUCCESSFUL" "$log"; then
