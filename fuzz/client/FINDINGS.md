@@ -238,6 +238,48 @@ harness/toolchain artifact or already triaged elsewhere, not a server bug.
 
 ---
 
+## F-4 — Signed-integer-overflow in oper *LINE expiry/interval parsing  (CONFIRMED, UBSan)
+
+* **Severity:** Low (UB, not memory-unsafe; oper-gated; effect is a wrong/wrapped
+  expiry time, not a crash on a non-UBSan build).
+* **Where (two sites, same class):**
+  * `ircd/m_shun.c:467` — `expire = strtol(parv[parc-2], &end, 10) + TStime();`
+    A 20+-digit duration makes `strtol` saturate to `LONG_MAX`; `+ TStime()`
+    then overflows signed `long`. (`m_shun.c:432` has the same `strtol(...) +
+    TStime()` for the 3-arg form.)
+  * `ircd/ircd_string.c:1183`, `ParseInterval()` —
+    `partial = partial*10 + c - '0';` with `partial` an `int`; a long run of
+    digits overflows the `int` multiply. `ParseInterval` is the non-timestamp
+    branch of the same expiry parse.
+* **Root cause.** The oper-supplied duration is parsed with no range/ERANGE
+  check and summed with `TStime()`. The identical pattern is replicated across
+  the oper ban commands: `m_gline.c:431/435/471/475`, `m_zline.c:431/435/471/475`,
+  `m_shun.c`, and the `ParseInterval` path they all share, plus
+  `m_jupe`/config interval parsing that also calls `ParseInterval`.
+* **Reachability.** An IRC operator issuing `SHUN`/`GLINE`/`ZLINE`/`JUPE`
+  (or any command whose interval goes through `ParseInterval`) with an
+  absurdly long numeric duration. Oper-gated. On a production build (no UBSan)
+  there is no crash, but the computed expiry wraps — a ban can land in the past
+  (effectively a no-op / instant expiry) or far future, i.e. a logic/robustness
+  bug an oper can trip by fat-fingering a duration.
+* **Reproducer.** `fuzz/client/crashes/04-shun-expire-overflow/shun_overflow.bin`
+  — base64 `X1NIVU4gKyB6Nzc3Nzc3Nzc3NyBG`; mode `0x5f`, line `SHUN + z7777777777 F`
+  (hits the `ParseInterval` `int` overflow; the original artifact
+  `SHUN +<mask> <31-digit> :r` hits the `m_shun.c:467` `long` overflow).
+* **Confirmed outside the fuzz config.** Reproduces in the dedicated **ubsan**
+  variant (`out/fuzz_client_ubsan`), which is a legitimate separate build, not
+  the libFuzzer/freelist rig:
+  `ircd_string.c:1183:30: runtime error: signed integer overflow: 777777777 * 10
+  cannot be represented in type 'int'` (and `m_shun.c:467: ... LONG_MAX + ...`).
+  AddressSanitizer does not flag signed overflow, so this is a UBSan finding by
+  nature; it is not a memory-safety bug.
+* **Suggested fix.** Clamp/validate the duration before use: reject or cap
+  values beyond a sane maximum (e.g. a few years), check `errno == ERANGE`
+  after `strtol`, and make `ParseInterval` accumulate in `unsigned long` with
+  saturation. Fixing `ParseInterval` once covers every caller.
+
+---
+
 ## Known / excluded (not server bugs)
 
 ### K-1 — `-fsanitize=function` abort in `ircd/m_cap.c` (toolchain/UB-cast, excluded)
@@ -266,9 +308,38 @@ with `-fno-sanitize=function` (see `build.sh`). Listed for completeness only.
 
 ## Campaign statistics
 
-<!-- Filled in from the final run; see work/campaign.log and coverage below. -->
-* Fuzzer: libFuzzer + ASan + UBSan (`-fno-sanitize-recover=undefined`,
-  `-fno-sanitize=function`), `-fork=$(nproc)` (4 cores), `-max_len=8192`,
-  dictionary `client.dict`, seeds from `gen_seeds.py` + committed `corpus/`.
-* See the "Coverage" section at the bottom for edges covered and the handlers
-  that remained uncovered.
+* **Fuzzer:** libFuzzer + ASan + UBSan (`-fno-sanitize-recover=undefined`,
+  `-fno-sanitize=function`), `-fork=$(nproc)` on 4 cores, `-max_len=8192`,
+  `-dict=client.dict`, seeds from `gen_seeds.py` + committed `corpus/`.
+* **Wall-clock fuzzing:** a ~2 min smoke run, then a continuous `-fork` run of
+  **~49 min** (`time: 2945s` at last log line) that was stopped when crashed
+  `-fork` workers leaked their per-process RocksDB temp dirs and filled the
+  container disk (fixed afterward with a temp-dir reaper in `campaign.sh`/
+  `run.sh`; resume with `./campaign.sh <seconds>`). Plus repeated shorter
+  coverage/merge/triage runs.
+* **Throughput:** ~250–650 exec/s per core; **~2.84 million executions** total
+  on the master counter at stop (`#2838096`), 156 worker generations.
+* **Corpus:** grew to ~4,400 live inputs; the committed `corpus/` is the
+  coverage-minimized set (3,775 inputs, 16 MB, features ≈ 49.7k preserved).
+* **Coverage (see `COVERAGE.txt`):** **26,012 / 72,179 instrumented edges (~36%)**,
+  **49,711 features** at stop. The single-process replay over the committed
+  corpus reports 74,758 / 120,898 regions (38%), functions 50%.
+* **Crashes:** 13 crash artifacts saved, deduping by top frame to **4 distinct
+  root causes** = F-1…F-4 above. The `watch_new.sh` signature filter confirmed
+  no fifth distinct signature appeared.
+
+### Handlers still under-covered (targets for a longer run)
+
+Client-surface files that stayed low (line %, from `COVERAGE.txt`): `m_tagmsg`
+(12%), `m_redact` (20%), `m_nick` (21%), `m_chathistory` (24%), `m_batch`
+(27%), `m_mode` (30%), `m_part` (31%), `history` (35%). These are reachable
+from the client path but need deeper, well-formed inputs (valid msgids for
+CHATHISTORY/REDACT, multi-line BATCH bodies, NICK-collision/rename state, full
+MODE parameter grammars); adding targeted seeds for them is the next step.
+
+Files reported at 0%/near-0% are **out of scope** for client fuzzing and
+unreachable from this harness by design: S2S/P10 (`m_server`, `m_burst`,
+`m_endburst`, `m_create`, bouncer `BS/BX` convergence, `parse_server`),
+services/oper-only relay commands (`m_svs*`, `m_mark`, `m_check`, `m_store`,
+`m_rping/rpong`, `m_xreply`), libkc/Keycloak internals and `sasl_webhook`
+(stubbed at the HTTP boundary), RocksDB C++ glue, and unused event engines.
