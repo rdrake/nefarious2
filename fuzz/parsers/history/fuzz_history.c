@@ -144,6 +144,10 @@ static void mode_roundtrip(const uint8_t *d, size_t n)
   free(sender); free(account); free(content); free(tags); free(otarget);
 }
 
+static void rdx_cb(uint64_t t, const char *a, const struct rdx_val *b, void *c)
+{ (void)t; (void)a; (void)b; (void)c; }
+static int chan_cb(const char *ch, void *d) { (void)ch; (void)d; return 0; }
+
 /* rows: [cfidx][klen:2][vlen:2][key][val] ... then queries */
 static void mode_rows(const uint8_t *d, size_t n)
 {
@@ -171,8 +175,30 @@ static void mode_rows(const uint8_t *d, size_t n)
   if (history_query_after("#fuzz", HISTORY_REF_TIMESTAMP, "1.000", 20, &res, NULL) > 0)
     history_free_messages(res);
   res = NULL;
-  if (history_query_around("#fuzz", HISTORY_REF_MSGID, "AAAAAZo5AAAAAA", 20, &res, NULL) > 0)
+  if (history_query_around("#fuzz", HISTORY_REF_MSGID, "AAAAAZo5AAAAAA", 20, &res, NULL) > 0) {
+    (void)history_attach_context("#fuzz", res);   /* reply index + tags */
     history_free_messages(res);
+  }
+  res = NULL;
+  if (history_query_between("#fuzz", HISTORY_REF_TIMESTAMP, "1.000",
+                            HISTORY_REF_TIMESTAMP, "1900000000.000", 20, &res, NULL) > 0)
+    history_free_messages(res);
+  res = NULL;
+  if (history_query_between("#fuzz", HISTORY_REF_TIMESTAMP, "1900000000.000",
+                            HISTORY_REF_MSGID, "AAAAAZo5AAAAAA", 20, &res, NULL) > 0)
+    history_free_messages(res);
+  res = NULL;
+  if (history_query_latest_after("#fuzz", 20, "1.000", "AAAAAZo5AAAAAA", &res, NULL) > 0)
+    history_free_messages(res);
+  {
+    char mid[HISTORY_MSGID_LEN], tsb[HISTORY_TIMESTAMP_LEN];
+    int trunc = 0;
+    (void)history_find_last_join("#fuzz", "nick", mid, sizeof mid, tsb, sizeof tsb);
+    (void)history_redact_index_scan(0, 20, rdx_cb, NULL, &trunc);
+    (void)history_channel_has_messages("#fuzz");
+    (void)history_enumerate_channels(chan_cb, NULL);
+    (void)history_pm_target_has_sessid("a:b", "sess");
+  }
   (void)history_msgid_to_timestamp("AAAAAZo5AAAAAA", ts);
   {
     struct HistoryMessage *one = NULL;
