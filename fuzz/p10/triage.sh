@@ -12,18 +12,19 @@ OUT="${2:-$ART/../triage}"
 mkdir -p "$OUT"
 export FUZZ_TMPDIR="${FUZZ_TMPDIR:-/dev/shm/p10fuzz-store}"
 mkdir -p "$FUZZ_TMPDIR"
-export ASAN_OPTIONS="detect_leaks=0:abort_on_error=0:symbolize=1:detect_stack_use_after_return=1"
+export ASAN_OPTIONS="detect_leaks=0:abort_on_error=0:symbolize=1:detect_stack_use_after_return=1:handle_abort=1"
+BIN="${REPRO:-$HERE/bin/repro_p10}"
 export UBSAN_OPTIONS="print_stacktrace=1:halt_on_error=1"
 TMP=$(mktemp -d)
 for f in "$ART"/crash-* "$ART"/timeout-* ; do
   [ -f "$f" ] || continue
   log="$TMP/$(basename "$f").log"
-  timeout 60 "$HERE/bin/repro_p10" "$f" >"$log" 2>&1
+  timeout 60 "$BIN" "$f" >"$log" 2>&1
   rc=$?
-  kind=$(grep -m1 -oE "runtime error: [a-z -]*|ERROR: AddressSanitizer: [a-z-]*|Assertion failure at [^:]*:[0-9]*|ERROR: LeakSanitizer|SEGV" "$log" | head -1)
+  kind=$(grep -m1 -oE "Assertion failure at [^:]*:[0-9]*|runtime error: [a-z -]*|ERROR: AddressSanitizer: [A-Za-z-]+|ERROR: LeakSanitizer" "$log" | head -1)
   [ -z "$kind" ] && { [ $rc = 0 ] && kind="NO-REPRO" || kind="rc=$rc"; }
-  frames=$(grep -E "^ +#[0-9]+ " "$log" | grep -vE "libc|__sanitizer|asan_|ubsan|abort|raise|__assert|log_write|libFuzzer|fuzzer::|LLVMFuzzer|standalone.c|run_file|fuzz_p10.c|_start" \
-           | head -3 | sed -E 's/.* in ([^ ]+) .*\/([^/]+:[0-9]+).*/\1@\2/' | tr '\n' ' ')
+  frames=$(grep -E "^ +#[0-9]+ " "$log" | grep -E "/ircd/[^ ]+\.c:[0-9]+" | grep -vE "log_write|fuzz_p10.c|standalone.c" \
+           | head -3 | sed -E 's/.* in ([^ ]+) .*\/([^/]+\.c:[0-9]+).*/\1@\2/' | tr '\n' ' ')
   loc=$(grep -m1 -oE "^[a-z_A-Z0-9]+\.c:[0-9]+:[0-9]+: runtime error" "$log" | cut -d: -f1,2)
   echo "$kind|$loc|$frames|$(stat -c %s "$f")|$f"
 done | sort -t'|' -k1,3 -k4n | awk -F'|' -v out="$OUT" -v tmp="$TMP" '
