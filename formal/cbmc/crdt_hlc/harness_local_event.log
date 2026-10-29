@@ -1,0 +1,477 @@
+CBMC version 5.95.1 (cbmc-5.95.1) 64-bit x86_64 linux
+Parsing crdt_hlc_harness.c
+Converting
+Type-checking crdt_hlc_harness
+Generating GOTO Program
+Adding CPROVER library (x86_64)
+Removal of function pointers and virtual functions
+Generic Property Instrumentation
+Running with 8 object bits, 56 offset bits (default)
+Starting Bounded Model Checking
+Runtime Symex: 0.00515463s
+size of program expression: 189 steps
+simple slicing removed 8 assignments
+Generated 124 VCC(s), 18 remaining after simplification
+Runtime Postprocess Equation: 1.4137e-05s
+Passing problem to propositional reduction
+converting SSA
+Runtime Convert SSA: 0.00465404s
+Running propositional reduction
+Post-processing
+Runtime Post-process: 3.116e-06s
+Solving with MiniSAT 2.2.1 with simplifier
+6818 variables, 20679 clauses
+SAT checker: instance is SATISFIABLE
+Runtime Solver: 0.0106916s
+Runtime decision procedure: 0.0154786s
+Running propositional reduction
+Solving with MiniSAT 2.2.1 with simplifier
+6818 variables, 16812 clauses
+SAT checker inconsistent: instance is UNSATISFIABLE
+Runtime Solver: 1.2525e-05s
+Runtime decision procedure: 5.283e-05s
+
+** Results:
+../../../ircd/crdt_hlc.c function hlc_compare
+[hlc_compare.pointer_dereference.1] line 140 dereference failure: pointer NULL in a->physical_ms: SUCCESS
+[hlc_compare.pointer_dereference.2] line 140 dereference failure: pointer invalid in a->physical_ms: SUCCESS
+[hlc_compare.pointer_dereference.3] line 140 dereference failure: deallocated dynamic object in a->physical_ms: SUCCESS
+[hlc_compare.pointer_dereference.4] line 140 dereference failure: dead object in a->physical_ms: SUCCESS
+[hlc_compare.pointer_dereference.5] line 140 dereference failure: pointer outside object bounds in a->physical_ms: SUCCESS
+[hlc_compare.pointer_dereference.6] line 140 dereference failure: invalid integer address in a->physical_ms: SUCCESS
+[hlc_compare.pointer_dereference.7] line 140 dereference failure: pointer NULL in b->physical_ms: SUCCESS
+[hlc_compare.pointer_dereference.8] line 140 dereference failure: pointer invalid in b->physical_ms: SUCCESS
+[hlc_compare.pointer_dereference.9] line 140 dereference failure: deallocated dynamic object in b->physical_ms: SUCCESS
+[hlc_compare.pointer_dereference.10] line 140 dereference failure: dead object in b->physical_ms: SUCCESS
+[hlc_compare.pointer_dereference.11] line 140 dereference failure: pointer outside object bounds in b->physical_ms: SUCCESS
+[hlc_compare.pointer_dereference.12] line 140 dereference failure: invalid integer address in b->physical_ms: SUCCESS
+[hlc_compare.pointer_dereference.13] line 142 dereference failure: pointer NULL in a->logical: SUCCESS
+[hlc_compare.pointer_dereference.14] line 142 dereference failure: pointer invalid in a->logical: SUCCESS
+[hlc_compare.pointer_dereference.15] line 142 dereference failure: deallocated dynamic object in a->logical: SUCCESS
+[hlc_compare.pointer_dereference.16] line 142 dereference failure: dead object in a->logical: SUCCESS
+[hlc_compare.pointer_dereference.17] line 142 dereference failure: pointer outside object bounds in a->logical: SUCCESS
+[hlc_compare.pointer_dereference.18] line 142 dereference failure: invalid integer address in a->logical: SUCCESS
+[hlc_compare.pointer_dereference.19] line 142 dereference failure: pointer NULL in b->logical: SUCCESS
+[hlc_compare.pointer_dereference.20] line 142 dereference failure: pointer invalid in b->logical: SUCCESS
+[hlc_compare.pointer_dereference.21] line 142 dereference failure: deallocated dynamic object in b->logical: SUCCESS
+[hlc_compare.pointer_dereference.22] line 142 dereference failure: dead object in b->logical: SUCCESS
+[hlc_compare.pointer_dereference.23] line 142 dereference failure: pointer outside object bounds in b->logical: SUCCESS
+[hlc_compare.pointer_dereference.24] line 142 dereference failure: invalid integer address in b->logical: SUCCESS
+[hlc_compare.pointer_dereference.25] line 144 dereference failure: pointer NULL in a->node_id: SUCCESS
+[hlc_compare.pointer_dereference.26] line 144 dereference failure: pointer invalid in a->node_id: SUCCESS
+[hlc_compare.pointer_dereference.27] line 144 dereference failure: deallocated dynamic object in a->node_id: SUCCESS
+[hlc_compare.pointer_dereference.28] line 144 dereference failure: dead object in a->node_id: SUCCESS
+[hlc_compare.pointer_dereference.29] line 144 dereference failure: pointer outside object bounds in a->node_id: SUCCESS
+[hlc_compare.pointer_dereference.30] line 144 dereference failure: invalid integer address in a->node_id: SUCCESS
+[hlc_compare.pointer_dereference.31] line 144 dereference failure: pointer NULL in b->node_id: SUCCESS
+[hlc_compare.pointer_dereference.32] line 144 dereference failure: pointer invalid in b->node_id: SUCCESS
+[hlc_compare.pointer_dereference.33] line 144 dereference failure: deallocated dynamic object in b->node_id: SUCCESS
+[hlc_compare.pointer_dereference.34] line 144 dereference failure: dead object in b->node_id: SUCCESS
+[hlc_compare.pointer_dereference.35] line 144 dereference failure: pointer outside object bounds in b->node_id: SUCCESS
+[hlc_compare.pointer_dereference.36] line 144 dereference failure: invalid integer address in b->node_id: SUCCESS
+
+../../../ircd/crdt_hlc.c function hlc_global_receive
+[hlc_global_receive.overflow.1] line 175 arithmetic overflow on unsigned - in remote->physical_ms - now: SUCCESS
+[hlc_global_receive.pointer_dereference.1] line 175 dereference failure: pointer NULL in *ahead_ms: SUCCESS
+[hlc_global_receive.pointer_dereference.2] line 175 dereference failure: pointer invalid in *ahead_ms: SUCCESS
+[hlc_global_receive.pointer_dereference.3] line 175 dereference failure: deallocated dynamic object in *ahead_ms: SUCCESS
+[hlc_global_receive.pointer_dereference.4] line 175 dereference failure: dead object in *ahead_ms: SUCCESS
+[hlc_global_receive.pointer_dereference.5] line 175 dereference failure: pointer outside object bounds in *ahead_ms: SUCCESS
+[hlc_global_receive.pointer_dereference.6] line 175 dereference failure: invalid integer address in *ahead_ms: SUCCESS
+[hlc_global_receive.pointer_dereference.7] line 175 dereference failure: pointer NULL in remote->physical_ms: SUCCESS
+[hlc_global_receive.pointer_dereference.8] line 175 dereference failure: pointer invalid in remote->physical_ms: SUCCESS
+[hlc_global_receive.pointer_dereference.9] line 175 dereference failure: deallocated dynamic object in remote->physical_ms: SUCCESS
+[hlc_global_receive.pointer_dereference.10] line 175 dereference failure: dead object in remote->physical_ms: SUCCESS
+[hlc_global_receive.pointer_dereference.11] line 175 dereference failure: pointer outside object bounds in remote->physical_ms: SUCCESS
+[hlc_global_receive.pointer_dereference.12] line 175 dereference failure: invalid integer address in remote->physical_ms: SUCCESS
+
+../../../ircd/crdt_hlc.c function hlc_local_event
+[hlc_local_event.pointer_dereference.1] line 33 dereference failure: pointer NULL in local->physical_ms: SUCCESS
+[hlc_local_event.pointer_dereference.2] line 33 dereference failure: pointer invalid in local->physical_ms: SUCCESS
+[hlc_local_event.pointer_dereference.3] line 33 dereference failure: deallocated dynamic object in local->physical_ms: SUCCESS
+[hlc_local_event.pointer_dereference.4] line 33 dereference failure: dead object in local->physical_ms: SUCCESS
+[hlc_local_event.pointer_dereference.5] line 33 dereference failure: pointer outside object bounds in local->physical_ms: SUCCESS
+[hlc_local_event.pointer_dereference.6] line 33 dereference failure: invalid integer address in local->physical_ms: SUCCESS
+[hlc_local_event.pointer_dereference.7] line 35 dereference failure: pointer NULL in local->logical: SUCCESS
+[hlc_local_event.pointer_dereference.8] line 35 dereference failure: pointer invalid in local->logical: SUCCESS
+[hlc_local_event.pointer_dereference.9] line 35 dereference failure: deallocated dynamic object in local->logical: SUCCESS
+[hlc_local_event.pointer_dereference.10] line 35 dereference failure: dead object in local->logical: SUCCESS
+[hlc_local_event.pointer_dereference.11] line 35 dereference failure: pointer outside object bounds in local->logical: SUCCESS
+[hlc_local_event.pointer_dereference.12] line 35 dereference failure: invalid integer address in local->logical: SUCCESS
+[hlc_local_event.pointer_dereference.13] line 37 dereference failure: pointer NULL in local->logical: SUCCESS
+[hlc_local_event.pointer_dereference.14] line 37 dereference failure: pointer invalid in local->logical: SUCCESS
+[hlc_local_event.pointer_dereference.15] line 37 dereference failure: deallocated dynamic object in local->logical: SUCCESS
+[hlc_local_event.pointer_dereference.16] line 37 dereference failure: dead object in local->logical: SUCCESS
+[hlc_local_event.pointer_dereference.17] line 37 dereference failure: pointer outside object bounds in local->logical: SUCCESS
+[hlc_local_event.pointer_dereference.18] line 37 dereference failure: invalid integer address in local->logical: SUCCESS
+[hlc_local_event.pointer_dereference.19] line 40 dereference failure: pointer NULL in local->node_id: SUCCESS
+[hlc_local_event.pointer_dereference.20] line 40 dereference failure: pointer invalid in local->node_id: SUCCESS
+[hlc_local_event.pointer_dereference.21] line 40 dereference failure: deallocated dynamic object in local->node_id: SUCCESS
+[hlc_local_event.pointer_dereference.22] line 40 dereference failure: dead object in local->node_id: SUCCESS
+[hlc_local_event.pointer_dereference.23] line 40 dereference failure: pointer outside object bounds in local->node_id: SUCCESS
+[hlc_local_event.pointer_dereference.24] line 40 dereference failure: invalid integer address in local->node_id: SUCCESS
+[hlc_local_event.pointer_dereference.25] line 41 dereference failure: pointer NULL in local->physical_ms: SUCCESS
+[hlc_local_event.pointer_dereference.26] line 41 dereference failure: pointer invalid in local->physical_ms: SUCCESS
+[hlc_local_event.pointer_dereference.27] line 41 dereference failure: deallocated dynamic object in local->physical_ms: SUCCESS
+[hlc_local_event.pointer_dereference.28] line 41 dereference failure: dead object in local->physical_ms: SUCCESS
+[hlc_local_event.pointer_dereference.29] line 41 dereference failure: pointer outside object bounds in local->physical_ms: SUCCESS
+[hlc_local_event.pointer_dereference.30] line 41 dereference failure: invalid integer address in local->physical_ms: SUCCESS
+[hlc_local_event.pointer_dereference.31] line 42 dereference failure: pointer NULL in local->logical: SUCCESS
+[hlc_local_event.pointer_dereference.32] line 42 dereference failure: pointer invalid in local->logical: SUCCESS
+[hlc_local_event.pointer_dereference.33] line 42 dereference failure: deallocated dynamic object in local->logical: SUCCESS
+[hlc_local_event.pointer_dereference.34] line 42 dereference failure: dead object in local->logical: SUCCESS
+[hlc_local_event.pointer_dereference.35] line 42 dereference failure: pointer outside object bounds in local->logical: SUCCESS
+[hlc_local_event.pointer_dereference.36] line 42 dereference failure: invalid integer address in local->logical: SUCCESS
+[hlc_local_event.overflow.1] line 44 arithmetic overflow on unsigned + in local->logical + 1: SUCCESS
+[hlc_local_event.pointer_dereference.37] line 44 dereference failure: pointer NULL in local->logical: SUCCESS
+[hlc_local_event.pointer_dereference.38] line 44 dereference failure: pointer invalid in local->logical: SUCCESS
+[hlc_local_event.pointer_dereference.39] line 44 dereference failure: deallocated dynamic object in local->logical: SUCCESS
+[hlc_local_event.pointer_dereference.40] line 44 dereference failure: dead object in local->logical: SUCCESS
+[hlc_local_event.pointer_dereference.41] line 44 dereference failure: pointer outside object bounds in local->logical: SUCCESS
+[hlc_local_event.pointer_dereference.42] line 44 dereference failure: invalid integer address in local->logical: SUCCESS
+[hlc_local_event.pointer_dereference.43] line 48 dereference failure: pointer NULL in *local: SUCCESS
+[hlc_local_event.pointer_dereference.44] line 48 dereference failure: pointer invalid in *local: SUCCESS
+[hlc_local_event.pointer_dereference.45] line 48 dereference failure: deallocated dynamic object in *local: SUCCESS
+[hlc_local_event.pointer_dereference.46] line 48 dereference failure: dead object in *local: SUCCESS
+[hlc_local_event.pointer_dereference.47] line 48 dereference failure: pointer outside object bounds in *local: SUCCESS
+[hlc_local_event.pointer_dereference.48] line 48 dereference failure: invalid integer address in *local: SUCCESS
+
+../../../ircd/crdt_hlc.c function hlc_receive_bounded
+[hlc_receive_bounded.pointer_dereference.1] line 62 dereference failure: pointer NULL in remote->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.2] line 62 dereference failure: pointer invalid in remote->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.3] line 62 dereference failure: deallocated dynamic object in remote->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.4] line 62 dereference failure: dead object in remote->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.5] line 62 dereference failure: pointer outside object bounds in remote->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.6] line 62 dereference failure: invalid integer address in remote->physical_ms: SUCCESS
+[hlc_receive_bounded.overflow.1] line 63 arithmetic overflow on unsigned - in remote->physical_ms - now: SUCCESS
+[hlc_receive_bounded.pointer_dereference.7] line 63 dereference failure: pointer NULL in remote->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.8] line 63 dereference failure: pointer invalid in remote->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.9] line 63 dereference failure: deallocated dynamic object in remote->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.10] line 63 dereference failure: dead object in remote->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.11] line 63 dereference failure: pointer outside object bounds in remote->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.12] line 63 dereference failure: invalid integer address in remote->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.13] line 65 dereference failure: pointer NULL in *rejected: SUCCESS
+[hlc_receive_bounded.pointer_dereference.14] line 65 dereference failure: pointer invalid in *rejected: SUCCESS
+[hlc_receive_bounded.pointer_dereference.15] line 65 dereference failure: deallocated dynamic object in *rejected: SUCCESS
+[hlc_receive_bounded.pointer_dereference.16] line 65 dereference failure: dead object in *rejected: SUCCESS
+[hlc_receive_bounded.pointer_dereference.17] line 65 dereference failure: pointer outside object bounds in *rejected: SUCCESS
+[hlc_receive_bounded.pointer_dereference.18] line 65 dereference failure: invalid integer address in *rejected: SUCCESS
+[hlc_receive_bounded.pointer_dereference.19] line 69 dereference failure: pointer NULL in local->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.20] line 69 dereference failure: pointer invalid in local->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.21] line 69 dereference failure: deallocated dynamic object in local->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.22] line 69 dereference failure: dead object in local->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.23] line 69 dereference failure: pointer outside object bounds in local->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.24] line 69 dereference failure: invalid integer address in local->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.25] line 71 dereference failure: pointer NULL in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.26] line 71 dereference failure: pointer invalid in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.27] line 71 dereference failure: deallocated dynamic object in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.28] line 71 dereference failure: dead object in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.29] line 71 dereference failure: pointer outside object bounds in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.30] line 71 dereference failure: invalid integer address in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.31] line 73 dereference failure: pointer NULL in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.32] line 73 dereference failure: pointer invalid in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.33] line 73 dereference failure: deallocated dynamic object in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.34] line 73 dereference failure: dead object in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.35] line 73 dereference failure: pointer outside object bounds in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.36] line 73 dereference failure: invalid integer address in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.37] line 76 dereference failure: pointer NULL in local->node_id: SUCCESS
+[hlc_receive_bounded.pointer_dereference.38] line 76 dereference failure: pointer invalid in local->node_id: SUCCESS
+[hlc_receive_bounded.pointer_dereference.39] line 76 dereference failure: deallocated dynamic object in local->node_id: SUCCESS
+[hlc_receive_bounded.pointer_dereference.40] line 76 dereference failure: dead object in local->node_id: SUCCESS
+[hlc_receive_bounded.pointer_dereference.41] line 76 dereference failure: pointer outside object bounds in local->node_id: SUCCESS
+[hlc_receive_bounded.pointer_dereference.42] line 76 dereference failure: invalid integer address in local->node_id: SUCCESS
+[hlc_receive_bounded.pointer_dereference.43] line 77 dereference failure: pointer NULL in local->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.44] line 77 dereference failure: pointer invalid in local->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.45] line 77 dereference failure: deallocated dynamic object in local->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.46] line 77 dereference failure: dead object in local->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.47] line 77 dereference failure: pointer outside object bounds in local->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.48] line 77 dereference failure: invalid integer address in local->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.49] line 78 dereference failure: pointer NULL in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.50] line 78 dereference failure: pointer invalid in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.51] line 78 dereference failure: deallocated dynamic object in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.52] line 78 dereference failure: dead object in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.53] line 78 dereference failure: pointer outside object bounds in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.54] line 78 dereference failure: invalid integer address in local->logical: SUCCESS
+[hlc_receive_bounded.overflow.2] line 80 arithmetic overflow on unsigned + in local->logical + 1: SUCCESS
+[hlc_receive_bounded.pointer_dereference.55] line 80 dereference failure: pointer NULL in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.56] line 80 dereference failure: pointer invalid in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.57] line 80 dereference failure: deallocated dynamic object in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.58] line 80 dereference failure: dead object in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.59] line 80 dereference failure: pointer outside object bounds in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.60] line 80 dereference failure: invalid integer address in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.61] line 84 dereference failure: pointer NULL in *local: SUCCESS
+[hlc_receive_bounded.pointer_dereference.62] line 84 dereference failure: pointer invalid in *local: SUCCESS
+[hlc_receive_bounded.pointer_dereference.63] line 84 dereference failure: deallocated dynamic object in *local: SUCCESS
+[hlc_receive_bounded.pointer_dereference.64] line 84 dereference failure: dead object in *local: SUCCESS
+[hlc_receive_bounded.pointer_dereference.65] line 84 dereference failure: pointer outside object bounds in *local: SUCCESS
+[hlc_receive_bounded.pointer_dereference.66] line 84 dereference failure: invalid integer address in *local: SUCCESS
+[hlc_receive_bounded.pointer_dereference.67] line 88 dereference failure: pointer NULL in *rejected: SUCCESS
+[hlc_receive_bounded.pointer_dereference.68] line 88 dereference failure: pointer invalid in *rejected: SUCCESS
+[hlc_receive_bounded.pointer_dereference.69] line 88 dereference failure: deallocated dynamic object in *rejected: SUCCESS
+[hlc_receive_bounded.pointer_dereference.70] line 88 dereference failure: dead object in *rejected: SUCCESS
+[hlc_receive_bounded.pointer_dereference.71] line 88 dereference failure: pointer outside object bounds in *rejected: SUCCESS
+[hlc_receive_bounded.pointer_dereference.72] line 88 dereference failure: invalid integer address in *rejected: SUCCESS
+[hlc_receive_bounded.pointer_dereference.73] line 90 dereference failure: pointer NULL in local->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.74] line 90 dereference failure: pointer invalid in local->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.75] line 90 dereference failure: deallocated dynamic object in local->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.76] line 90 dereference failure: dead object in local->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.77] line 90 dereference failure: pointer outside object bounds in local->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.78] line 90 dereference failure: invalid integer address in local->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.79] line 90 dereference failure: pointer NULL in remote->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.80] line 90 dereference failure: pointer invalid in remote->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.81] line 90 dereference failure: deallocated dynamic object in remote->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.82] line 90 dereference failure: dead object in remote->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.83] line 90 dereference failure: pointer outside object bounds in remote->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.84] line 90 dereference failure: invalid integer address in remote->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.85] line 92 dereference failure: pointer NULL in local->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.86] line 92 dereference failure: pointer invalid in local->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.87] line 92 dereference failure: deallocated dynamic object in local->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.88] line 92 dereference failure: dead object in local->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.89] line 92 dereference failure: pointer outside object bounds in local->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.90] line 92 dereference failure: invalid integer address in local->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.91] line 93 dereference failure: pointer NULL in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.92] line 93 dereference failure: pointer invalid in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.93] line 93 dereference failure: deallocated dynamic object in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.94] line 93 dereference failure: dead object in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.95] line 93 dereference failure: pointer outside object bounds in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.96] line 93 dereference failure: invalid integer address in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.97] line 94 dereference failure: pointer NULL in local->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.98] line 94 dereference failure: pointer invalid in local->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.99] line 94 dereference failure: deallocated dynamic object in local->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.100] line 94 dereference failure: dead object in local->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.101] line 94 dereference failure: pointer outside object bounds in local->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.102] line 94 dereference failure: invalid integer address in local->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.103] line 94 dereference failure: pointer NULL in remote->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.104] line 94 dereference failure: pointer invalid in remote->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.105] line 94 dereference failure: deallocated dynamic object in remote->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.106] line 94 dereference failure: dead object in remote->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.107] line 94 dereference failure: pointer outside object bounds in remote->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.108] line 94 dereference failure: invalid integer address in remote->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.109] line 96 dereference failure: pointer NULL in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.110] line 96 dereference failure: pointer invalid in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.111] line 96 dereference failure: deallocated dynamic object in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.112] line 96 dereference failure: dead object in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.113] line 96 dereference failure: pointer outside object bounds in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.114] line 96 dereference failure: invalid integer address in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.115] line 96 dereference failure: pointer NULL in remote->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.116] line 96 dereference failure: pointer invalid in remote->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.117] line 96 dereference failure: deallocated dynamic object in remote->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.118] line 96 dereference failure: dead object in remote->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.119] line 96 dereference failure: pointer outside object bounds in remote->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.120] line 96 dereference failure: invalid integer address in remote->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.121] line 97 dereference failure: pointer NULL in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.122] line 97 dereference failure: pointer invalid in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.123] line 97 dereference failure: deallocated dynamic object in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.124] line 97 dereference failure: dead object in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.125] line 97 dereference failure: pointer outside object bounds in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.126] line 97 dereference failure: invalid integer address in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.127] line 97 dereference failure: pointer NULL in remote->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.128] line 97 dereference failure: pointer invalid in remote->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.129] line 97 dereference failure: deallocated dynamic object in remote->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.130] line 97 dereference failure: dead object in remote->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.131] line 97 dereference failure: pointer outside object bounds in remote->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.132] line 97 dereference failure: invalid integer address in remote->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.133] line 101 dereference failure: pointer NULL in local->node_id: SUCCESS
+[hlc_receive_bounded.pointer_dereference.134] line 101 dereference failure: pointer invalid in local->node_id: SUCCESS
+[hlc_receive_bounded.pointer_dereference.135] line 101 dereference failure: deallocated dynamic object in local->node_id: SUCCESS
+[hlc_receive_bounded.pointer_dereference.136] line 101 dereference failure: dead object in local->node_id: SUCCESS
+[hlc_receive_bounded.pointer_dereference.137] line 101 dereference failure: pointer outside object bounds in local->node_id: SUCCESS
+[hlc_receive_bounded.pointer_dereference.138] line 101 dereference failure: invalid integer address in local->node_id: SUCCESS
+[hlc_receive_bounded.pointer_dereference.139] line 102 dereference failure: pointer NULL in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.140] line 102 dereference failure: pointer invalid in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.141] line 102 dereference failure: deallocated dynamic object in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.142] line 102 dereference failure: dead object in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.143] line 102 dereference failure: pointer outside object bounds in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.144] line 102 dereference failure: invalid integer address in local->logical: SUCCESS
+[hlc_receive_bounded.overflow.3] line 104 arithmetic overflow on signed + in (signed int)max_l + 1: SUCCESS
+[hlc_receive_bounded.pointer_dereference.145] line 104 dereference failure: pointer NULL in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.146] line 104 dereference failure: pointer invalid in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.147] line 104 dereference failure: deallocated dynamic object in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.148] line 104 dereference failure: dead object in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.149] line 104 dereference failure: pointer outside object bounds in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.150] line 104 dereference failure: invalid integer address in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.151] line 107 dereference failure: pointer NULL in local->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.152] line 107 dereference failure: pointer invalid in local->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.153] line 107 dereference failure: deallocated dynamic object in local->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.154] line 107 dereference failure: dead object in local->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.155] line 107 dereference failure: pointer outside object bounds in local->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.156] line 107 dereference failure: invalid integer address in local->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.157] line 107 dereference failure: pointer NULL in remote->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.158] line 107 dereference failure: pointer invalid in remote->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.159] line 107 dereference failure: deallocated dynamic object in remote->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.160] line 107 dereference failure: dead object in remote->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.161] line 107 dereference failure: pointer outside object bounds in remote->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.162] line 107 dereference failure: invalid integer address in remote->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.163] line 109 dereference failure: pointer NULL in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.164] line 109 dereference failure: pointer invalid in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.165] line 109 dereference failure: deallocated dynamic object in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.166] line 109 dereference failure: dead object in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.167] line 109 dereference failure: pointer outside object bounds in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.168] line 109 dereference failure: invalid integer address in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.169] line 112 dereference failure: pointer NULL in local->node_id: SUCCESS
+[hlc_receive_bounded.pointer_dereference.170] line 112 dereference failure: pointer invalid in local->node_id: SUCCESS
+[hlc_receive_bounded.pointer_dereference.171] line 112 dereference failure: deallocated dynamic object in local->node_id: SUCCESS
+[hlc_receive_bounded.pointer_dereference.172] line 112 dereference failure: dead object in local->node_id: SUCCESS
+[hlc_receive_bounded.pointer_dereference.173] line 112 dereference failure: pointer outside object bounds in local->node_id: SUCCESS
+[hlc_receive_bounded.pointer_dereference.174] line 112 dereference failure: invalid integer address in local->node_id: SUCCESS
+[hlc_receive_bounded.pointer_dereference.175] line 113 dereference failure: pointer NULL in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.176] line 113 dereference failure: pointer invalid in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.177] line 113 dereference failure: deallocated dynamic object in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.178] line 113 dereference failure: dead object in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.179] line 113 dereference failure: pointer outside object bounds in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.180] line 113 dereference failure: invalid integer address in local->logical: SUCCESS
+[hlc_receive_bounded.overflow.4] line 115 arithmetic overflow on unsigned + in local->logical + 1: SUCCESS
+[hlc_receive_bounded.pointer_dereference.181] line 115 dereference failure: pointer NULL in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.182] line 115 dereference failure: pointer invalid in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.183] line 115 dereference failure: deallocated dynamic object in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.184] line 115 dereference failure: dead object in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.185] line 115 dereference failure: pointer outside object bounds in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.186] line 115 dereference failure: invalid integer address in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.187] line 119 dereference failure: pointer NULL in local->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.188] line 119 dereference failure: pointer invalid in local->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.189] line 119 dereference failure: deallocated dynamic object in local->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.190] line 119 dereference failure: dead object in local->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.191] line 119 dereference failure: pointer outside object bounds in local->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.192] line 119 dereference failure: invalid integer address in local->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.193] line 119 dereference failure: pointer NULL in remote->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.194] line 119 dereference failure: pointer invalid in remote->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.195] line 119 dereference failure: deallocated dynamic object in remote->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.196] line 119 dereference failure: dead object in remote->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.197] line 119 dereference failure: pointer outside object bounds in remote->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.198] line 119 dereference failure: invalid integer address in remote->physical_ms: SUCCESS
+[hlc_receive_bounded.pointer_dereference.199] line 120 dereference failure: pointer NULL in remote->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.200] line 120 dereference failure: pointer invalid in remote->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.201] line 120 dereference failure: deallocated dynamic object in remote->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.202] line 120 dereference failure: dead object in remote->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.203] line 120 dereference failure: pointer outside object bounds in remote->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.204] line 120 dereference failure: invalid integer address in remote->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.205] line 123 dereference failure: pointer NULL in local->node_id: SUCCESS
+[hlc_receive_bounded.pointer_dereference.206] line 123 dereference failure: pointer invalid in local->node_id: SUCCESS
+[hlc_receive_bounded.pointer_dereference.207] line 123 dereference failure: deallocated dynamic object in local->node_id: SUCCESS
+[hlc_receive_bounded.pointer_dereference.208] line 123 dereference failure: dead object in local->node_id: SUCCESS
+[hlc_receive_bounded.pointer_dereference.209] line 123 dereference failure: pointer outside object bounds in local->node_id: SUCCESS
+[hlc_receive_bounded.pointer_dereference.210] line 123 dereference failure: invalid integer address in local->node_id: SUCCESS
+[hlc_receive_bounded.pointer_dereference.211] line 124 dereference failure: pointer NULL in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.212] line 124 dereference failure: pointer invalid in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.213] line 124 dereference failure: deallocated dynamic object in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.214] line 124 dereference failure: dead object in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.215] line 124 dereference failure: pointer outside object bounds in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.216] line 124 dereference failure: invalid integer address in local->logical: SUCCESS
+[hlc_receive_bounded.overflow.5] line 126 arithmetic overflow on signed + in (signed int)remote->logical + 1: SUCCESS
+[hlc_receive_bounded.pointer_dereference.217] line 126 dereference failure: pointer NULL in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.218] line 126 dereference failure: pointer invalid in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.219] line 126 dereference failure: deallocated dynamic object in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.220] line 126 dereference failure: dead object in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.221] line 126 dereference failure: pointer outside object bounds in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.222] line 126 dereference failure: invalid integer address in local->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.223] line 126 dereference failure: pointer NULL in remote->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.224] line 126 dereference failure: pointer invalid in remote->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.225] line 126 dereference failure: deallocated dynamic object in remote->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.226] line 126 dereference failure: dead object in remote->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.227] line 126 dereference failure: pointer outside object bounds in remote->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.228] line 126 dereference failure: invalid integer address in remote->logical: SUCCESS
+[hlc_receive_bounded.pointer_dereference.229] line 130 dereference failure: pointer NULL in *local: SUCCESS
+[hlc_receive_bounded.pointer_dereference.230] line 130 dereference failure: pointer invalid in *local: SUCCESS
+[hlc_receive_bounded.pointer_dereference.231] line 130 dereference failure: deallocated dynamic object in *local: SUCCESS
+[hlc_receive_bounded.pointer_dereference.232] line 130 dereference failure: dead object in *local: SUCCESS
+[hlc_receive_bounded.pointer_dereference.233] line 130 dereference failure: pointer outside object bounds in *local: SUCCESS
+[hlc_receive_bounded.pointer_dereference.234] line 130 dereference failure: invalid integer address in *local: SUCCESS
+
+../../../ircd/crdt_hlc.c function hlc_wall_clock_ms
+[hlc_wall_clock_ms.overflow.1] line 26 arithmetic overflow on unsigned * in (uint64_t)tv.tv_sec * (unsigned long int)1000: SUCCESS
+[hlc_wall_clock_ms.overflow.2] line 26 arithmetic overflow on unsigned + in (uint64_t)tv.tv_sec * (unsigned long int)1000 + (unsigned long int)(tv.tv_usec / (signed long int)1000): SUCCESS
+
+crdt_hlc_harness.c function gettimeofday
+[gettimeofday.pointer_dereference.1] line 36 dereference failure: pointer NULL in tv->tv_sec: SUCCESS
+[gettimeofday.pointer_dereference.2] line 36 dereference failure: pointer invalid in tv->tv_sec: SUCCESS
+[gettimeofday.pointer_dereference.3] line 36 dereference failure: deallocated dynamic object in tv->tv_sec: SUCCESS
+[gettimeofday.pointer_dereference.4] line 36 dereference failure: dead object in tv->tv_sec: SUCCESS
+[gettimeofday.pointer_dereference.5] line 36 dereference failure: pointer outside object bounds in tv->tv_sec: SUCCESS
+[gettimeofday.pointer_dereference.6] line 36 dereference failure: invalid integer address in tv->tv_sec: SUCCESS
+[gettimeofday.pointer_dereference.7] line 37 dereference failure: pointer NULL in tv->tv_usec: SUCCESS
+[gettimeofday.pointer_dereference.8] line 37 dereference failure: pointer invalid in tv->tv_usec: SUCCESS
+[gettimeofday.pointer_dereference.9] line 37 dereference failure: deallocated dynamic object in tv->tv_usec: SUCCESS
+[gettimeofday.pointer_dereference.10] line 37 dereference failure: dead object in tv->tv_usec: SUCCESS
+[gettimeofday.pointer_dereference.11] line 37 dereference failure: pointer outside object bounds in tv->tv_usec: SUCCESS
+[gettimeofday.pointer_dereference.12] line 37 dereference failure: invalid integer address in tv->tv_usec: SUCCESS
+[gettimeofday.pointer_dereference.13] line 38 dereference failure: pointer NULL in tv->tv_sec: SUCCESS
+[gettimeofday.pointer_dereference.14] line 38 dereference failure: pointer invalid in tv->tv_sec: SUCCESS
+[gettimeofday.pointer_dereference.15] line 38 dereference failure: deallocated dynamic object in tv->tv_sec: SUCCESS
+[gettimeofday.pointer_dereference.16] line 38 dereference failure: dead object in tv->tv_sec: SUCCESS
+[gettimeofday.pointer_dereference.17] line 38 dereference failure: pointer outside object bounds in tv->tv_sec: SUCCESS
+[gettimeofday.pointer_dereference.18] line 38 dereference failure: invalid integer address in tv->tv_sec: SUCCESS
+[gettimeofday.pointer_dereference.19] line 38 dereference failure: pointer NULL in tv->tv_sec: SUCCESS
+[gettimeofday.pointer_dereference.20] line 38 dereference failure: pointer invalid in tv->tv_sec: SUCCESS
+[gettimeofday.pointer_dereference.21] line 38 dereference failure: deallocated dynamic object in tv->tv_sec: SUCCESS
+[gettimeofday.pointer_dereference.22] line 38 dereference failure: dead object in tv->tv_sec: SUCCESS
+[gettimeofday.pointer_dereference.23] line 38 dereference failure: pointer outside object bounds in tv->tv_sec: SUCCESS
+[gettimeofday.pointer_dereference.24] line 38 dereference failure: invalid integer address in tv->tv_sec: SUCCESS
+[gettimeofday.pointer_dereference.25] line 39 dereference failure: pointer NULL in tv->tv_usec: SUCCESS
+[gettimeofday.pointer_dereference.26] line 39 dereference failure: pointer invalid in tv->tv_usec: SUCCESS
+[gettimeofday.pointer_dereference.27] line 39 dereference failure: deallocated dynamic object in tv->tv_usec: SUCCESS
+[gettimeofday.pointer_dereference.28] line 39 dereference failure: dead object in tv->tv_usec: SUCCESS
+[gettimeofday.pointer_dereference.29] line 39 dereference failure: pointer outside object bounds in tv->tv_usec: SUCCESS
+[gettimeofday.pointer_dereference.30] line 39 dereference failure: invalid integer address in tv->tv_usec: SUCCESS
+[gettimeofday.pointer_dereference.31] line 39 dereference failure: pointer NULL in tv->tv_usec: SUCCESS
+[gettimeofday.pointer_dereference.32] line 39 dereference failure: pointer invalid in tv->tv_usec: SUCCESS
+[gettimeofday.pointer_dereference.33] line 39 dereference failure: deallocated dynamic object in tv->tv_usec: SUCCESS
+[gettimeofday.pointer_dereference.34] line 39 dereference failure: dead object in tv->tv_usec: SUCCESS
+[gettimeofday.pointer_dereference.35] line 39 dereference failure: pointer outside object bounds in tv->tv_usec: SUCCESS
+[gettimeofday.pointer_dereference.36] line 39 dereference failure: invalid integer address in tv->tv_usec: SUCCESS
+
+crdt_hlc_harness.c function harness_compare
+[harness_compare.assertion.1] line 92 assertion (ab > 0) == (ba < 0) && (ab == 0) == (ba == 0): SUCCESS
+[harness_compare.assertion.2] line 93 assertion ab == 0 ? (a.physical_ms == b.physical_ms && a.logical == b.logical && a.node_id == b.node_id) : 1: SUCCESS
+
+crdt_hlc_harness.c function harness_local_event
+[harness_local_event.assertion.1] line 65 assertion hlc_compare(&n, &old) > 0 && "P1 local event is monotonic": FAILURE
+
+crdt_hlc_harness.c function harness_receive
+[harness_receive.assertion.1] line 78 assertion rej == 0 || rej == 1: SUCCESS
+[harness_receive.assertion.2] line 79 assertion pl_gt(&n, &old) && "P2a receive is monotonic": SUCCESS
+[harness_receive.assertion.3] line 81 assertion pl_gt(&n, &r) && "P2b receive happens-after the remote": SUCCESS
+[harness_receive.assertion.4] line 83 assertion n.physical_ms <= hi + 1 && "P3 refused remote does not move the clock": SUCCESS
+[harness_receive.overflow.1] line 83 arithmetic overflow on unsigned + in hi + (unsigned long int)1: SUCCESS
+[harness_receive.assertion.5] line 85 assertion n.physical_ms <= hi + 1 && "P4 no invented time": SUCCESS
+[harness_receive.overflow.2] line 85 arithmetic overflow on unsigned + in hi + (unsigned long int)1: SUCCESS
+
+crdt_hlc_harness.c function pl_gt
+[pl_gt.pointer_dereference.1] line 56 dereference failure: pointer NULL in a->physical_ms: SUCCESS
+[pl_gt.pointer_dereference.2] line 56 dereference failure: pointer invalid in a->physical_ms: SUCCESS
+[pl_gt.pointer_dereference.3] line 56 dereference failure: deallocated dynamic object in a->physical_ms: SUCCESS
+[pl_gt.pointer_dereference.4] line 56 dereference failure: dead object in a->physical_ms: SUCCESS
+[pl_gt.pointer_dereference.5] line 56 dereference failure: pointer outside object bounds in a->physical_ms: SUCCESS
+[pl_gt.pointer_dereference.6] line 56 dereference failure: invalid integer address in a->physical_ms: SUCCESS
+[pl_gt.pointer_dereference.7] line 56 dereference failure: pointer NULL in b->physical_ms: SUCCESS
+[pl_gt.pointer_dereference.8] line 56 dereference failure: pointer invalid in b->physical_ms: SUCCESS
+[pl_gt.pointer_dereference.9] line 56 dereference failure: deallocated dynamic object in b->physical_ms: SUCCESS
+[pl_gt.pointer_dereference.10] line 56 dereference failure: dead object in b->physical_ms: SUCCESS
+[pl_gt.pointer_dereference.11] line 56 dereference failure: pointer outside object bounds in b->physical_ms: SUCCESS
+[pl_gt.pointer_dereference.12] line 56 dereference failure: invalid integer address in b->physical_ms: SUCCESS
+[pl_gt.pointer_dereference.13] line 57 dereference failure: pointer NULL in a->physical_ms: SUCCESS
+[pl_gt.pointer_dereference.14] line 57 dereference failure: pointer invalid in a->physical_ms: SUCCESS
+[pl_gt.pointer_dereference.15] line 57 dereference failure: deallocated dynamic object in a->physical_ms: SUCCESS
+[pl_gt.pointer_dereference.16] line 57 dereference failure: dead object in a->physical_ms: SUCCESS
+[pl_gt.pointer_dereference.17] line 57 dereference failure: pointer outside object bounds in a->physical_ms: SUCCESS
+[pl_gt.pointer_dereference.18] line 57 dereference failure: invalid integer address in a->physical_ms: SUCCESS
+[pl_gt.pointer_dereference.19] line 57 dereference failure: pointer NULL in b->physical_ms: SUCCESS
+[pl_gt.pointer_dereference.20] line 57 dereference failure: pointer invalid in b->physical_ms: SUCCESS
+[pl_gt.pointer_dereference.21] line 57 dereference failure: deallocated dynamic object in b->physical_ms: SUCCESS
+[pl_gt.pointer_dereference.22] line 57 dereference failure: dead object in b->physical_ms: SUCCESS
+[pl_gt.pointer_dereference.23] line 57 dereference failure: pointer outside object bounds in b->physical_ms: SUCCESS
+[pl_gt.pointer_dereference.24] line 57 dereference failure: invalid integer address in b->physical_ms: SUCCESS
+[pl_gt.pointer_dereference.25] line 57 dereference failure: pointer NULL in a->logical: SUCCESS
+[pl_gt.pointer_dereference.26] line 57 dereference failure: pointer invalid in a->logical: SUCCESS
+[pl_gt.pointer_dereference.27] line 57 dereference failure: deallocated dynamic object in a->logical: SUCCESS
+[pl_gt.pointer_dereference.28] line 57 dereference failure: dead object in a->logical: SUCCESS
+[pl_gt.pointer_dereference.29] line 57 dereference failure: pointer outside object bounds in a->logical: SUCCESS
+[pl_gt.pointer_dereference.30] line 57 dereference failure: invalid integer address in a->logical: SUCCESS
+[pl_gt.pointer_dereference.31] line 57 dereference failure: pointer NULL in b->logical: SUCCESS
+[pl_gt.pointer_dereference.32] line 57 dereference failure: pointer invalid in b->logical: SUCCESS
+[pl_gt.pointer_dereference.33] line 57 dereference failure: deallocated dynamic object in b->logical: SUCCESS
+[pl_gt.pointer_dereference.34] line 57 dereference failure: dead object in b->logical: SUCCESS
+[pl_gt.pointer_dereference.35] line 57 dereference failure: pointer outside object bounds in b->logical: SUCCESS
+[pl_gt.pointer_dereference.36] line 57 dereference failure: invalid integer address in b->logical: SUCCESS
+
+** 1 of 421 failed (2 iterations)
+VERIFICATION FAILED
