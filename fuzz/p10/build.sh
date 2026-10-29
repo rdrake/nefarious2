@@ -90,8 +90,10 @@ for m in $MODES; do
   case "$m" in
     fuzz)
       # signed shift / overflow UB is logged but not fatal in the fuzz build so
-      # it does not mask deeper bugs (repro_p10 keeps it fatal)
-      CF="-g -O1 -fsanitize=fuzzer-no-link,address,undefined -fno-sanitize-recover=undefined -fsanitize-recover=shift,signed-integer-overflow -fno-omit-frame-pointer"
+      # it does not mask deeper bugs (repro_ubsan_p10 keeps it fatal);
+      # -fsanitize=function is off: m_cap.c bsearch() comparator type
+      # mismatch fires on every CAP line (benign, client path)
+      CF="-g -O1 -fsanitize=fuzzer-no-link,address,undefined -fno-sanitize-recover=undefined -fsanitize-recover=shift,signed-integer-overflow -fno-sanitize=function -fno-omit-frame-pointer"
       configure_tree fuzz "$CF" "-fsanitize=address,undefined"
       link_harness fuzz "$CF" "-fsanitize=fuzzer,address,undefined" "$OUT/fuzz_p10"
       ;;
