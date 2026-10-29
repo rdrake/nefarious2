@@ -1,0 +1,8 @@
+_JOIN #a#a,#b
+PRIVMSG #a :hi
+N
+MODE fuzzA cap-notify+PROTOCTLfO]k2
+JOIN 0
+uJOIN #aB!:r
+NAMES ,#zzA
+WHOI+dfc2fu,u;

@@ -1,0 +1,15 @@
+_PERSISTENCE SET ON
+PRIVMSG #fOBATCH +ml2 draft/multiline #fuzz
+@batch=ml1 PRIVMSG #fuzÔÔÔÔÔÔÔÔÔÔÔz :line one
+@batÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿBOUNCER INFO
+BOUNCER LISTSESSIONS
+BOUNCER LISTCLIENTS
+BOUNCER SETTINGS
+BOUNCER SET hold 1
+BOUNCER SET autoreplay 0
+BOUmain
+BOUNCER HOBU
+LEPNCERn
+BOUNCER HELP
+BOUNCER DISCONNECT fuzz
+B@laÿÿÿÿÿÿÿÿÿÿ://172.30.ÿÿÿÿÿÿÿÿÿbeÿl

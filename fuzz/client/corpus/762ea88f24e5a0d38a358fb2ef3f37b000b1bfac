@@ -1,0 +1,14 @@
+_M²DE #fuzz +ofuz A2
+TOPIC #fuzz :new topõÿÿÿOPIC #fuzz
+KICK #fuzz fuzzB :out
+JOIN #fu_NICK
+NICK :
+NICK #chSVSNICK nNCE STO-BATCH +ml0 d+gft/multiline #fuzz
+@batch
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzz,,,au12:

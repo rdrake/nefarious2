@@ -1,0 +1,18 @@
+_OPER fuzzoper fuzzoperpass
+MODE fuzzA +s +cdSEARCHPSHUN fzuzA :t
+KILL fqzzA :k
+HHECK fuzzA
+CHECK #uzzCHECK fuzzK fuzz
+CHECK fuzz.test.netA fake.host
+MARK fuzzA x y
+GITGLINE
+GLINEÏ -*@1.203.4
+ZLINVdr 600 :j
+TEMPSHUN fzuzA :t
+KILL fqzzA :k
+CHECK fuzzA
+CHECK #fuzzCHECK fuzzK fuzz
+CHECK fuzz.test.netA fake.host
+MARK fuzzA x y
+GITESYNCH :d
+dLL et

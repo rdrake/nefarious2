@@ -1,0 +1,17 @@
+_MODE #fuzz +pronounsTOPIC #fuzz :new topi³c
+PIC #fuzz
+KICK #fuzz fuz(Bd :out
+JOIN #fu-z
+INVITE fuzzB #fuzz
+INVITE
+KICK #fuzz fuzzA
+KICK #fuz9999999ODE #fuzzùÿÿÿkl
+OPMODE #fuzz +o)fuzzA
+REMOVE #fŠuzz duzzB :r
+NAMES #fuzz
+NAMDESTRUCTLIST >0,
+REMOVE #fŠuzz duzzB :r
+NAMES #fuzz
+NAMDESTRUCTLIST >0,<100,+reply=C>1,T<99999999
+LIST #fuzz
+LIST :#f*

@@ -1,0 +1,9 @@
+/multiline fuzHASH@batcOOBATCH +ml0 drCOÎNECT fuT fuzzacc~
+BOUNCER HISTORY
+BOUNCER
+BOUNCER BOGUSaft/multiline #fuzz
+@batch=ml0 PRIVMSG #fuzz :line one
+@batch=ml1;draft/multiliAFTERncat PRIVMSG #fuzz :cont
+@batchnREh=ml2 NOTICE fuzzB :a
+@batch=mÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿl2 PRIVMSGISTG fuzzzB :a
+@batch=mÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿl2 PRIVMSGISTG fuzzB :b

@@ -1,0 +1,7 @@
+_JOIN #a%PRIVMSG #a :hi
+N
+MODE fuzzA cap-notify+POTOCuserloadWHOIS fuuzzA
+WHOIS fuzzA
+WHO fuzzA
+HELDAY
+QUIT :done
