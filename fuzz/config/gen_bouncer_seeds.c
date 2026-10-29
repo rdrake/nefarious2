@@ -284,6 +284,13 @@ static void emit_repros(const char *dir)
   r2.bsr_disconnect_time = 0;          /* expired */
   emit_file(dir, "F10-bouncer-v8-as-written.bin", &v8w, sizeof(v8w),
             &r2, sizeof(r2));
+  /* F13: a disconnect time so far in the past that CurrentTime minus it
+   * overflows time_t (the expiry check wraps negative: never expired). */
+  FILL_COMMON(r, BOUNCER_DB_VERSION, 0);
+  r.bsr_disconnect_time = -9223372035054775838LL;  /* from the fuzzer */
+  emit_file(dir, "F13-bouncer-disconnect-time-overflow.bin", &r, sizeof(r),
+            NULL, 0);
+
   fprintf(stderr, "v8 as written: %zu bytes; struct BounceSessionRecord_v8:"
           " %zu bytes\n", sizeof(v8w), sizeof(struct BounceSessionRecord_v8));
 }
