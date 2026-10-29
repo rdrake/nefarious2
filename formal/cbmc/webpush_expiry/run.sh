@@ -9,4 +9,5 @@ $R $H harness_armed_at_nonneg 30 -DREC_MAX=26 || fail=1
 $R $H harness_armed_at_keyed_record 40 -DKEYID_MAX=16 || fail=1
 $R $H harness_expired_total 2 || fail=1
 $R $H harness_expired_props 2 || fail=1
+../common/run_confirm.sh confirm.c ../../../ircd/webpush_expiry.c
 exit $fail
