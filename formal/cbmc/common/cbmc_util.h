@@ -11,6 +11,8 @@ long nondet_long(void);
 long long nondet_ll(void);
 unsigned nondet_unsigned(void);
 size_t nondet_size_t(void);
+unsigned short nondet_ushort(void);
+unsigned char nondet_uchar(void);
 
 /* A nondeterministic NUL-terminated string in a caller buffer of n+1
  * bytes: every byte is arbitrary (an embedded NUL shortens it) and the
