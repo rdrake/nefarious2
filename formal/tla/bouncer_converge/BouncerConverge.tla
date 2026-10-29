@@ -732,6 +732,11 @@ KcBound ==
      \A x \in Clients : (Pres(w, s, x) /\ (S(w,s).prim = x \/ <<w.home[x], x>> \in S(w,s).als))
                         => ~Conf(SessKc(w, s), w.kc[x])
 
+\* Invariant 16 across servers: records of one session id never carry two ids.
+KcAgree ==
+  \A s, t \in Servers : S(w,s).ex /\ S(w,t).ex /\ S(w,s).sid = S(w,t).sid
+                        => ~Conf(SessKc(w, s), SessKc(w, t))
+
 \* No convergence step ever tears down a connection the user still has.
 NoLiveLoss == w.bad \cap {"liveKilledByCollision", "liveKilledByRemoteKill",
                           "liveKilledBySessionKill", "liveKilledByAliasCascade",
