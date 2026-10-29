@@ -27,6 +27,7 @@ trusted-but-not-blindly, config operator-controlled).
 | F01 | **High** | `ircd/websocket.c:188` | infinite loop in `parse_ws_handshake` | any client on a WebSocket port, before registration |
 | F14 | **High** | `ircd/history.c:399` / `:462` | `|` in a nick shifts the stored history fields: account spoofing on replay | any client (nick change) |
 | F28 | **Medium-High** (inherited) | `ircd/parse.c:2141-2247` | a server line with command `000` (or `0*l`, ...) dereferences a NULL `mptr`: crash | any linked server |
+| F29 | Medium | `ircd/parse.c:2066-2070` | a tags-only server line (`@tag `) makes `parse_server` step past its NUL and execute stale bytes of an earlier line (or read past `cli_buffer`) | any linked server |
 | F03 | Medium | `ircd/kc/kc_webhook.c:563` | webhook requests whose first read fills 4096 bytes are refused 400 | Keycloak (large events are lost) |
 | F16 | Medium | `ircd/m_chathistory.c:4356-4360` | `ch_base64_decode` length goes negative, NUL written before the buffer | a linked server (CH Z / CH B / CH WB) |
 | F18 | Medium | `ircd/m_webpush.c:123` | push endpoint SSRF check is a substring denylist | any logged-in client (WEBPUSH REGISTER) |
@@ -177,6 +178,60 @@ it).  Clients cannot reach it (`parse_client` has no numeric path).
 **Fix** keep a separate `is_numeric` flag (or test `mptr == NULL`), and
 require all three bytes to be digits: `if (len == 3 && IsDigit(ch[0]) &&
 IsDigit(ch[1]) && IsDigit(ch[2]))`.
+
+## F29 — `parse_server`: tags-only line steps past its NUL and parses stale buffer bytes (Medium)
+
+**Reproducers** (target `parse`, mode 1 = server link):
+- `findings/F29a-parse_server-tags-only-overread.bin` (`FUZZ_STRICT=1`):
+  `\x01@` + `q`×8700 + ` ` — one tags-only line of exactly
+  `FULL_MSG_SIZE - 1` bytes.  Generator:
+  `python3 -c "import sys;sys.stdout.buffer.write(b'\x01@'+b'q'*8700+b' ')"`.
+  ```
+  heap-buffer-overflow READ of size 1
+  #0 parse_server ircd/parse.c:2070
+  ```
+- `findings/F29b-parse_server-stale-replay-line{1,2}.bin`, replayed in
+  one process with the buffer kept between lines (`FUZZ_PARSE_STALE=1`,
+  default guards): line 1 `AB P #c :AAAA…(40×A) 000 y`
+  (`b64: AUFCIFAgI2MgOkFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUFBQUEgMDAwIHk=`),
+  then line 2 `@qqqqqqqqqqqqqqq ` (`b64: AUBxcXFxcXFxcXFxcXFxcXEg`).  Line 1
+  is an ordinary PRIVMSG; line 2 makes the parser walk into line 1's
+  leftover bytes and dispatch `000 y` from them, which then crashes
+  through F28:
+  ```
+  ircd/parse.c:2247:9: runtime error: member access within null pointer of type 'struct Message'
+  ```
+  The campaign found this as F28 crashes that did not reproduce on their
+  own, because they depended on what earlier inputs had left in the
+  harness's static buffer.
+
+**Root cause** the S2S tag skip (`ircd/parse.c:1975-1977`: `ch = tagend;
+while (*ch == ' ') ch++;`) can leave `ch` on the terminating NUL when
+nothing follows the tags.  The numeric-prefix branch then copies an empty
+prefix (`i == 0`, "Missing Prefix", `from = cptr`) and runs
+`do { ++ch; } while (*ch != ' ' && *ch);` (`:2066-2070`).  The `do` steps
+past the NUL before it tests anything, so the parser carries on through
+whatever follows the line.  `server_dopacket()` (`ircd/packet.c:75-140`)
+builds each line in place in `cli_buffer` and never clears it, so that is
+the tail of an earlier, longer line from the same link (its trailing
+parameter is intact, since only the spaces before `:` were turned into
+NULs).  Those bytes are dispatched as a command sent by the link itself.
+For a line of `FULL_MSG_SIZE - 1` bytes the walk leaves `cli_buffer`
+altogether and reads the `struct Connection` fields after it.  Upstream
+ircu cannot reach this branch with `ch` on the NUL: there are no tags, and
+empty lines are dropped before parsing.
+
+**Reachability** any directly linked server: one line consisting of only
+an S2S tag block (`@A…` compact tags with no prefix or command, e.g.
+from a truncated or buggy emitter).  The effect is a replay of a fragment
+of an earlier line as a command from the link (for example, a
+`MODE`/`KICK`/`KILL` token that appeared in an earlier trailing
+parameter), or a crash through F28 when that fragment is `000 …`.
+Clients cannot reach it (`parse_client` has its own tag handling).
+
+**Fix** after skipping the tags, `if (*ch == '\0') { ServerStats->is_empt++; return -1; }`;
+and make the prefix skip a `while (*ch && *ch != ' ') ch++;` loop instead
+of `do … while`.
 
 ## F03 — webhook listener refuses any request whose first read fills its buffer (Medium)
 

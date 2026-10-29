@@ -48,12 +48,18 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
    * is only a numeric prefix, i.e. up to two bytes past the NUL.  In the
    * ircd cli_buffer is followed by other Connection fields; by default
    * the harness gives the buffer two spare bytes, FUZZ_STRICT=1 uses an
-   * exact FULL_MSG_SIZE heap buffer. */
+   * exact FULL_MSG_SIZE heap buffer.
+   * F29: after a tags-only line ("@tag ") the prefix loop steps past the
+   * NUL and keeps parsing whatever the buffer still holds.  The ircd's
+   * cli_buffer keeps the bytes of earlier lines; the default mode zeroes
+   * sbuf for every input so results do not depend on the previous one
+   * (FUZZ_PARSE_STALE=1 keeps it, as findings/F29b needs). */
   static char sbuf[FULL_MSG_SIZE + 2];
   char *buf = sbuf;
   size_t n = 0;
   if (size < 1) return 0;
   if (fuzz_strict()) buf = malloc(FULL_MSG_SIZE);
+  else if (!getenv("FUZZ_PARSE_STALE")) memset(sbuf, 0, sizeof sbuf);
   while (1 + n < size && n < FULL_MSG_SIZE - 1 && data[1 + n] != '\r' && data[1 + n] != '\n')
     n++;
   memcpy(buf, data + 1, n);
@@ -73,10 +79,14 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
    * do_numeric() and dereferences mptr == NULL.  Such tokens are skipped
    * unless FUZZ_STRICT. */
   if ((data[0] & 1) && !fuzz_strict()) {
-    const char *z;
-    for (z = buf; *z; z++) {
-      if ((z == buf || z[-1] == ' ') && z[0] >= '0' && z[0] <= '9' && z[1] && z[2] &&
-          z[3] == ' ' && (z[0] - '0') * 100 + (z[1] - '0') * 10 + (z[2] - '0') == 0)
+    /* scan all n bytes: parse_server() can reach a token past an
+     * embedded NUL (tag / bufend handling), so NUL also delimits */
+    size_t i;
+    for (i = 0; i + 3 < n; i++) {
+      const char *z = buf + i;
+      if ((i == 0 || z[-1] == ' ' || z[-1] == 0) && z[0] >= '0' && z[0] <= '9' &&
+          z[1] && z[2] && (z[3] == ' ' || z[3] == 0) &&
+          (z[0] - '0') * 100 + (z[1] - '0') * 10 + (z[2] - '0') == 0)
         goto out;
     }
   }
