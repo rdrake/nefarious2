@@ -21,7 +21,9 @@ if [ ! -f "$ROOT/config.h" ]; then
      --with-rocksdb=/usr --with-zstd=/usr --enable-keycloak >/dev/null)
 fi
 
-SAN="-fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer"
+# -fno-sanitize=function: ircu-era qsort/bsearch comparator casts (e.g.
+# m_cap.c bqcmp) trip it; known and excluded.
+SAN="-fsanitize=address,undefined -fno-sanitize=function -fno-sanitize-recover=undefined -fno-omit-frame-pointer"
 CFLAGS_COMMON="-g -O1 -w -I$ROOT/include -I$ROOT -I$ROOT/ircd -I$HERE/sasl_auth -I$HERE/common -DFUZZING_BUILD_MODE_UNSAFE_FOR_PRODUCTION"
 I=$ROOT/ircd
 C=$HERE/common
@@ -72,6 +74,8 @@ T[webpush_store]="webpush_store/fuzz_webpush_store.c $C/fake_db.c $I/webpush_sto
 A[webpush_store]=1
 T[parse]="parse/fuzz_parse.c $I/ircd_string.c $I/ircd_snprintf.c $I/ircd_alloc.c $I/numnicks.c $I/match.c $C/ircd_stubs.c | -lssl -lcrypto"
 A[parse]=1
+T[dns]="dns/fuzz_dns.c $I/ircd_reslib.c $I/ircd_string.c $I/ircd_snprintf.c $I/ircd_alloc.c $C/ircd_stubs.c |"
+A[dns]=1
 T[kc_jwt]="kc_jwt/fuzz_kc_jwt.c $I/kc/kc_base64.c $C/kc_log_stub.c | -ljansson -lcrypto"
 
 # register_throttle is built like its cmocka suite: 1 bucket x 4 slots
