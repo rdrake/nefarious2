@@ -5,9 +5,9 @@ AB N Six4 2 1760000000 six4 six4.example.net +i _ ABAAD :Six4 real
 AB B #test 1759999900 +nt ABAAA:o,ABAAB:v,ABAAC
 AB B #fuzz 1759900001 +ntk key ABAAA:o,ABAAB
 AB B #bans 1760000000 +ntlim 10 ABAAC:ov,ABAAD :%*!*@bad.host ~*!*@good.host
-@AaGImCX4ABAAAAAAAAAAAB ABAAA P #fuzz :tagged
-@AaGImCX4ABAAAAAAAAAAAB,CC+draft/reply=abc;+typing=active ABAAA P AKAAA :client tags
-@AaGImCX4ABAAAAAAAAAAAB,Sabc-session-id ABAAA O #fuzz :notice
+@AaGIzi4AABAAAAAAAAAAAB ABAAA P #fuzz :tagged
+@AaGIzi4AABAAAAAAAAAAAB,CC+draft/reply=abc;+typing=active ABAAA P AKAAA :client tags
+@AaGIzi4AABAAAAAAAAAAAB,Sabc-session-id ABAAA O #fuzz :notice
 ABAAA P $*.fuzz :mass
 ABAAA P #fuzz,#test :multi
 ABAAA P alice@fuzz.local :directed

@@ -1,0 +1,18 @@
+	AB N Nick1 2 1760000000 nick1 nick1.example.net +iw AKAAAL ABAAA :Nick1 real
+AB N Acct2 2 1760000000 acct2 acct2.example.net +ixr acct2 AKAAAM ABAAB :Acct2 real
+AB N Oper3 2 1760000000 oper3 oper3.example.net +iowg AKAAAN ABAAC :Oper3 real
+AB N Six4 2 1760000000 six4 six4.example.net +i _ ABAAD :Six4 real
+AB B #test 1759999900 +nt ABAAA:o,ABAAB:v,ABAAC
+AB B #fuzz 1759900001 +ntk key ABAAA:o,ABAAB
+AB B #bans 1760000000 +ntlim 10 ABAAC:ov,ABAAD :%*!*@bad.host ~*!*@good.host
+AB BT +nj1 netjoin hub.fuzz leaf.fuzz
+AB S leaf.fuzz 2 1760000000 1793296576 J10 ACA]] +h6v :leaf server
+AC N Joiner 3 1760000000 j h +i AICAgI ACAAA :j
+AC B #fuzz 1760000000 ACAAA
+AB BT -nj1
+AB BT +ns1 netsplit hub.fuzz leaf.fuzz
+AB SQ leaf.fuzz 0 :split
+AB BT -ns1
+AB BT +x
+AB BT -
+AB BT x

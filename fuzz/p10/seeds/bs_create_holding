@@ -1,9 +1,9 @@
 AB N Bnc 2 1760000000 bnc bnc.example.net +ixr bnc AKAAAW ABAAL :Bnc real
 AB B #bnc 1760000000 +nt ABAAL:o
-AB BS C bnc 0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b Tok0123456789abcdef holding 1760000000 1793292975 2 600 :#bnc
-AB BS D bnc 0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b 1793293035 :#bnc,#other
+AB BS C bnc 0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b Tok0123456789abcdef holding 1760000000 1793296516 2 600 :#bnc
+AB BS D bnc 0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b 1793296576 :#bnc,#other
 AB BS U bnc 0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b name=profile2
-AB BS O bnc 0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b 1793293035 operx
+AB BS O bnc 0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b 1793296576 operx
 AB BS O bnc 0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b
 AB BS T bnc 0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b AC
 AB BS X bnc 0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b

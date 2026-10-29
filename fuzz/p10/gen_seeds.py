@@ -265,6 +265,28 @@ add("timers_hold", LOCALS | POST_EB | ULINE | TIMERS,
     "AB AC AKAAA R alice %d\nAB BS C alice %s %s holding %d %d :#fuzz\n" % (TS, SID, TOK, TS, NOW - 10) +
     "AB D AKAAA :x\n")
 
+# --- delivery to local clients with IRCv3 caps (alice has them) -------
+add("batch_netjoin", LOCALS | POST_EB, BASE_BURST +
+    "AB BT +nj1 netjoin hub.fuzz leaf.fuzz\n" + server_behind() +
+    "AC N Joiner 3 %d j h +i %s ACAAA :j\nAC B #fuzz %d ACAAA\nAB BT -nj1\n" % (TS, ip4(8, 8, 8, 8), TS) +
+    "AB BT +ns1 netsplit hub.fuzz leaf.fuzz\nAB SQ leaf.fuzz 0 :split\nAB BT -ns1\nAB BT +x\nAB BT -\nAB BT x\n")
+add("tagmsg_locals", LOCALS | POST_EB, BASE_BURST +
+    "ABAAA J #fuzz\n" +
+    msgtag(extra=",C+typing=active") + "ABAAA TG #fuzz\n" +
+    msgtag(extra=",C+draft/react=x;+draft/reply=ABAAAAAAAAAAAB") + "ABAAA TG AKAAA\n" +
+    "ABAAA TG @+typing=done AKAAA\nABAAA TG AKAAB\nABAAA TG #nosuch\n" +
+    msgtag(extra=",C+typing=active") + "ABAAA P AKAAA :tagged pm\n" +
+    msgtag(extra=",C+typing=active") + "ABAAA O #fuzz :tagged notice\n")
+add("svsjoin_part", LOCALS | POST_EB | ULINE, BASE_USERS +
+    "AB SJ AKAAA #new1\nAB SJ AKAAA #new2,#new3 key\nAB SJ AKAAA 0\nAB SJ ABAAA #remote\n"
+    "AB SP AKAAA #new1 :bye\nAB SJ AKAAB #fuzz\nAB SJ alice #byname\nAB SJ AKAAA &local\n")
+add("multiline_locals", LOCALS | POST_EB, BASE_BURST + "ABAAA J #fuzz\n" +
+    msgtag(extra=",M+mlb1") + "ABAAA ML #fuzz :first\n" +
+    msgtag(msgid="ABAAAAAAAAAAAC", extra=",Mcmlb1") + "ABAAA ML #fuzz :second\n" +
+    msgtag(msgid="ABAAAAAAAAAAAD", extra=",M-mlb1") + "ABAAA ML #fuzz :\n" +
+    msgtag(extra=",M+mlb2") + "ABAAA ML AKAAA :dm\n" +
+    msgtag(msgid="ABAAAAAAAAAAAE", extra=",M-mlb2") + "ABAAA ML AKAAA :\n")
+
 if __name__ == "__main__":
     out = sys.argv[1] if len(sys.argv) > 1 else os.path.join(os.path.dirname(__file__), "seeds")
     os.makedirs(out, exist_ok=True)

