@@ -1,0 +1,7 @@
+Generg"; };
+Port { port = 7000; ssl = yes; };
+Webhook { port = 9002; };
+AuthToken "svc2" { url = "http:/ass { name = "E"; pingfreq = (1+2)*3 minutes 4 seconds; sendq = 2*1024 kbytes; maxlinks = 100/5; maxchans = 7-2; };
+
+#@RHEASH@
+General { name = "fuzz.example.net";  "E"; pingfreq = (1+2)*3 minutes 4 seconds; sendq = 2*1024 kbytes; maxlinks = 100/5; maxchans = 7-2; xtraop};

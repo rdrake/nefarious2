@@ -1,0 +1,27 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Kill
+{
+ host = "*luser@unixbox.flooder.co.uk";
+ &ile = "kline/youflooded.txt";
+};
+
+#@REHASH@
+General { name = "fuzz.example.net"; descricccccccccccccGeneral { name = "fuzz.example.cccccccccccccccccccccccccccccccccccccption = "fuzz"; numeric = 1net"; description = "fuz; };
+Kill
+{
+ hoz"; numeric = 1; };
+Kill
+{
+ host = "*luser@unixbox.floodst = "er.co.uk";
+ file = "kline/youflooded.txt";
+};
+
+#@REHASH@
+General { name = "fuzz.example.net"; de192.168.*";φί™“le = scription = "fuzz"; numeric = 1; };
+Kill
+{
+ hos"klines/martiat = "192.168.*";
+ file = "klines/martians";
+ns"};;
+}
+;

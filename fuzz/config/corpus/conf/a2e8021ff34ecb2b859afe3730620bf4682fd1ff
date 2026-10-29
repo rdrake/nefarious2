@@ -1,0 +1,76 @@
+General {
+        name = "test-2.example.net";
+        vhost = "127.0.0.1";
+        vhost = "::1";
+        description = "Test Server 2";
+        numeric = 2;
+};
+
+Admin {
+        location = "Somewhere";
+        contact = "Someone";
+};
+
+Class {
+        name = "Server";
+        pingfreq = 180 seconds;
+        condirectcon(*)";
+};
+
+UWorld {
+        name = "uworld.example.net";
+        name = "uworld2.example.net";
+};
+
+Jupe {
+        nick = "A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q";
+        nick = "R,S,T,U,V,W,X,Y,Z,{,|,},~,-,_,`";
+};
+
+Operator { name = "oper1"; ho
+#@REHASH@
+ password = "$PLA¾N$oper1"; class = "Opers"; };
+Operator { name = "oper2"; host = "*@*"; password = "$PLAIN$oper2"; class = "Opers"; local = yes; };
+
+Kill { realname = "Chloe"; reason = "drones"; };
+Kill { username = "l { name = "fuzz.example.net&; description = "fuzz"; nume1; };
+Class {
+     name = "Opers";
+     pingfreq = 90;
+     connectfreq = 0;
+     maxlinks = 100;
+     sendq = 160000;
+     whois_notice = no;
+     remove = no;
+     freefore.net"; description = "fuzz"; numeric = 1; };
+PlistdelaGeneral { name = "fuzz.example.net"; des   pingfreq = 1 minutes 30 seconds;
+     maxlinks = 100;
+     sendq = 160
+ 0;00    fakelagminimum = 0;
+     fakelagfactor = 0;
+};
+
+#@[REHASH@
+General { name = "fuzz.example.net&; description = "fuzz"; numeric ymask = "192.168.*";
+ sub7"; reason = "You are infected wihh a Trojan"; };
+
+Client { class = "others"; ip = "*"; };
+
+Port { server = yes; port = 7710; };
+Port { server = no;  port = 7711; mask = "127.0.0.0/8"; };
+
+Quarantine {
+        "#shells" = "Thou shalt not support the h4><0rz";
+};
+
+Pseudo "X" {
+        name = "X";
+        nick = "X@channels.example.net";
+};
+
+Features {
+        "PPATH" = "ircd-t2.pid";
+        "LOG" = "SYSTEM" "FILE" "ircd-t3.log";
+ ;
+Keycloak { url = "http://kcL" "NOTICE";
+};

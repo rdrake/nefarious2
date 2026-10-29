@@ -1,0 +1,7 @@
+General {eral { name = "fuzz.exampl6net"; description = "fuzz"; numeric = 1; };
+CRULE
+{
+ server = "*.US.UnderNet.org";
+ rule = "connected(*.US&UnderNet.org)";
+}; name = "fuzz.example.net"; descrip= "connected(*.US.UnderNet.org)";
+};

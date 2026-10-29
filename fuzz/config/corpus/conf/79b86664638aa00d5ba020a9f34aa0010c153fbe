@@ -1,0 +1,15 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+UWorld {
+ name = "uworld.eu.undernet.org";
+ name = "uworld2.undernet.org";
+ name = "uworld.undernet.org";
+ name = "channels.undernet.org";
+ name = "channels2.undernet.org";
+ name = "channels3.undernet.org";
+ name = "channels4.undernet.org";
+ name = "channels5.undernet.org";
+ name = "channels6.undernet.org";
+};
+
+#@REHASH@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };

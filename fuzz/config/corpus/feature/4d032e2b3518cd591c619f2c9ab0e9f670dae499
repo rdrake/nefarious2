@@ -1,0 +1,42 @@
+HU		Z	uÿ
+AWAY_STAR_MSG			)	
+				C
+Wÿ
+	C							uÿ
+		C							uÿÿ
+	C					£öu_MAX_LINES	1
+	ÿ
+MULTILINE_MAX_LIN
+AWAY_STAR_MSG			)	
+				C
+Wÿ
+CAP_draft_extended_isupport		,-0LOCKMSGISHXC					uÿ
+AWAY_STAR_MSG
+	)							C
+Wÿ
+CAP_tls	ÿ
+		CAP_tls		CHATXISTORY_DBAX_LIN
+AWAY_STAR_MSG			)	
+				C
+Wÿ
+CAP_draft_extended_isupport		,-0LOCKMSGISHXC					uÿ
+AWAY_STAR_MSG
+	)							C
+Wÿ
+CAP_tls	ÿ
+		CAP_tls		CHATXISTORY_DB_NOSYNC		uÿÿ
+	C					Z	uÿ
+AWAY_STAR_MSG			)	
+							£öu_MAX_LINES	2
+	ÿ
+MULTILINE_MAX_LIN
+AWAY_STAR_MSG			)	
+				C
+Wÿ
+CAP_tls	:	ÿ
+CAP_tls				ÿe				,-0LOCKMSGISHXC					uÿ
+AWAY_STAR_MSG
+	)							C
+Wÿ
+						uÿ
+EN		

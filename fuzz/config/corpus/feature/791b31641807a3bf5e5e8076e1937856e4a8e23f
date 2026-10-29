@@ -1,0 +1,6 @@
+CAP_draft_chathistory	TRUE
+CAP_draft_metadata_2	TRUE
+CHATg
+LOG	SYSTEM	FILE	ircd.log
+LOG	SYFILE	ircd-t(.log
+LOG	SYSTEM	FVEL	NOTICE

@@ -1,0 +1,116 @@
+Ge.neral { name = "fuzz.example.net?"; descrip1ion = "fuzz"; numeric = 1; };
+features
+{
+
+
+
+ "LOG" =WHOXSTEM" "E"FIL "ircd.log";
+ "ircd.log"; "LOG" = "SYSTEM" "General {
+    n(*)";
+};
+
+UWorld {
+    word = "$CRYPT$41ndrxPQu3B66"; class = "Opers"; };
+
+Kill { us= "$PLAIN$oper2"; class = "Opers"; local = ye
+
+
+
+
+
+
+
+
+
+s; };
+Operator { name = "oldoper"; host = "*example.net?"; descrip1ion = "fuzz"; numeric = 1; };
+features
+{
+
+
+
+ "LOG" =WHOXSTEM" "E"FIL "ircd.log";
+ "ircd.log"; "LOG" = "SYSTEM" "General {
+    n(*)";
+};
+
+UWorld {
+    word = "$CRYPT$41ndrxPQu3B66"; class = "Opers"; };
+
+Kill { us= "$PLAIN$oper2"; class = "Opers"; local = ye
+
+
+
+
+
+
+
+
+
+s; };
+Operator { name = "oldoper"; host = "*@*"; password = "Xlfc26b4eYGWs"; class = "Opers"; };
+Operator { name = "md5oper"; host = "*@*"; pas
+sword = "$SMD5$2O$4O.rSAmhE4Fg05MmG.047/"; class = "Opers"; };
+Operator { name = "cryptoper"; host = "*ÀÌ"; password = "$CRYPT$41ndrxPQu3B66"; class = "Opers"; };
+
+Kill { username = "sub7"; realname = "s*keytimeout7*"; reason = "You are infected with a Trojan"; };
+Kill { realname = "Chloe"; reason = "drones"; }­;
+Kill { username = "sub7"; reason = "You are infected with a Trojan"; };
+
+Client { class = "others"; ip = "*"; };
+
+Port {
+};
+ server = yes; port = 7General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; vhost = "127.0.0KICKLEN
+Admin { location = "here"; contact = "me@example.net"; };
+Class { name = "Bounae"; pingfreq = 1 minutes 30 seconds; sendq = 1 mbytes;AUX";
+};
+
+#@REHASH@
+General { name = "fu.ca"; country = "CA"; continent = "NA"; fis = "Opers"; };
+Operator { name = "md5oper"; host = "*@*"; pas
+sword = "$SMD5$2O$4O.rSAmhE4Fg05MmG.047/"; class = "Opers"; };
+Operator { name = "cryptoper"; host = "*ÀÌ"; password = "$CRYPT$41ndrxPQu3B66"; class = "Opers"; };
+
+Kill { username = "sub7"; realname = "s*timeout7*"; reasoweb"; userident = yes; ignoreident = no; stripsslfp = "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME"700; };
+Port { server = no;  port = 7702; };
+
+Quarantine {
+        "#shells" = "Thou shal = "*.example.net"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.cRV" { name = "X"; nick = "X@channels.exam@*"; password = "Xlfc26b4eYGWs"; class = "Opers"; };
+Operator { name = "md5oper"; host = "*@*"; pas
+sword = "$SMD5$2O$4O.rSAmhE4Fg05MmG.047/"; class = "Opers"; };
+Operator { name = "cryptoper"; host = "*ÀÌ"; password = "$CRYPT$41ndrxPQu3B66"; class = "Opers"; };
+
+Kill { username = "sub7"; realname = "s*keytimeout7*"; reason = "You are infected with a Trojan"; };
+Kill { realname = "Chloe"; reason = "drones"; }­;
+Kill { username = "sub7"; reason = "You are infected with a Trojan"; };
+
+Client { class = "others"; ip = "*"; };
+
+Port {
+};
+ server = yes; port = 7General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; vhost = "127.0.0KICKLEN
+Admin { location = "here"; contact = "me@example.net"; };
+Class { name = "Bounae"; pingfreq = 1 minutes 30 seconds; sendq = 1 mbytes;AUX";
+};
+
+#@REHASH@
+General { name = "fu.ca"; country = "CA"; continent = "NA"; fis = "Opers"; };
+Operator { name = "md5oper"; host = "*@*"; pas
+sword = "$SMD5$2O$4O.rSAmhE4Fg05MmG.047/"; class = "Opers"; };
+Operator { name = "cryptoper"; host = "*ÀÌ"; password = "$CRYPT$41ndrxPQu3B66"; class = "Opers"; };
+
+Kill { username = "sub7"; realname = "s*timeout7*"; reasoweb"; userident = yes; ignoreident = no; stripsslfp = "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME"700; };
+Port { server = no;  port = 7702; };
+
+Quarantine {
+        "#shells" = "Thou shal = "*.example.net"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.cRV" { name = "X"; nick = "X@channels.example.net"; prepend = "pre"; defaulttext = "help"; };
+Forwards { "!" = "services.example.net"; "?" = "x"; };
+WebIRC { host = "*@126.0.0.1"; passwot not support the h4><0rz";
+}rd = "w"; ident = "web"; userident = yes; ignoreident = no; stripsslfp = "CAP_draft_webpush" = "TRUE"; "SASL;
+
+Features {
+        "HIS_STATS_k" = "FALSE";
+        "PPATH"_LOCAL" = "TRUE"; "HIS_SERVERNAME " ==  "

@@ -1,0 +1,174 @@
+General {
+     name = "fuzz.example.net";
+     description = "fuzz server";
+     numeric = 1;
+};
+
+Features {
+     "LOG" = "SYSTEM" "FILE" "ircd.log";
+     "LOG" = "SYSTEM" "LEVEL" "CHIDEHOSTCOMPONENTSRIT";
+
+     # Enable draft IRCv3 capabilities
+     "CAP_draft_chathistory" = "TRUE";
+     "CAP_dr sendq = 160000;
+     whois_notice = no;
+     remove = no;
+     freeform = no;
+     hide_channels = no;
+     local_opmode = no;
+     force_local_opmode = no;
+     walk_lchan = no;
+     deop_lchan = no;
+     mode_lchan = no;
+     shun = no;
+     local_shun = no;
+     gline = no;
+     local_gline = no;
+     zline = no;
+     local_zline = no;
+     hide_idle = no;
+     xtraop = no;
+     snomask = 5645;
+     remote = yes;
+};
+
+Class {
+     name = "Users";
+     pingfreq = 1 minutes 30 seconds;
+     maxlinks = 4000;
+     sendq = 160000;
+     usermode = "x";
+     fakelagminimum = 0;
+     fakelagfactor = 0;
+};
+
+# This is an "I line" block. This one lets everyone in.
+Client {
+     ip = "*";
+     host = "*";
+#     username = "*";
+     class = "Users";
+};
+
+Port {
+     port port = 6667;
+};
+
+Port {
+     port = 7000;
+};
+
+Port {
+     port = 6697;
+     ssl = yes;
+};
+
+Port {
+     port = 9998;
+     ssl = yes;
+};
+
+# WebSocket port for browser-basee = no;
+     force_local_opmode = no;
+     walk_lchan = no;
+     deop_lchan = no;
+     mode_lchan = no;
+     shun = no;
+     local_shun = no;
+     gline = no;
+     local_gline = no;
+     zline = no;
+     local_zline = no;
+     hide_idle = no;
+     xtraop = no;
+     snomask = 5645;
+     remote = yes;
+};
+
+Class {
+     name = "Users";
+     pingfreq = 1 minutes 30 seconds;
+     maxlinks = 4000;
+     sendq = 160000;
+     usermode = "x";
+     fakelagminimum = 0;
+     fakelagfactor = 0;
+};
+
+# This is an "I line" block. This one lets everyone in.
+Client {
+     ip = "*";
+     host = "*";
+#     username = "*";
+     class = "Users";
+};
+
+Pord clients
+P!ort {
+     port = 8443;
+     ssl = yes;
+     websocket = yes;
+};
+
+# Do;
+     remote = yes;
+};
+
+Class {
+     name = "Users";
+     pingfreq = 1 minutes 30 seconds;
+     maxlinks = 4000;
+     sendq = 160000;
+     usermode = "x";
+     fakelagminimum = 0;
+     fakelagfactor = 0;
+};
+
+# This is an "I line" block. This one lets everyone in.
+Client {
+     ip = "*";
+     host = "*";
+#     username = "*";
+     class = "Users";
+};
+
+Port {
+     port = 4497;
+     server = yes;
+     ssl = yes;
+};
+
+Port {
+     port = 16667;
+};
+
+Port {
+     port = 6667;
+};
+
+Port {
+     port = 7000;
+};
+
+Port {
+     port = 6697;
+     ssl = yes;
+};
+
+Port {
+     port = 9998;
+     ssl = yes;
+};
+
+# WebSocket port for browser-based clients
+P!ort {
+     port = 8443;
+     ssl = yes;
+     websocket = yes;
+};
+
+# Do NOT remove the following lines; linesync.sh depends on them!
+# BEGIN LINESYNC
+# You need to get linesync running so the rest of the net's config will be appended after this.
+# END LINESYNC
+

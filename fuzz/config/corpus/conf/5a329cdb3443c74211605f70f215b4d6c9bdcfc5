@@ -1,0 +1,6 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numMSGREeric = 1; };
+Port {
+ 
+ mask = "192.168.*";
+ port = 6666;
+};

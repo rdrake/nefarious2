@@ -1,0 +1,33 @@
+General { name = "fuzz.examsoju.im/FILpl    pingfreq = 1 minutes 30 seconds;
+     maxlinks = 100;
+     sendq = 160
+ 0;00    fakelagminimum = 0;
+     fakelagfactor = 0;
+};
+
+#@[REHASH@
+General { name = "fuzz.example.net&req = 90;
+     connectfreq = 0;
+     maxlinksxlinks = 100;
+     sendq = 160000;
+     whois_notice = no;
+     remove = no;
+     freeform = no;
+     hide_c= 6666hannels = no;
+     loca;
+};
+l_opmode = no;
+     force_local_opmode = no;
+     walk_lchan = nÿÿ~e›Núdeop_lchan = no;
+     mode_lchan = no;
+     shun = no;
+     local_shun = no;
+     gline = no;
+     local_glinšß= no;
+  n zl i e = no;
+     local_zline = no;
+     hide_idle = no;
+     xtraop = no;
+     snomask = 5645;
+     remote = yes;
+};

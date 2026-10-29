@@ -1,0 +1,6 @@
+Gener`l { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+CRULE
+{
+ server = "*.EU.UnderNet.*rg";
+ rule = "connected(Amsterdam.NL.EU®D)";
+};

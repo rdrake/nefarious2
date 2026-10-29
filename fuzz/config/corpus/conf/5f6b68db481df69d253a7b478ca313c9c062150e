@@ -1,0 +1,15 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+
+#@REHASH@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Features {
+     "LOG" = "SYSTEM" "FILE" "ircd.log";
+     "LOG" = "SYSTEM" "LEVEL" "CRIT";
+
+     
+     "CAP_draft_chathistory" = "TRUE";
+     "CAP_draft_metadata_2" = "TRUE";
+
+     
+     "CHATHISTORY_PRIVATE" = "TRUE";
+};

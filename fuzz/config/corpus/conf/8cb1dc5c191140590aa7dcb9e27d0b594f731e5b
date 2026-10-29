@@ -1,0 +1,8 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Kill
+{
+  host = "silly.people";
+  reason = "Silly people are not allowed unless authenticated.";
+  authexempt = yes;
+  mark = "Silly Person";
+};

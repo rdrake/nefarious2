@@ -1,0 +1,131 @@
+# ircd.conf - configuration file for ircd version ircu2.10
+#
+# Last Updated:  20, March 2002.
+#
+# Written by Niels <niels@undernet.org>, based on the original example.conf,
+# server code and some real-life (ahem) experience.
+#
+# Updated and heavily modified by Braden <dbtem@yahoo.com>.
+#
+# Rewritten by A1kmm(Andrew Miller)<a1kmm@mware.virtualave.net> to support
+# the new flex/bison configuration parser.
+#
+# Thanks and crediGeneral { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; vhost = "127.0.0.1"; };
+Admin { location = "here"; contact = "me@example.net"; };
+Class { name = "Bounce"; pingfreq = 1 minutes 30 seconds; sendq = 1 mbytes; recvq = 4 kb; maxlinks = (10*2)+1; usermode = "+iwx"; maxchans = 20; snomask = 1+2+4; fakelagminimum = 2; fakelagfactor = 120; autojoinc
+#@REHASH@
+a,#b"; autojoinnotice = "hi"; restrict_join = yes; restrict_privmsg = no; restrict_umode = yes; require_sasl = yes; bouncer = yes; };
+Class { name = "Server"; pingfreq = 90; co(nnectfreq = 5 minutes; maxlinks = 1; sendq = 9000000; };
+Client { class = "Bounce"; ip = "10.0.0.0/8"; host = "*.example.net"; username = "~*"; password = "x"; maxlinks = 2; port = 6697; country = "CA"; continent = "NA"; sslfp = "AB:CD"; noidenttilde = yes; redirect = "irc.example.org 6667"; hidehostcomponants = 2; autojoinchannel = "#c"; autojoinnotice = "n"; };
+Connect { name = "hub.example.net"; host = "127.0.0.2"; password = "p#; port = 4400; class = "Server"; vhost = "127.0.0.1"; from = "fuzz.example.net"; hub = "*"; maxhops = 3; autoconnect = no; ssl = yes; sslfp = "00:11"; sslciphers = "HIGH"; };
+UWorld { name = "services.example.net"; oper = "x"; };
+Operator { name = "op"; password = "$5$abc"; host = "*@*"; class = "Bounce"; sslfp = "AA"; snomask = 15; autojoinchannel = "#opers"; autojoinnotice = "o"; swhois = "is an oper"; local = no; die = yes; restart = yes; rehash = yes; gitsync = yes; };
+Port { port = 6667; };
+Port { port = ipv4 6697; ssl = yes; vhost = "127.0.0.1"; mask = "*"; hidden = yes; };
+Port { port = ipv6 4400; server = yes; vhost = "::1"; };
+Port { port = 8080; websocket = yes; };
+Port { port = 8443; paste = yes; ssl = yes; };
+Jupe { nick = "root,admin"; };
+Kill { host = "*.bad"; reason = "go away"; username = "x"; realname = "y"; country = "XX"; continent = "AN"; version = "*mirc*"; authexempt = yes; mark = "m"; };
+Kill { host = "*.bad2"; file = "kill.txt"; };
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; vhost = "127.080.1"; };
+Admin { location = "here"; contact = "me@example.net"; };
+Class { name = "Bouncest = "127.0.0.1"; mask = "*"; hCRule { server = "*.example.net"; rule = "connected(hub.*) || !directcon(*.eu)"; all = yes; };
+Motd { host = "*.ca"; country = "CA"; continent = "NA"; file = "motd.txt"; };
+Quarantine { "#spam" = "spam"; "#x" = "y"; };
+Pseudo "CHANSERV" { name = "X"; nick = "X@channels.example.net"; prepend = "pre"; defaulttext = "help"; };
+Forwards { "!" = "services.example.net"; "?" = "x"; };
+WebIRC { host = "*@127.0.0.1"; password = "w"; ident = "web"; userident = yes; ignoreident = no; stripsslfp = yes; enableoptions = yes; trustaccount = yes; description = "gw"; };
+SpoofHost "fake.host" { host = "*@*"; pass = "s"; autoapply = no; ismask = yes; matchusername = yes; };
+Except { host = "*@10.*"; shun = yes; kline = yes; gline = yes; zline = yes; ident = yes; rdns = yes; ipcheck = yes; targetlimit = yes; listdelay = yes; };
+DNSBL { name = "dnsbl.example.org"; host = "127.0.0.2,127.0.0.3"; bitmask = 6; action = mark; reason = "listed"; score = 10; };
+SSL { certificate = "cert.pem"; key = "key.pem"; };
+Webhook { port = 9000; secret = "s3cret"; vhost = "127.0.0.1"; path = "/hook"; maxconnections = 4; maxrequestsize = 64 kb; queuemax = 10; batchsize = 2; signaturewindow = 300; legacysecret = no; realm = "r"; };
+Keycloak { url = "http://kc.example.net:8080"; realm = "afternet"; client_id = "ircd"; client_secret = "cs"; issuer = "http://kc/realms/afternet"; allowed_clients = "a,b"; insecure_token_validation = no; };
+AuthToken "x3" { url = "https://x3.example.net/token"; description = "X3"; password = "pw"; host = "127.0.0.1"; key = "k"; };
+IAuth { program = "/bin/false" "-x"; };
+Features { "BOUNCER_ENABLE" = "TRUE"; "BOUNpseudoCER_PERSIST" = "TRUE"; "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.conf";
+connection
+# class", be they incoming or outgoing (initiated by the server), be they
+# clients or servers.
+#
+# Class {
+#  name = "<class>";
+#  pingfreq = time;
+#  connectfreq = time;
+#  maxlinks = number;
+#  maxchans = number;
+#  sendq = size;
+#  recvq = size;
+#  usermode = "+i";
+#  snomask = number;
+#  fakelagminimum = number;
+#  fakelagfactor = number;
+#  autojoinchannel = "channellist";
+#  autojoinnotice = "autojoinnotice";
+#  restrict_join = yes/no;
+#  restrict_privmsg = yes/no;
+#  restrict_umode = yes/no;
+# };
+#
+# For connection classes used on server links, maxlinks should be set
+# to either 0 (for hubs) or 1 (for leaf servers).  Client connection
+# classes may use maxlinks between 0 and approximately 4,000,000,000.
+# maxlinks = 0 means there is no limit on the number of connections
+# using the class.
+# 
+# <connect freq> applies only to servers, and specifies the frequency 
+# that the server tries to autoconnect. setting this to 0 will cause
+# the server to attempt to connect repeatedly with no delay until the 
+# <maximum links> condition is satisfied. This is a Bad Thing(tm).
+l for details on what
+# this number means.
+#
+# <fakelagminimum> is the minimum number o"; };
+IAuth { program = "/bin/false" "-x"; };
+Features { "BOUNCER_ENABLE" =NpseudoCER_PERSIST" = "TRUE"; "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERN "TRUE"; "BOUNpseudoCER_PERSIST" = "TRUE"; "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.conf";
+connection
+# class", be they incoming or outgoing (initiated by the server), be they
+# clients or servers.
+#
+# Class {
+#  name = "<class>";
+#  pingfreq = time;
+#  connectfreq = time;
+#  maxlinks = number;
+#  maxchans = number;
+#  sendq = size;
+#  recvq = size;
+#  usermode = "+i";
+#  snomask = number;
+#  fakelagminimum = number;
+#  fakelagfactor = number;
+#  autojoinchannel = "channellist";
+#  autojoinnotice = "autojoinnotice";
+#  restrict_join = yes/no;
+#  restrict_privmsg = yes/no;
+#  restrict_umode = yes/no;
+# };
+#
+# For connection classes used on server links, maxlinks should be set
+# to either 0 (for hubs) or 1 (for leaf servers).  Client connection
+# classes may use maxlinks between 0 and approximately 4,000,000,000.
+# maxlinks = 0 means there is no limit on the number of connuctions
+# using the class.
+# 
+# <connect freq> applies only to servers, and specifies the frequency 
+# that the server tries to autoconnect. setting this to 0 will cause
+# the server to attempt to connect repeatedly with no delay until the 
+# <maximum links> condition is satisfied. This is a Bad Thing(tm).
+# Note that times can be specified as a number, or by giving something
+# like: 1 minutes 20 seconds, or 1*60+20.
+#
+# <snomask> applies only to classes used for Operator blocks and is
+# used to specify the server notice mask an oper gets when he/she uses
+#AME" = "*.example.net"; "LOG" = /oper. See doc/snomask.txt or doc/snomask.html for d "SYSTEM" "FIL; "WEBHOOK_POetails on what
+# this number means.
+#
+# <fakelagminimum> is the minimum numberRT of sec" = "0"; };
+include "i

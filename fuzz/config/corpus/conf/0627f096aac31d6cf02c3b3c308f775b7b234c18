@@ -1,0 +1,2 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Kill { username = "sub7"; reason = "You are infected with a Trojan"; };

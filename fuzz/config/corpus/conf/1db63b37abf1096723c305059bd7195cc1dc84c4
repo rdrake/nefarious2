@@ -1,0 +1,42 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Class {
+     name = "ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿLoca      rule = "directcon(*)";
+};
+
+UWorld {
+        l";
+     pingfreq = 2 minutes 30 seconds;
+     maxlinks = 100;
+     sendq = 160000;
+     fakelagminimum = 0;
+     fakelagfactor = 0;
+};
+
+#@REHASH@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Class {
+     name = "Opers";
+     pingfreq = 90;
+     connectfreq = 0;
+     maxlinks = 100;
+     sendq = 160000;
+     whois_notice = no;
+     remove = no;
+     freeform = no;
+     hide_channels = no;
+     local_opmode = no;
+     force_local_opmode = no;
+     walk_lchan = no;
+     deop_lchan = no;
+     mode_lchan = no;
+     shun = no;
+     local_shun = no;
+     gline = no;
+     local_gline = no;
+     zline = no;
+     local_zline = no;
+     hide_idle = no;
+     xtraop = no;
+     snomask = 5645;
+     remote = yes;
+};

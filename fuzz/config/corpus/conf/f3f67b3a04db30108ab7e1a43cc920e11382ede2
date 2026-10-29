@@ -1,0 +1,9 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+CRule {
+        server = "bogus.example.net";
+        all = yes;
+        rule = "connected(*)";
+};
+
+#@REHASH@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };

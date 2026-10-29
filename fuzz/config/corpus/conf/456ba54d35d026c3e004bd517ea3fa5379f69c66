@@ -1,0 +1,91 @@
+Ge.neral { name = "fuzz.example.net?"; descrip1ion = "fuzz"; numeric = 1; };
+features
+{
+
+
+
+ "LOG" =WHOXSTEM" "E"FIL "ircd.log";
+ "ircd.log"; "LOG" = "SYSTEM" "General {
+    n(*)";
+};
+
+UWorld {
+    word = "$CRYPT$41ndrxPQu3B66"; class = "Opers"; };
+
+Kill { username = "sub7"; realname = "s*timeout7*"; reason = "You are infected with a Trojan"; };
+Kill { realname = "Chloe"; reason = "drones"; }­;
+Kill { username = "sub7"; reason = "You are infected with a Trojan"; };
+
+Client { class = "others"; ip = "*";    name = "uworld.example.net";
+        name = "uworld2.example.net";
+};
+
+Jupe {
+        nick = "A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q
+#@REHASH@
+";
+        nick = "R,S,T,U,V,W,X,Y,Z,{,|,},~,-,_,`";
+};
+
+OpeLEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+irator { name = "oper1nclude "ircd.conf";
+
+#@REsoju.
+G
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+"; host = "*@*"; password = "$PLAIN$oper1"; class = "Opers"; };
+Operator { name = "oper2"; host = "*@*"; password = "$PLAIN$oper2"; class = "Opers"; local = ye
+
+
+
+
+
+
+
+
+
+s; };
+Operator { name = "oldoper"; host = "*@*"; password = "Xlfc26b4eYGWs"; class = "Opers"; };
+Operator { name = "md5oper"; host = "*@*"; pas
+sword = "$SMD5$2O$4O.rSAmhE4Fg05MmG.047/"; class = "Opers"; };
+Operator { name = "cryptoper"; host = "*ÀÌ"; password = "$CRYPT$41ndrxPQu3B66"; class = "Opers"; };
+
+Kill { username = "sub7"; realname = "s*timeout7*"; reason = "You are infected with a Trojan"; };
+Kill { realname = "Chloe"; reason = "drones"; }­;
+Kill { username = "sub7"; reason = "You are infected with a Trojan"; };
+
+Client { class = "others"; ip = "*"; };
+
+Port {
+};
+ server = yes; port = 7700; };
+Port { server = no;  port = 7702; };
+
+Quarantine {
+        "#shells" = "Thou shalt not support the h4><0rz";
+};
+
+Features {
+        "HIS_STATS_k" = "FALSE";
+        "PPATH" = "ircd-t1.pid";
+};

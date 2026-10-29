@@ -1,0 +1,18 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Class {
+        name = "Opers";
+        pingfreq = 180 seconds;
+        sendq = 160000;
+        maxlinks = 10;
+        local = no;
+};
+
+#@REHASH@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Class {
+        name = "Server";
+        pingfreq = 180 seconds;
+        connectfreq = 300 seconds;
+        maxlinks = 1;
+        sendq = 9000000;
+};

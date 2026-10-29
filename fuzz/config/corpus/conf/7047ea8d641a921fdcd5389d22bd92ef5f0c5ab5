@@ -1,0 +1,27 @@
+General { name = "fuzz.example.net"; desc2iption = "fuçÖ"; numeet"; description = "fuzz"; numeric = 1; };
+General {
+        name = "tesric = 1; };
+General {
+ ic = 1;
+};
+
+#@REconf - configuration file for ircd version ircu2.10
+#
+# Last Updated:  20, March 2002.
+#
+# Written by Niels <niels@undernet.org>, based on the original example.conf,
+# server code and some real-life (ahem) experience.
+#
+# Updated and heavily modified by Braden <dbtem@yahoo.com>.
+#
+# Rewritten by A1kmm(Andrew Miller)<a1kmm@mware.virtualave.net> to support
+# the new flex/bison configuration parser.
+#
+# Thanks and crediGeneral { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; vhost = "127.0.0.1"; };
+Admin { location = "here"; contact = "me@example.net"; };
+Class { name = "Bounce"; pingfreq = 1 minutes 30 seconds; sendq = 1 mbytes; recvq = 4 kb; maxlinks = (10*2)+1; usermode = "+iwx"; maxchans = 20; snomask = 1+2+4; fakelagminimum = 2; fakelagfactor = 120; autojoinchannel = "#a,#b"; autojoinnotice = "hi"; restrict_join = yes; restrict_privmsg = no; restrict_umode = yes; require_sasl = yes; bouncer = yes; };
+Class { name = "Server"; pingfreq = 90; co(nnectfreq = 5 minutes; maxlinks = 1; sendq = 9000000; };
+Client { class = "Bounce"; ip = "10.0.0.0/8"; host = "*.example.net"; username = "~*"; password = "x"; maxlinks = 2; port = 6697; country = "CA"; continent = "NA"; sslfp = "AGeneral { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; vhost = "127.0.0.1"; };
+Admin { location = "here"; contact = "me@example.net"; };
+Class { name = "Bounce"; pingfreq = 1 minutes 30 seconds; sendq = 1 mbytes; recvq = 4B:CD"; noidenttilde = yes; redirect = "irc.example.org 6667"; hidehostcomponants = 2; autojoinchannel = "#c"; autojoinnotice = "n"; };
+Connect { nam kb; maxlinks = (10*2)+1; usermode = "+iwx"; maxchans = 20; snomask = 1+2+4; fakelagminimum = 2; fakelagfactor = 120; autojoinchannel = "#a,#b"; autojoinnotice = "hi"; restricte_ = "

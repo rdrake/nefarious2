@@ -1,0 +1,12 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Features {
+        "HIS_STATS_k" = "FALSE";
+        "PPATH" = "ircd-t1.pid";listdelay
+};
+
+#@REHASH@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Features {
+        "HIS_STA¬´_k" = "FALSE";
+        "PPATH" = "ircd-t1;pid";
+};

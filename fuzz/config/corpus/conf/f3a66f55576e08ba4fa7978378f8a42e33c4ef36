@@ -1,0 +1,311 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; vhost = "127.0.0.1"; };
+Admin { location = "here"; contact = "me@example.net"; };
+Class { name = "Bounce"; pingfreq = 1 minutes 30 seconds; sendq = 1 mbytes; recvq = 4 kb; maxlinks = (10*2)+1; usermode = "+iwx"; maxchans = 20; snomask = 1%2+4; fakelagminimum = 2; fakelagfactor = 120; autojoinchannel = "#a,#b"; autojoinnotice = "hi"; restrict_join = yes; restrict_privmsg = no; restrict_umode = yes; requirusermode = "+iwx"; maxchans = 20; snomask = 1%2+4; fakelagminimum = 2; fakelagfactor = 120; autojoinchannel = "#a,#b"; autojoinnotice = "hi"; restrict_join = yes; restrict_privmsg = no; restrict_umode = yes; require_sasl = yes; bouncer = yes; };
+Cl s{a sname = "Server"; pingfreq = 90; co(nnectfreq = 5 minutes; maxlinks = 1; sendq = 9000000; };
+Client { class = "Bounce"; ip = "10.0.0.0/8"; host = "*.example.net"; username = "~*"; password = "x"; maxlinks = 2; port = 6697; country = "CA"; continent = "NA"; sslfp = "AB:CD"; noidenttilde = yes; redirect = "irc.example.org 6667"; hidehostcomponants = 2; autojoinchannel = "#c"; autojoinnotice = "n"; };
+Connect { name = "hub.example.net"; host = "127.0.0.2"; password = "p"; port = 4400; class = "Server"; vhost = "127.0.0.1"; from = "fuzz.example.net"; hub = "*"; maxhops = 3; autoconnect = no; ssl = yes; sslfp = "00:11"; sslciphers = "HIGH"; };
+UWorld { name = "services.example.net"; oper = "x"; };
+Operator { name = "op"; password = "$5$abc"; host = "*@*"; class = "Bounce"; sslfp = "AA"; snomask = 15; autojoinchannel = "#opers"; autojoinnotice = "o"; swhois = "is an oper"; local = no; die = yes; restart = yes; rehash = yes; gitsync = yes; };
+Port { port = 6667; };
+Port { port = ipv4 6697; ssl = yes; vhost = "127.0.0.1"; mask = "*"; hidden = yes; %2+4; fakelagminimum = 2; fakelagfactor = 120; autojoinchannel = "#a,#b"; autojoinnotice = "hi"; restrict_join = yes; restrict_privmsg = no; restrict_umode = yes; requirusermode = "+iwx"; maxchans = 20; snomask = 1%2+4; fakelagminimum = 2; fakelagfactor = 120; autojoinchannel = "#a,#b"; autojoinnotice = "hi"; restrict_join = yes; restrict_privmsg = no; restrict_umode = yes; require_sasl = yes; bounconnections
+# of the respective type.
+#
+# Note that <server numeric> has to be unique on the network your server
+# is running on, must be between 0 and 4095, and is not updated on a rehash.
+#
+# The two DNS lines allow you to specify the local IP address to use
+# for DNS lookups ("dns vhost") and one or more DNS server addresses
+# to use.  If the vhost is ambiguous for some reason, you may list
+# IPV4 and/or IPV6 between the equals sign and the address string.
+# The default DNS vhost is to let the operating system assign the
+# address, and the default DNS servers are read from /etc/resolv.conf.
+# In most cases, you do not need to specify either the dns vhost or
+# the dns server.
+General {
+         name = "London.UK.Eu.UnderNet.org";
+         description = "University of London, England";
+         numeric = 1;
+};
+
+# [Admin]
+#
+# This sets information that can be retrieved with the /ADMIN command.
+# It should contain at least an admin Email contact address.
+Admin {
+  # At most two location lines are allowed...
+  Location = "The University of London";
+  Location = "Undernet IRC server";
+  Contact = "IRC Admins <irc@london.ac.uk>";
+};
+
+# [Classes]
+#
+# All connections to the server are associated with a certain "connection
+# class", be they incoming or outgoing (initiated by the server), be they
+# clients or servers.
+#
+# Class {
+#  name = "<class>";
+#  pingfreq = time;
+#  connectfreq = time;
+#  maxlinks = number;
+#  maxchans = number;
+#  sendq = size;
+#  recvq = size;
+#  usermode = "+i";
+#  snomask = number;
+#  fakelagminimum = number;
+#  fakelagfactor = number;
+#  autojoinchannel = "channellist";
+#  autojoinnotice = "autojoinnotice";
+#  restrict_join = yes/no;
+#  restrict_privmsg = yes/no;
+#  restrict_umode = yes/no;
+# };
+#
+# For connection classes used on server links, maxlinks should be set
+# to either 0 (for hubs) or 1 (for leaf servers).  Client connection
+# classes may use maxlinks between 0 and approximately 4,000,000,000.
+# maxlinks = 0 means there is no limit on the number of connections
+# using the class.
+# 
+# <connect freq> applies only to servers, and specifies the frequency 
+# that the server tries to autoconnect. setting this to 0 will cause
+# the server to attempt to connect repeatedly with no delay until the 
+# <maximum links> condition is satisfied. This is a Bad Thing(tm).
+# Note that times can be specified as a number, or by giving something
+# like: 1 minutes 20 seconds, or 1*60+20.
+#
+# <snomask> applies only to classes used for Operator blocks and is
+# used to specify the server notice mask an oper gets when he/she uses
+# /oper. See doc/snomask.txt or doc/snomask.html for details on what
+# this number means.
+#
+# <fakelagminimum> is the minimum number of seconds to wait before
+# processing commands received from clients.
+#
+# <fakelagfactor> is a number to devide the message length by to
+# determine addtional fake lag to apply. If set to 0 (zero) the user
+# will not be subject to fake lag at all.
+#
+# <autojoinchannel> can be specified to automatically join users of the
+# class into. If <autojoinnotice> is specified then a notice is sent
+# to the user when automatically joined.
+#
+# <restrict_join> when enabled restricts users in the class from joining
+# any channel with the exception of channels specified in the
+# autojoinchannel class option.
+#
+# <restrict_privmsg> when enabled prevents users in the class from
+# sending PRIVMSG or NOTICE to other users who are not on the same
+# channel as the user.
+#
+# <restrict_umode> when enabled prevents users in the class from
+# changing their user modes.
+#
+# Recommended server classes:
+# All your server uplinks you are not a hub for.
+Class {
+ name = "Server";
+ pingfreq = 1 minutes 30 seconds;
+ connectfreq = 5 minutes;
+ maxlinks = 1;
+ sendq = 9000000;
+};
+# All the leaf servers you hub for.
+Class {
+ name = "LeafServer";
+ pingfreq = 1 minutes 30 seconds;
+ connectfreq = 5 minutes;
+ maxlinks = 0;
+ sendq = 9000000;
+};
+
+# Client {
+#  username = "ident";
+#  host = "host";
+#  ip = "127.0.0.0/8";
+#  password = "password";
+#  class = "classname";
+#  maxlinks = 3;
+# };
+#
+# Everything in a Client block is optional.  If a username mask is
+# given, it must match the client's username from the IDENT protocol.
+# If a host mask is given, the client's hostname must resolve and
+# match the host mask.  If a CIDR-style IP mask is given, the client
+# must have an IP matching that range.  If maxlinks is given, it is
+# limits the number of matching clients allowed from a particular IP
+# address.
+#
+# Take the following class blocks only as a guide.
+Class {
+ name = "Local";
+ pingfreq = 1 minutes 30 seconds;
+ sendq = 160000;
+ maxlinks = 100;
+ usermode = "+iw";
+};
+Class {
+ name = "America";
+ pingfreq = 1 minutes 30 seconds;
+ sendq = 80000;
+ maxlinks = 5;
+};
+Class {
+ name = "Other";
+ pingfreq = 1 minutes 30 seconds;
+ sendq = 160000;
+ maxlinks = 400;
+};
+Class {
+ name = "Opers";
+ pingfreq = 1 minutes 30 seconds;
+ sendq = 160000;
+ maxlinks = 10;
+
+ # For connection classes intended for operator use, you can specify
+ # privileges used when the Operator block (see below) names this
+ # class.  The local (aka globally_opered) privilege MUST be defined
+ # by either the Class or Operator block.  The following privileges
+ # exist:
+ #
+ # local (or propagate, with the opposite sense)
+ # whox  (log oper's use of x flag with /WHO)
+ # display (oper status visible to lusers)
+ # chan_limit (can join local channels when in
+ #                              MAXCHANNELSPERUSER channels)
+ # mode_lchan (can /MODE &channel without chanops)
+ # deop_lchan (cannot be deopped or kicked on local channels)
+ # walk_lchan (can forcibly /JOIN &channel OVERRIDE)
+ # show_invis (see +i useyes; ssl = yes; };
+Jupe { nick = "root,admin"; };
+Kill { host = "*.bad"; reason = "ses used on server links, maxlinks should be set
+# to either 0 (for hubs) or 1 (for leaf servers).  Client connection
+# classes may use maxlinks between 0 and approximately 4,000,000,000.
+# maxlinks = 0 means there is no limit on the number of connections
+# using the class.
+# 
+# <connect freq> applies only to servers, and specifies the frequency 
+# that the server tries to autoconnect. setting this to 0 will cause
+# the server to attempt to connect repeatedly with no delay until the 
+# <maximum links> condition is satisfied. This is a Bad Thing(tm).
+# Note that times can be specified as a number, or by giving something
+# like: 1 minutes 20 seconds, or 1*60+20.
+#
+# <snomask> applies only to classes used for Operator blocks and is
+# used to specify the server notice mask an oper gets when he/she uses
+# /oper. See doc/snomask.txt or doc/snomask.html for details on what
+# this number means.
+#
+# <fakelagminimum> is the minimum number of seconds to wait before
+# processing commands received from clients.
+#
+# <fakelagfactor> is a number to devide the message length by to
+# determine addtional fake lag to apply. If set to 0 (zero) the user
+# will not be subject to fake lag at all.
+#
+# <autojoinchannel> can be specified to automatically join users of the
+# class into. If <autojoinnotice> is specified then a notice is sent
+# to the user when automatically joined.
+#
+# <restrict_join> when enabled restricts users in the class from joining
+# any channel with the exception of channels specified in the
+# autojoinchannel class option.
+#
+# <restrict_privmsg> when enabled prevents users in the class from
+# sending PRIVMSG or NOTICE to other users who are not on the same
+# channel as the user.
+#
+# <restrict_umode> when enabled prevents users in the class from
+# changing their user modes.
+#
+# Recommended server classes:
+# All your server uplinks you are not a hub for.
+Class {
+ name = "Server";
+ pingfreq = 1 minutes 30 seconds;
+ connectfreq = 5 minutes;
+ maxlinks = 1;
+ sendq = 9000000;
+};
+# All the leaf servers you hub for.
+Class {
+ name = "LeafServer";
+ pingfreq = 1 minutes 30 seconds;
+ connectfreq = 5 minutes;
+ maxlinks = 0;
+ sendq = 9000000;
+};
+
+# Client {
+#  username = "ident";
+#  host = "host";
+#  ip = "127.0.0.0/8";
+#  password = "password";
+#  class = "classname";
+#  maxlinks = 3;
+# };
+#
+# Everything in a Client block is optional.  If a username mask is
+# given, it must match the client's username from the IDENT protocol.
+# If a host mask is given, the client's hostname must resolve and
+# match the host mask.  If a CIDR-style IP mask is given, the client
+# must have an IP matching that range.  If maxlinks is given, it is
+# limits the number of matching clients allowed from a particular IP
+# address.
+#
+# Take the following class blocks only as a guide.
+Class {
+ name = "Local";
+ pingfreq = 1 minutes 30 seconds;
+ sendq = 160000;
+ maxlinks = 100;
+ usermode = "+iw";
+};
+Class {
+ name = "America";
+ pingfreq = 1 minutes 30 seconds;
+ sendq = 80000;
+ maxlinks = 5;
+};
+Class {
+ name = "Other";
+ pingfreq = 1 minutes 30 seconds;
+ sendq = 160000;
+ maxlinks = 400;
+};
+Class {
+ name = "Opers";
+ pingfreq = 1 minutes 30 seconds;
+ sendq = 160000;
+ maxlinks = 10;
+
+ # For connection classes intended for operator use, you can specify
+ # privileges used when the Operator block (see below) names this
+ # class.  The local (aka globally_opered) privilege MUST be defined
+ # by either the Class or Operator block.  The following privileges
+ # exist:
+ #
+ # local (or propagate, with the opposite sense)
+ # whox  (log oper's use of x flag with /WHO)
+ # display (oper status visible to lusers)
+ # chan_limit (can join local channels when in
+ #                              MAXCHANNELSPERUSER channels)
+ # mode_lchan (can /MODE &channel without chanops)
+ # deop_lchan (cannot be deopped or kicked on local channels)
+ # walk_lchan (can forcibly /JOIN &channel OVERRIDE)
+ # show_invis (see +i useyes; ssl = yes; };
+Jupe { nick = "root,admin"; };
+Kill { host = "*.bad"; reason = "go away"; username = "x"; realname = "yestrict_privmsg = no; restrict_umode = yes; require_sasl = y1go away"; username = "x"; realname = "yestrict_privmsg = no; restrict_umode = yes; require_sasl = y1"; sslciphes = "HIGH"; };
+UWorld { name = "services.example.net"; oper = "x"rs in /WHO x)
+ # show_all_invis (see +i users in /WHO x)
+ # unlimit_query (show more results from /WHO)
+ # local_kill (can kill clients on this server)
+ # rehash (can use /REHASH)
+ # reis is a Bad Thing(tm).
+# Note that times can be specified as a number, or by giving something
+# like: 1 minutes 20 seconds, or 1*60rcd.conf"+20.
+#
+;
+# <snomask> applies only to 

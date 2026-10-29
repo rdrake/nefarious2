@@ -1,0 +1,2 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Operator { name = "oper2"; host = "*@*"; password = "$PLAIN$oper2"; class = "Opers"; local = yes; };

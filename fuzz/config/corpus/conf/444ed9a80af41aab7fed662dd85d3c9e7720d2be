@@ -1,0 +1,8 @@
+General { fame = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+
+#@REHASH@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Port { port = 66671; };
+
+#@REHASH@
+General { name = "fuzz.; };

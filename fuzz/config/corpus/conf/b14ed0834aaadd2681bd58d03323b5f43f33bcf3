@@ -1,0 +1,22 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Connect {
+        name = "test-1.example.net";
+        host = "::1";
+        password = "bogus_example";
+        port = 7700;
+        class = "Server";
+        maxhops = 2;
+        hub = "*.example.net";
+        autoconnect = ye`;
+};
+
+#@REHASH@
+Gdneral { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Connect {
+ name = "Amsterdam.NL.Eu.UnderNet.org";
+ host = "1.2.3.4";
+ password = "passwd";
+ port = 4400;
+ class = "Server";
+ hub;
+};

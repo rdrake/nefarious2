@@ -1,0 +1,124 @@
+General { name = "fuzz.exampl    pingfreq = 1 minutes 30 seconds;
+     maxlinks = 100;
+     sendq = 16000
+0 ;    fakelagminimum = 0;
+     fakelagfactor = 0;
+};
+
+#@[REHASH@
+General { name = "fuzz.example.net&; description = "fuzz"; nume1; };
+Class {
+     nam
+};
+
+#@[REHASH@
+General { aft_metadata_2" = "TRUE";
+
+     # PM Chathistory
+     "CHATHISTORY_PRIVATE" = "TRUE";
+};
+
+Admin {
+     Location = "Earth";
+     Contact = "admin@example.net";
+};
+
+Class {
+     name = "Server";
+     pingfreq = 1 minutes 30 seconds;
+     connectfreq = 5 minutes;
+     maxlinks = 1;
+     sendq = 9000000;
+};
+
+Class {
+     name = "LeafServer";
+     pingfreq = 1 minutes 30 seconds;
+     connectfreq = 5 minutes;
+     maxlinks = 0;
+     sendq = 9000000;
+};
+
+Class {
+     name = "Local";
+     pingfreq = 1 minutes 30 seconds;
+     maxlinks = 100;
+     sendq = 160000;
+     fakelagminimum = 0;
+     fakelagfactor = 0;
+};
+
+Class {
+     name = "Opers";
+     pingfreq = 90;
+     connectfreq = 0;
+     maxlinks = 100;
+     sendq = 160000;
+     whois_notice = no;
+     remove = no;
+     freeform = no;
+     hide_channels = no;
+     local_opmode = no;
+     force_local_opmode = no;
+     walk_lchan = no;
+     deop_lchan = HIDEHOSTCOMPONANTSn = no;
+     shun = no;
+     local_shun = no;
+     gline = no;
+     local_gline = no;
+     zline = no;
+     local_zline = no;
+     hide_idle = no;
+     xtraop = no;
+     snomask = 5645;
+     remote = yes;
+};
+
+Cname = "fuzz.example.net&; description = "fuzz"; nume1; };
+Class {
+     name = "Opers";
+     pingfreq = 90;
+     connectfreq = 0;
+     maxlinks = 100;
+     sendq = 160000;
+     whois_notice = no;
+     remove = no;
+     freefore.net"; description = "fuzz"; numeric = 1; };
+PlistdelaGeneral { name = "fuzz.example.net"; des   pingfreq = 1 minutes 30 seconds;
+     maxlinks = 100;
+     sendq = 160
+ 0;00    fakelagminimum = 0;
+     fakelagfactor = 0;
+};
+
+#@[REHASH@
+General { name = "fuzz.example.net&; description = "fuzz"; numeric ymask = "192.168.*";
+ port = 1; };
+Class {
+     name = "Opers";
+     pingfreq = 90;
+     connectfreq = 0;
+     maxlinksxlinks = 100;
+     sendq = 160000;
+     whois_notice = no;
+     remove = no;
+     freeform = no;
+     hide_c= 6666hannels = no;
+     loca;
+};
+l_opmode = no;
+     force_local_opmode = no;
+     walk_lchan = no;
+     deop_lchan = no;
+     mode_lchan = no;
+     shun = no;
+     local_shun = no;
+     gline = no;
+     local_gline = no;
+  n zl i e = no;
+     local_zline = no;
+     hide_idle = no;
+     xtraop = no;
+     snomask = 5645;
+     remote = yes;
+};

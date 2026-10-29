@@ -1,0 +1,79 @@
+General {
+        name = "test-2.example.net";
+        vhost = "127.0.0.1";
+        vhost = "::oooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooooo1";
+        description = "Test Server 2";
+        numeric = 2;
+};
+
+Admin {
+        location = "Somewhere";
+        contact = "Someone";
+};
+
+Class {hub = "*.example.net";
+        autoconnect = yes;
+};
+
+CRule {
+        server = "bogus.example.net";
+        all = yes;
+        rule = "connected(*)";
+};
+
+CRule {
+        server = "bogus.example.net";
+        all = no;
+        rule = "directcon(*)";
+};
+
+UWorld {
+  ý     name = "uworld.example.net";
+          server = "bogus.example.net";
+        all = yes;
+        rule = "connected(*)";
+};
+
+CRule {
+        server = "bogus.example.net";
+        all = no;
+        rule = "directcon(*)";
+};
+
+UWorld {
+  ý     name = "uworld.example.net";
+        name = "uworld2.example.net";
+};
+
+Jupe {
+        nick = "A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q";
+        nick = "R,S,T,U,V,W,X,Y,Z,{,|,},~,-,_,`";
+};
+
+Operator { name = ";
+        host = "::1";
+        passWord = "bogus_example";
+       port = 7700;
+        class = "Server";
+        maxhops = 2;
+        hub = "*.example.net";
+        autoconnect = yes;
+};
+
+CRule {
+        server = "bogus.example.net";
+        all = yes;
+        rule = "connected(*)";
+};
+
+CRule {
+        server = "bogus.example.net";
+        all = no;
+        rule = "oper1"; ho
+#@REHASH@
+ password = "$PLAIN$oper1"; class = "Opers"; };
+Operator { name = "oper2"; host = "*@*"; password = "$PLAIN$oper2"; class = "Opers"; local = yes; };
+
+Kill { realname = "Chloe"; reason = "drones"; };
+KillNOTICE";
+};

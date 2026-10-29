@@ -41,12 +41,12 @@ NOALIGN=-fno-sanitize=alignment
 [ -n "${KEEP_ALIGN:-}" ] && NOALIGN=
 case $VARIANT in
   fuzz)
-    SAN="-fsanitize=address,undefined -fno-sanitize-recover=undefined $NOALIGN"
+    SAN="-fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-sanitize=function $NOALIGN"
     CFLAGS="-g -O1 -fsanitize=fuzzer-no-link $SAN -fno-omit-frame-pointer"
     DRIVER="-fsanitize=fuzzer"
     ;;
   asan)
-    SAN="-fsanitize=address,undefined -fno-sanitize-recover=undefined $NOALIGN"
+    SAN="-fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-sanitize=function $NOALIGN"
     CFLAGS="-g -O0 $SAN -fno-omit-frame-pointer"
     DRIVER="$HERE/repro_main.c"
     ;;

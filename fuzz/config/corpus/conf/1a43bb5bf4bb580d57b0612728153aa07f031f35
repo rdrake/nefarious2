@@ -1,0 +1,130 @@
+General { name = "fuzz.example.net"; description = "fuzz";  };
+Kill { username = "sub7"; reason = "You are infecautoconnect = yes; # forces a DNS resolution attempt
+};
+
+Connect {
+        name = "test-3.example.net";
+        host = "::1";
+        password = "bogus_example";
+        port = 7710
+        class = "Server";
+        autoconnect = no;
+};
+
+CRule {
+        server = "bogus.example.net";
+        all = yes;
+        rule = "connected(*)";
+};
+
+CRule {
+        server = "bogus.example.net";
+        all = no;
+        rule = "directcon(*)";
+};
+
+UWorld {
+        name = "uworld.example.net";
+        name = "uworld1.example.net";
+};
+
+Jupe {
+        nick = "A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q";
+        nick = "R,S,E"; "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.conf";
+
+#@REHASH@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; vhost = "127.0.0.1"; };
+Admin { location = "here"; contact = "me@example.net"; };
+Class { name = "Bounce"; pingfreq = 1 minutes 30 seconds; sendq = 1 mbytes; recvq = 4 kb; maxlinks = (10*2)+1; usermode = "+iwx"; maxchnutes;
+     maxlinks = 1;
+     sendq = 9000000;
+};
+
+Class {
+     namincludeafServer";
+     pingfreq = 1 minutes 30 seconds;
+     connectfreq = 5 minutes;
+     maxlinks = 0;
+     sendq = 9000000;
+};
+
+Class {
+     name = "Local";
+     pingfreq = 1 minutes 30 seconds;
+     maxlinks = 100;
+     "; ip = "*"; };
+
+Port nt = "AN"; version = "*mirc*"; authexempt = yes; mark = "m"; };
+Kill { host = "*.bad2"; file = "kill.txt"; };
+CRule { server = "*.example.net"; rule = "connected(hub.*) || !directcon(*.eu)"; all = yes; };
+Motd { host = "*.ca"; country = "CA"; contiword = "$5$abc"; host = "*@*"; class = "Bounce"; sslfp = "AA"; snomask = 15; autojoinchannel = "opers"; autojoinnotice = "o"; swhois = "is an oper"; local = no; die = yes; restart = yes; rehash = yes; gitsync = yes; };
+Port { port = 6667; };
+Port { port = ipv4 6697; ssl = yes; vhost = "127.0.0.1"; mask = "*"; hidden = yes; };
+Port { port = ipv6 4400; server = yes; vhost = "::1"; };
+Port { port = 8080; websocket = yes; };
+Port { port = 8443; paste = yes; ssl = yes; };
+Jupe { nick = "root,admin"; };
+Kill { host = "*.bad"; reason = "go away"; username = "x"; realname = "y"; country = "XX"; continent = "AN"; version = "*mirc*"; authexempt = yes; mark = "m"; };
+Kill { host = "*.bad2"; file = "kill.txt"; };
+CRule { server = "*.example.net"; rule = "connected(hub.*) || !directcon(**.eu)"; all = yes; };
+Motd { host = "*.ca"; country = "CA"; continent = "NA"; file = "motd.txt"; };
+Quarantine { "#spam" = "spam"; "#x" = "y"; };
+Pseudo "CHANSERV" { name = "X"; nick = "X@channels.example.net"; prepend = "pre"; defaulttext = "help"; };
+Forwards { "!" = "services.example.net"; "?" = "x"; };
+WebIRC { host = "*@127.0.0.1"; password = "w"; ident = "web"; userident = yes; ignoreident = no; stripsslfp = yes; enableoptions = yes; trustaccount = yes; description = "gw"; };
+SpoofHost "fake.host" { host = "*@*"; pa"o"; swhois = "is an oper"; local = no; die = yes; rest;
+        all = yes;
+        rule = "connected(*)";
+};
+
+CRule {
+        server = "bogus.example.net";
+        all = no;
+        rule = "directcon(*)";
+};
+
+UWorld {
+        name = "uworld.example.net";
+        name = "uworld1.example.net";
+};
+
+Jupe {
+        nick = "A,B,C,D,E,F,G,H,I,J,K,L,M,N,O,P,Q";
+        nick = "R,S,E"; "CAP_draft_webpush" = "TRUE"; "SASL_LOCAL" = "TRUE"; "HIS_SERVERNAME" = "*.example.net"; "LOG" = "SYSTEM" "FILE" "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.conf";
+
+#@REHASH@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; vhost = "127.0.0.1"; };
+Admin { location = "here"; contact = "me@example.net"; };
+Class { name = "Bounce"; pingfreq = 1 minutes 30 seconds; sendq = 1 mbytes; recvq = 4 kb; maxlinks = (10*2)+1; usermode = "+iwx"; maxchnutes;
+     maxlinks = 1;
+     sendq = 9000000;
+};
+
+Class {
+     namincludeafServer";
+     pingfreq = 1 minutes 30 seconds;
+     connectfreq = 5 minutes;
+     maxlinks = 0;
+     sendq = 9000000;
+};
+
+Class {
+     name = "Local";
+     pingfreq = 1 minutes 30 seconds;
+     maxlinks = 100;
+     "; ip = "*"; };
+
+Port nt = "AN"; version = "*mirc*"; authexempt = yes; mark = "m"; };
+Kill { host = "*.bad2"; file = "kill.txt"; };
+CRule { server = "*.example.net"; rule = "connected(hub.*) || !directcon(*.eu)"; all = yes; };
+Motd { host = "*.ca"; country = "CA"; contiword = "$5$abc"; host = "*@*"; class = "Bounce"; sslfp = "AA"; snomask = 15; autojoinchannel = "opers"; autojoinnotice = "o"; swhois = "is an oper"; local = no; die = yes; restart = yes; rehash = yes; gitsync = yes; };
+Port { port = 6667; };
+Port { port = ipv4 6697; ssl = yes; vhost = "127.0.0.1"; mask = "*"; hidden = yes; };
+Port { port = ipv6 4400; server = yes; vhost = "::1"; };
+Port { port = 8080; websted with a Trojan"; };
+
+#@REHASH@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Kill { realname = "Chloe"; reason = "drones"; };

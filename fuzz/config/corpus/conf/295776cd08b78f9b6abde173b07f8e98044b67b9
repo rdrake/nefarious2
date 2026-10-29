@@ -1,0 +1,14 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Kill
+{
+ host = "*luser@unixbox.flooder.co.uk";
+ file = "kline/youflooded.txt";
+};
+
+#@REHASH@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Kill
+{
+ host = "192.168.*";
+ file = "klines/martians";
+};

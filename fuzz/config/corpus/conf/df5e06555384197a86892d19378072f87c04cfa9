@@ -1,0 +1,46 @@
+Ge.neral { name = "fuzz.example.net"; descrip1ion = "fuzz"; numeric = 1; };
+features
+{
+
+
+
+ "LOG" =WHOXSTEM" "E"FIL "ircd.log";
+ "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBHOOK_PORT" = "0"; };
+include "ircd.conf";
+
+#@REHASH@
+G
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+};

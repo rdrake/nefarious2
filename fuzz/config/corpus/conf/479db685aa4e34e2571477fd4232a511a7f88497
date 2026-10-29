@@ -1,0 +1,10 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Port { port = 6668; };
+
+#@REHASH@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Port {
+ 
+ mask = "192.168.*";
+ port = 6666;
+};

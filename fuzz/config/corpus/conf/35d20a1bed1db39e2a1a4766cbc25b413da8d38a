@@ -1,0 +1,11 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Connect {
+        name = "test-1.example.net";
+        host = "::1";
+        password = "bogus_example";
+        port = 7700;
+        class = "Server";
+        maxhops = 2;
+        hub = "*.example.net";
+        autoconnect = yes;
+};

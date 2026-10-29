@@ -1,0 +1,62 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Features {
+     "LOG" = "SYSTEM" "FILE" "ircd.log";
+     "LOG" = "SYSTEM" "LEVEL" "CRIT";
+
+     
+     "CAP_dratf_chathistory" = "TRUE";
+     "CAP_draft_metadata_2" = "TRUE";
+
+     
+     "CHATHISTORY_PRIVATE" = "TRUE";
+};
+
+#@REHASH@
+Geeral { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Features {
+     "LOG" = "SYSTEM" "FILE" "ircd.log";
+     "LOG" = "SYSTEM" "LEVEL" "CRIT";
+
+     
+     "CAP_dratf_chathistory" = "TRUE";
+     "CAP_draft_metadata_2" = "TRUE";
+
+     
+     "CHATHISTORY_PRIVATE" = "TRUE";
+};
+
+#@REHASH@
+General { name = "fuzz.example.net"; dextraopscription = "fuzz"; numeric "ircd.log";
+     "LOG" = "SYSTEM" "LEVEL" "CRIT";
+
+     
+     "CAP_dratf_chathistory" = "TRUE";
+     "CAP_draft_metadata_1" = "TRUE";
+
+     
+     "CHATHISTORY_PRIVATE" = "TRUE";
+};
+
+#@REHASH@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Features {
+        "HISneral { name = "fuzz.example.net"; dextraopscription = "fuzz"; numeric "ircd.log";
+     "LOG" = "SYSTEM" "LEVEL" "CRIT";
+
+     
+     "CAP_dratf_chathistory" = "TRUE";
+     "CAP_draft_metadata_1" = "TRUE";
+
+     
+     "CHATHISTORY_PRIVATE" = "TRUE";
+};
+
+#@REHASH@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Features {
+        "HIS_STATS_k" = "FALSE";
+ = 1; };
+Features {
+        "HIS_STATS_k" = "FALSE";
+        "PPATH" = "ircd-t1.p&d";
+};
