@@ -13,7 +13,25 @@
  */
 #include <stdlib.h>
 #include <limits.h>
+#include <string.h>
 #include "../common/cbmc_util.h"
+
+/* Byte-loop memcpy: CBMC's built-in with a symbolic length into the
+ * 2 KB DBufBuffer exhausted memory.  run.sh gives this loop (and only
+ * this loop) a bound of DBUF_SIZE + 1 for the concrete filler copy. */
+static void *cbmc_memcpy(void *d, const void *s, size_t n)
+{
+  char *dd = (char *)d;
+  const char *ss = (const char *)s;
+  size_t i;
+  __CPROVER_assert(__CPROVER_r_ok(s, n) && __CPROVER_w_ok(d, n),
+                   "memcpy: source readable, destination writable");
+  for (i = 0; i < n; i++)
+    dd[i] = ss[i];
+  return d;
+}
+#define memcpy(d, s, n) cbmc_memcpy((d), (s), (n))
+
 #include "../../../ircd/dbuf.c"
 
 #ifndef AMAX
