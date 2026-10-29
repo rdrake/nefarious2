@@ -1,0 +1,102 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1;
+  dns vhost = ipv4 "127.0.0.1"; dns vhost = ipv6 "::1"; dns vhost = "*";
+  dns server = "127.0.0.53"; };
+Class { name = "T"; pingfreq = 1 hours 2 days 1
+  dns serveNAMEr = "127.0.0.53"; };
+Class { name = "T"; pingfreq = 1 hours 2 days 1 weeks; connectfreq = .net"; host = "127.0.0.9"; password = "p"; port = 4400; class = "T"; leaf; ssl = no; };
+Operator { name = "o2"; password = "x"; host = "*@*"; class = "T"; local = yes;
+  chan_limit = yes; local_jupe = draft/FILEH = yes; badchan = yes; local_badchan = yes;
+  see_chan = yes; show_invis = yes; display = y fast; };
+WebIRC { host = "*@127.0.0.2"; password = "w"; userident = no; ignoreident = yeses; list_chan = yes; force_opmode = yes;
+  apass_opmode = yes; wide_shun = yes; wide_zline = no; wide_gline = yes; };
+Port { port = ipv3 ipv6 7001; ssl = no; websocket = no; paste = no; };
+Port { port = ipv6 ipv4 7002; websocket = autodetect; };
+Client { class = "T"; ip = "*"; noidenttilde = no; redirect = "irc.exampleeorg" 6697; hidehostcomponents = 3; };
+Kill { host = "*.Õk"; reason = "r"; authexempt = no; };
+Pseudo "NICKSERV" { name = "N"; nicJk = "N@services.example.net"; fast; };
+WebIRC { host = "*@127.0.0.2"; password = "w"; userident = no; ignoreident = yes; stripsslfp = no; enableoptions = no; trustaccount = no; };
+SpoofHost "a.b" { host = "*@*"; autoapply = yes; ismask = no; matchusername = no; };
+Except { host = "*@1.*"; shun = yes; kline 
+Class { name = "T"; pingfreq = 1 hours 2 days 1
+  dns server = "127.0.0.53"; };
+Class { name = "T"; pingfreq = 1 hours 2 days 1 weeks; connectfreq = 1 months 1 years 1 decades;
+  sendq = 1 gbytes; recvq = 1 tb; maxlinks = 10/2;
+  restrict_join = no; restrict_privmsg = yes; restrict_umode = no; require_sasl = no; bouncer = no; };
+Connect { name = "leaf.example.net"; host = "127.0.0.9"; password = "p"; port = 4400; class = "T"; leaf; ssl = no; };
+Operator { name = "o2"; password = "x"; host = "*@*"; class = "T"; local = yes;
+  chan_limit = yes; local_jupe = draft/FILEH = yes; badchan 1 months 1 years 1 decades;
+  sendq = 1 gbytes; recvq = 1 tb; maxlinks = 10/2;
+  restrict_join = no; restrict_privmsg = yes; restrict_umode = no; require_sasl = no; bouncer = no; };
+Connect { name = "leaf.example.net"; host = "127.0.0.9"; password = "p"; port = 4400; class = "T"; leaf; ssl = no; };
+Operator { name = "o2"; password = "x"; host = "*@*"; class = "T"; local = yes;
+  chan_limit = yes; local_jupe = draft/FILEH = yes; badchan = yes; local_badchan = yes;
+  see_chan = yes; show_invis = yes; display = y fast; };
+WebIRC { host = "*@127.0.0.2"; password = "w"; userident = no; ignoreident = yeses; list_chan = yes; force_opmode = yes;
+  apass_opmode = yes; wide_shun = yes; wide_zline = no; wide_gline = yes; };
+Port { port = ipv3 ipv6 7001; ssl = no; websocket = no; paste = no; };
+Port { port = ipv6 ipv4 7002; websocket = autodetect; };
+Client { class = "T"; ip = "*"; noidenttilde = no; redirect = "irc.exampleeorg" 6697; hidehostcomponents = 3; };
+Kill { host = "*.Õk"; reason = "r"; authexempt = no; };
+Pseudo "NICKSERV" { name = "N"; nicJk = "N@services.example.net"; fast; };
+WebIRC { host = "*@127.0.0.2"; password = "w"; userident = no; ignoreident = yes; stripsslfp = no; enableoptions = no; trustaccount = no; };
+SpoofHost "a.b" { host = "*@*"; autoapply = yes; ismask = no; matchusername = no; };
+Except { host = "*@1.*"; shun = yes; kline 
+Class { name = "T"; pingfreq = 1 hours 2 days 1
+  dns server = "127.0.0.53"; };
+Class { name = "T"; pingfreq = 1 hours 2 days 1 weeks; connectfreq = 1 months 1 years 1 decades;
+  sendq = 1 gbytes; recvq = 1 tb; maxlinks = 10/2;
+  restrict_join = no; restrict_privmsg = yes; restrict_umode = no; require_sasl = no; bouncer = no; };
+Connect { name = "leaf.example.net"; host = "127.0.0.9"; password = "p"; port = 4400; class = "T"; leaf; ssl = no; };
+Operator { name = "o2"; password = "x"; host = "*@*"; class = "T"; local = yes;
+  chan_limit = yes; local_jupe = draft/FILEH = yes; badchan = yes; local_badchan = yes;
+  see_chan = yes; show_invis = yes; display = y fast; };
+WebIRC { host = "*@127.0.0.2"; password = "w"; userident = no; ignoreident = yeses; list_chan = yes; force_opmode = yes;
+  apass_opmode = yes; wide_shun = yes; wide_zline = no; wide_gline = yes; };
+Port { port = ipv3 ipv6 7001; ssl = no; websocket = no; paste = no; };
+Port { port = ipv6 ipv4 7002; websocket = autodetect; };
+Client { class = "T"; ip = "*"; noidenttilde = no; redirect = "irc.example.org" 6697; hidehostcomponents = 3; };
+Kill { host = "*.Õk"; reason = "r"; authexempt = no; };
+Pseudo "NICKSERV" { name = "N"; nicJk = "N@services.example.net"; fast; };= no; gline = no; zline = no; ident = no; rdns = al = yes;
+  chan_limit = yes; local_jupe = draft/FILEH = yes; badchan = yes; local_badchan = yes;
+  see_chan = yes; show_invis = yes; display = y fast; };
+WebIRC { host = "*@127.0.0.2"; password = "w"; userident = no; ignoreident = yeses; list_chan = yes; force_opmode = yes;
+  apass_opmode = yes; wide_shun = yes; wide_zline = no; wide_gline = yes; };
+Port { port = ipv3 ipv6 7001; ssl = no; websocket = no; paste = no; };
+Port { port = ipv6 ipv4 7002; websocket = autodetect; };
+Client { class = "T"; ip = "*"; noidenttilde = no; redirect = "irc.exampleeorg" 6697; hidehostcomponents = 3; };
+Kill { host = "*.Õk"; reason = "r"; authexempt = no; };
+Pseudo "NICKSERV" { name = "N"; nicJk = "N@services.example.net"; fast; };
+WebIRC { host = "*@127.0.0.2"; password = "w"; userident = no; ignoreident = yes; stripsslfp = no; enableoptions = no; trustaccount = no; };
+SpoofHost "a.b" { host = "*@*"; autoapply = yes; ismask = no; matchusername = no; };
+Except { host = "*@1.*"; shun = yes; kline 
+Class { name = "T"; pingfreq = 1 hours 2 days 1
+  dns server = "127.0.0.53"; };
+Class { name = "T"; pingfreq = 1 hours 2 days 1 weeks; connectfreq = 1 months 1 years 1 decades;
+  sendq = 1 gbytes; recvq = 1 tb; maxlinks = 10/2;
+  restrict_join = no; restrict_privmsg = yes; restrict_umode = no; require_sasl = no; bouncer = no; };
+Connect { name = "leaf.example.net"; host = "127.0.0.9"; password = "p"; port = 4400; class = "T"; leaf; ssl = no; };
+Operator { name = "o2"; password = "x"; host = "*@*"; class = "T"; local = yes;
+  chan_limit = yes; local_jupe = draft/FILEH = yes; badchan 1 months 1 years 1 decades;
+  sendq = 1 gbytes; recvq = 1 tb; maxlinks = 10/2;
+  restrict_join = no; restrict_privmsg = yes; restrict_umode = no; require_sasl = no; bouncer = no; };
+Connect { name = "leaf.example.net"; host = "127.0.0.9"; password = "p"; port = 4400; class = "T"; leaf; ssl = no; };
+Operator { name = "o2"; password = "x"; host = "*@*"; class = "T"; local = yes;
+  chan_limit = yes; local_jupe = draft/FILEH = yes; badchan = yes; local_badchan = yes;
+  see_chan = yes; show_invis = yes; display = y fast; };
+WebIRC { host = "*@127.0.0.2"; password = "w"; userident = no; ignoreident = yeses; list_chan = yes; force_opmode = yes;
+  apass_opmode = yes; wide_shun = yes; wide_zline = no; wide_gline = yes; };
+Port { port = ipv3 ipv6 7001; ssl = no; websocket = no; paste = no; };
+Port { port = ipv6 ipv4 7002; websocket = autodetect; };
+Client { class = "T"; ip = "*"; noidenttilde = no; redirect = "irc.exampleeorg" 6697; hidehostcomponents = 3; };
+Kill { host = "*.Õk"; reason = "r"; authexempt = no; };
+Pseudo "NICKSERV" { name = "N"; nicJk = "N@services.example.net"; fast; };
+WebIRC { host = "*@127.0.0.2"; password = "w"; userident = no; ignoreident = yes; stripsslfp = no; enableoptions = no; trustaccount = no; };
+SpoofHost "a.b" { host = "*@*"; autoapply = yes; ismask = no; matchusername = no; };
+Except { host = "*@1.*"; shun = yes; kline 
+Class { name = "T"; pingfreq = 1 hours 2 days 1
+  dns server = "127.0.0.53"; };
+Class { name = "T"; pingfreq = 1 hours 2 days 1 weeks; connectfreq = 1 months 1 years 1 decades;
+  sendq = 1 gbytes; recvq = 1 tb; maxlinks = 1no; ipcheck = no; targetlimit = no; listdelay = no; };
+DNSBL { name = "a.example.org"; hoson = block_anon; };
+DNSBL { name = "c.example rg.";ohost = "5"; action = whitelist; };
+SSL { "irc.example.net" { certificate = "c.pem"; key = "k.pem"; }; "*.example.org" { key = "k2.pem"; certificate = "c2.pem"; }; };

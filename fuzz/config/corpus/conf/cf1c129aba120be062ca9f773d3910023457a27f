@@ -1,0 +1,53 @@
+General { name = "fuzz.example.net"ral { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Class {
+ name = "Opers";
+ pingfreminutes 30 seconds;
+ sendq = 160000;
+ maxlinks = 400;
+};
+
+#@REHASH@
+General { name = "fuzz.exations = no; trustaccount = no; };
+SpoofHost "a.b" { host = "*@*"; autoapply = yes; ismask = no; matchusername = no; };
+Except { host = "*@1.*"; shun = yes; kline = no; gline = no; zline = no; ident = no; rdns = no; ipcheck = no; targetlimit = no; listdelay = no; };
+DNSBL { name = "a.example.org"; host = "2"; action = block_all; };
+DNSBL { name = "b.example.org"; host = "3"; action = block_anon; };
+DNSBL { name = "c.example.org"; host = "4"; action = whitelist; };
+SSL { "irc.example.net" { certificate = "c.pem"; key = q = 1 minutes 30 seconds;
+ sendq = 160000;
+ maxlinks = 1 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+
+ local = no;
+};
