@@ -38,6 +38,11 @@ T[ircd_string]="ircd_string/fuzz_ircd_string.c $I/ircd_string.c $I/numnicks.c $I
 T[match]="match/fuzz_match.c $I/match.c $I/ircd_string.c $C/ircd_stubs.c |"
 T[history]="history/fuzz_history.c $C/fake_db.c $I/ml_content.c $I/ircd_compress.c $I/redact_index.c $I/db_casefold.c $I/ircd_string.c $I/ircd_snprintf.c $I/ircd_alloc.c $C/ircd_stubs.c | -lzstd -lcrypto"
 A[history]=1
+T[kc_base64]="kc_base64/fuzz_kc_base64.c $I/kc/kc_base64.c |"
+T[kc_url]="kc_url/fuzz_kc_url.c $I/kc/kc_url.c $C/kc_log_stub.c | -lcurl"
+T[kc_error_classify]="kc_error_classify/fuzz_kc_error_classify.c $I/kc/kc_error_classify.c $C/kc_log_stub.c | -ljansson"
+T[kc_cache]="kc_cache/fuzz_kc_cache.c $I/kc/kc_cache.c $C/kc_log_stub.c | -ljansson"
+T[kc_cred_derive]="kc_cred_derive/fuzz_kc_cred_derive.c $I/kc/kc_cred_derive.c $I/kc/kc_base64.c | -ljansson -lcrypto"
 T[kc_jwt]="kc_jwt/fuzz_kc_jwt.c $I/kc/kc_base64.c $C/kc_log_stub.c | -ljansson -lcrypto"
 
 # per-target extra compiler flags
