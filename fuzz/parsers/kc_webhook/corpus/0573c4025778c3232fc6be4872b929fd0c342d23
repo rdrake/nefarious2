@@ -1,0 +1,1 @@
+P{"iD": "x2", "time": 1700000000000, "realmId": "r", "realmName": "fuzzrealm", "resourceType": "CREDENTIAL", "operationType": "DELETE", "rtails": {"userId": "u", "username": "admin", "ipAddress": "2.2.3.4", "realmId": "r"}, "scram": {"salt": "c2FsdA==", "iterations": 4096, "storedKey": "a", "serverKey": "b"}}
