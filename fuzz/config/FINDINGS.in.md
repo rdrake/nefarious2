@@ -25,6 +25,7 @@ are bouncer records (14 KB, mostly zeros); they are given below as
 | ID | Severity | Where | What | Reach |
 |----|----------|-------|------|-------|
 | F12 | High | `ircd/listener.c:395-397` | `add_listener` frees an existing listener that is still on `ListenerPollList` (use-after-free) | conf / REHASH / gitsync |
+| F14 | High | `ircd/crule.c:742` | `crule_parsearglist` writes past `arg[3]`: heap buffer overflow (pointer write) for a CRule function with >3 arguments | conf / REHASH / gitsync |
 | F7 | Medium | `ircd/crule.c:481`, `:542` | `crule_parse` frees an uninitialised child pointer after a syntax error in a `CRule` | conf / REHASH / gitsync |
 | F3 | Medium | `ircd/dnsbl.c:112` | infinite loop parsing a DNSBL `host` (index) list with any non-digit character | conf / REHASH / gitsync |
 | F8 | Medium | `ircd/ircd_lexer.l:354`, `ircd_parser.y:2072` | `include` has no cycle detection: k self-includes are parsed ~k^10 times | conf / REHASH / gitsync |
@@ -125,6 +126,52 @@ if (!okay) {
     FlagClr(&listener->flags, LISTEN_ACTIVE);   /* let close_listeners() reap it once unreferenced */
 }
 ```
+
+---
+
+## F14 — CRule argument list overflows the node (heap write)
+
+**Severity:** High for this attack surface: an out-of-bounds heap *write*
+of pointers while parsing the conf (boot, REHASH, gitsync-fetched conf).
+
+**Reproducer** (`repro/F14-crule-arglist-overflow.conf`; four arguments are
+enough, more write further):
+
+```
+@@F14-crule-arglist-overflow.conf@@
+```
+
+base64: `@@B64:F14-crule-arglist-overflow.conf@@`
+
+**Stack** (plain ASan):
+
+```
+ERROR: AddressSanitizer: heap-buffer-overflow ... WRITE of size 8
+    #0 crule_parsearglist  ircd/crule.c:742:46
+    #1 crule_parsefunction ircd/crule.c:680:9
+    #2 crule_parseprimary  ircd/crule.c:632:19
+    #3 crule_parseandexpr  ircd/crule.c:539:15
+    #4 crule_parseorexpr   ircd/crule.c:478:15
+    #5 crule_parse         ircd/crule.c:442:20
+    #6 yyparse             ircd/ircd_parser.y:1458:20
+0x... is located 0 bytes after 40-byte region
+allocated by thread T0 here:
+    #2 crule_parsefunction ircd/crule.c:674:33
+```
+
+**Root cause.** `struct CRuleNode` holds `void *arg[CR_MAXARGS]` with
+`CR_MAXARGS` 3 (crule.c:106, 146-152).  `crule_parsearglist()`
+(crule.c:701-748) appends every comma-separated argument with
+`argrootp->arg[argrootp->numargs++] = argelemp` (742) and never checks
+`numargs`; the arity check against `crule_funclist[].reqnumargs` happens
+only after the whole list is parsed (crule_parsefunction, 684-686).  Each
+argument past the third writes a `DupString`'d pointer over the next heap
+chunk.  Inherited ircu code.
+
+**Fix.** Before storing: `if (argrootp->numargs >= CR_MAXARGS) return
+CR_ARGMISMAT;` (and free `argelemp`).  Also allocate the node with
+`MyCalloc` (see F7) and have `crule_free()` free a function node's
+already-stored arguments when its `funcptr` is still NULL.
 
 ---
 
@@ -625,7 +672,7 @@ harness:
 
 ## Masks used to keep fuzzing past known findings
 
-The `fuzz` build masks F3, F5, F6, F7, F8, F11, F12, F13 and the F2 teardown so the
+The `fuzz` build masks F3, F5, F6, F7, F8, F11, F12, F13, F14 and the F2 teardown so the
 campaign does not stop on them; `-DFUZZ_UNMASK_KNOWN` (always on in the
 `asan` build) removes the masks:
 
@@ -636,6 +683,7 @@ campaign does not stop on them; `-DFUZZ_UNMASK_KNOWN` (always on in the
 | F6 | `/` outside strings/comments becomes `+`; `y.tab.c` built without `-fsanitize=signed-integer-overflow` |
 | F11 | `chathistory_presence.c` built without `-fsanitize=shift` |
 | F13 | the bouncer/records harness TUs (which `#include` `bouncer_session.c`) are built without `-fsanitize=signed-integer-overflow` |
+| F14 | `--wrap=crule_parse` rejects rules with an argument list longer than 3 |
 | F12 | `--wrap=add_listener` keeps both families on a block that matches an existing listener |
 | F7 | conf campaign runs with `ASAN_OPTIONS=malloc_fill_byte=0` |
 | F8 | `--wrap=init_lexer_file` caps include depth at 2 |
