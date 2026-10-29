@@ -1,0 +1,10 @@
+`{
+ "id": "60bbbbbbbbbbbbbbbbbbbbbbbbb5db-a0b06ee4f73",
+ "authDetails": {
+  "realmId": "75b95eae-d5a303af7fdf",
+  "ipAddress": "192.0.2.1"
+ },
+ "operationType": "ACTION",
+ "resourceType": "USER",
+ "resourcePath": "users/c09cc672-bfbbbb997-8757-11cee81ddaa2/credentialbbsw"
+}

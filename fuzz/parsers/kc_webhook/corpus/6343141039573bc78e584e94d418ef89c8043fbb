@@ -1,0 +1,10 @@
+T{"resourceType": "USER",
+ "resou]cePath": "users/C59cc6FFFFFFFFBFFFF4f73",
+ "authDetails": {
+  "realmId": "74be9a5e-d503af7fdf",
+  "ipAddress": "192.1.2.1"
+ },
+ "operationType": "ACTION",
+ "resourType": "USER",
+ "resourcePath": "users/c09cc672-bf57-5997-8757-11cee81ddaa2/credentials/rd"
+}

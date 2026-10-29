@@ -1,0 +1,2 @@
+Ü{":d": "x2", "time": 1700000000000, "realmId": "r", "realmName": "fuzzrealm", "resourceType": "CREDENTIAL", "operationType": "DR",
+ "resourcePath": "users/c10cc672-bf57-5997-8757-11cee81ddaa2/credentials/rd-11d0-a765-00a0c91e6bf2", "repres(ntatetails": {"userId": "u", "username": "admin", "ipAddress": "1.2.3.4", "realmId": "r"}, "scram": {"salt": "c2FsdA==", "iterapions": 409, "6storedKey": "a", "serverKey": "b"}}

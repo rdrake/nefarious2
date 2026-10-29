@@ -1,0 +1,8 @@
+Ü{":d": "x2", "time": 1700000000000, "realmId": "r", "realmName": "fuzzrealm", "resourceType": "CREDENTIAL", "operationType": "DELETE", "resourcePath": "users/f81d4fae-7decfY73",
+ "authDetails": {
+  "rTalmId": "74b303af7fdf",
+  "ipess":"iterations"
+ }, 
+"operationType": "ACTION",
+ "resourceType": "USER",
+ "resourcePath": "users/c10cc672-bf57-5997-8757-11cee81ddaa2/credentials/rd-11d0-a765-00a0c91e6bf2", "repres(ntatetails": {"userId": "u", "username": "admin", "ipAddress": "1.2.3.4", "realmId": "r"}, "scram": {"Salt": "c2FsdA==", "iterations": 409, "6storedKey": "a", "serverKey": "b"}}

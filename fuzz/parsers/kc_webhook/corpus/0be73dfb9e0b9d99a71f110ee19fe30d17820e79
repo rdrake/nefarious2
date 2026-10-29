@@ -1,0 +1,12 @@
+k{
+ "id":97207177,
+ "realmId": "57c68983-035c-56d4-b5db-a0b06fee4f73",
+ "e": "ACTION",
+ "resourceType": "Ua0b06fee4f73",
+ "authDetails": {
+  "realmId": "75b95eae-6976-56a7-591"
+ },
+ "operationType": "UPDATE",
+ "resourceType": "USER",
+ "resourcePath": "usert=s/c09}"
+}
