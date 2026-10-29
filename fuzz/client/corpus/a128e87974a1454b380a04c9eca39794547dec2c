@@ -1,0 +1,15 @@
+connectJOIN -tagxSILENCE f :x
+PRIVMSG fuzzA :x
+PRI2
+JOIN 0
+JOIN #a,#a,ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ#a
+JOIN #c0,&local#c1,#c2,#c3יce,#c2,#c3יcertfp-sha-256יייייייייי,#c4,#,5c#c6,#c8,#c8,#c9,#c10װÜ״1ֵ#cקקקקקקקקקקקקMSG fuzzA :x
+PRIVMSG f
+WHOIS *
+WHOIS fuzz.tOWEBPUSHest.net fuzzB
+WHOWAS fu&xB
+W VAPID
+WEBPUSH REGISTER htIS fuzz.tOWEBPUSHestxxxxxxxxacc‘‹-tagxSILENCE f :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVHOrvמממממE

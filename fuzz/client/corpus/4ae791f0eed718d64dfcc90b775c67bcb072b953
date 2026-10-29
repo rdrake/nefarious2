@@ -1,0 +1,45 @@
+_WHO #fuzz
+HOW * %nuhsrfdlaotc,1
+WHO fuzz* o
+WHO 0 o
+WHO #fuzz %
+WHO :x y z                                  STATS
+STATS u
+STATS m
+STATS p
+STATS webpush
+STATS chathistory
+STATS meB nobody fuzzA
+USERHOST fuzzA fuzzB x
+USERIP fuzzB
+LUSERS
+LUSERS * fuzz.test.net
+MOTD
+VERSION
+ADMIN
+TIME
+INFO
+LINKS
+LINKS * *.net
+MAP
+TRACE
+TRACE fuzzB
+STATB x
+USERIP fuzzB
+LUSERS
+LUSERS * fuzz.test.net
+MOTD
+VERSION
+ADMIN
+TIME
+INFO
+LINKS
+LINKS * *.net
+MAP
+TRACE
+TRACE fuzzB
+STATS
+STATS u
+SA
+IRCOPS
+ISNEF

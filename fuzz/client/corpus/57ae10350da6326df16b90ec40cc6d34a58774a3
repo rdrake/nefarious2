@@ -1,0 +1,12 @@
+NICK
+NICK :
+NICK #chan
+NICK nnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnnn
+NICK -bad
+NICK aéb
+NICK ChanServ
+USER
+USER a
+USER a b c
+NICK ok
+USER uuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuuu 0 * :r

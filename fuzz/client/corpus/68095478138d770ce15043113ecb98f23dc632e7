@@ -1,0 +1,16 @@
+_OPER fuzzoper fu://[::1]zzoperpass
+MO@1.2.3.4 600 :bad
+GLINE
+GLINE ­*00 :z
+SHUN +*@1.2@1.2.3.4 600 :bad
+GLINE
+GLINE ­*00 :z
+SHUN +*@1.2.3.5 600  :bad
+GLINE
+GLINSVSQUITE ­*00 :z
+SHUN +*@1.2.3.5 600 :s
+JS fuODE #fuzz +'o FuzzÃ
+SVSNICK fuzzA x
+SVSJOIN fuzzA #o
+TSYNC
+DES§±¼·ßÅ›÷ASLL fuzz.test.net

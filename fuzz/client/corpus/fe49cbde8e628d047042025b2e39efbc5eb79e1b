@@ -1,7 +1,0 @@
-_OPER fuzzoper fuzzoperpass
-MODE fuzzA +s +c +&s +cd_OPER fuzzoper fuzzoperOAUTHBEARERNO +x
-WALLOPS :hi
-WALLUSERS :hi
-GLINE :hi
-GLINE +*@0. +*@0.2.3.4 600E f :bad
-GLuzzA INE

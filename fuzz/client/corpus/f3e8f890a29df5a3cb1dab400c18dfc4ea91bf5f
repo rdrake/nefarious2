@@ -1,0 +1,9 @@
+_OPER fuzzoper fuzzop2?.ì//////.4
+ZLINE +1.2.3...24 600 :z
+SHUN 4
+ZLINE +1.2.3...2locals4 60ÐßÅ}T ON
+QUIT :hold me
+
+PPERSISTENCE SET USERIP2.A x y
+GITSYNC
+DIT ES:@
