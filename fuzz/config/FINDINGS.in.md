@@ -35,6 +35,7 @@ are bouncer records (14 KB, mostly zeros); they are given below as
 | F9 | Low (hardening) | `ircd/bouncer_session.c:3082-3206` | restored identity strings are not validated (CR/LF, spaces, duplicates) and are burst verbatim | boot, corrupt/foreign record |
 | F1 | Low | `ircd/bouncer_session.c:3320`, `:3479`, `:3529`, `:3728` | struct overlays on RocksDB value buffers that are not aligned | boot, every record |
 | F11 | Low | `ircd/chathistory_presence.c:336` | `presence_norm_time` left-shifts millisecond-era stamps out of `int64_t` | boot (presence CF) and S2S `PN` |
+| F13 | Low | `ircd/bouncer_session.c:3529`, `:3729`, `:2080` | persisted timestamps unvalidated: expiry arithmetic overflows, wrapped value restores an expired session | boot, corrupt record |
 | F4 | Low | `ircd/s_auth.c:2017-2026` | `fork()` failure in `auth_spawn` leaves deleted sockets with live fds; next REHASH deletes/closes them again | REHASH under fork failure |
 
 Severity is for this codebase's threat model: the conf is trusted admin
@@ -527,6 +528,40 @@ shift on `uint64_t` and range-check the result.
 
 ---
 
+## F13 — persisted timestamps are not validated (expiry overflow)
+
+**Severity:** Low.  Signed-overflow UB; in practice the corrupt record
+dodges `BOUNCER_MAX_HOLD` and is restored as a live held session.
+
+**Reproducer** (`repro/F13-bouncer-disconnect-time-overflow.bin`, a v12
+record with `bsr_disconnect_time = -9223372035054775838`):
+
+base64 (gzip): `@@B64GZ:F13-bouncer-disconnect-time-overflow.bin@@`
+
+```
+bouncer_session.c:3529:27: runtime error: signed integer overflow: 1800000000 - -9223372035054775838 cannot be represented in type 'time_t'
+    #0 bounce_db_restore ircd/bouncer_session.c:3529:27
+```
+
+With the overflow wrapping (the fuzz build), the record is restored:
+`fuzz_bouncer: 1 record(s), restored 1, 1 left in the store`.
+
+**Root cause.** `elapsed = CurrentTime - (time_t)rec->bsr_disconnect_time`
+(bouncer_session.c:3529, again in the cleanup pass at 3729) trusts the
+stored value; a huge negative one wraps `elapsed` negative, so
+`elapsed > max_hold` is false.  A disconnect time in the future has the
+same effect without UB.  `bounce_hold_remaining()` (2080) adds the hold to
+the same value and can overflow too; `bsr_created`, `bsr_last_active`,
+`bsr_total_active` and the alias/channel timestamps are copied unchecked
+as well.
+
+**Fix.** Reject (and log) a record whose `bsr_disconnect_time` is `<= 0` or
+`> CurrentTime + slack`, and compute the expiry as
+`rec->bsr_disconnect_time < CurrentTime - max_hold` (no subtraction that
+can overflow); clamp the other timestamps to `[0, CurrentTime]`.
+
+---
+
 ## F4 — `auth_spawn` fork failure: double socket delete at next REHASH
 
 **Severity:** Low.  Needs `fork()` to fail (RLIMIT_NPROC, ENOMEM on a
@@ -590,7 +625,7 @@ harness:
 
 ## Masks used to keep fuzzing past known findings
 
-The `fuzz` build masks F3, F5, F6, F7, F8, F11, F12 and the F2 teardown so the
+The `fuzz` build masks F3, F5, F6, F7, F8, F11, F12, F13 and the F2 teardown so the
 campaign does not stop on them; `-DFUZZ_UNMASK_KNOWN` (always on in the
 `asan` build) removes the masks:
 
@@ -600,6 +635,7 @@ campaign does not stop on them; `-DFUZZ_UNMASK_KNOWN` (always on in the
 | F5 | value copies get one trailing NUL |
 | F6 | `/` outside strings/comments becomes `+`; `y.tab.c` built without `-fsanitize=signed-integer-overflow` |
 | F11 | `chathistory_presence.c` built without `-fsanitize=shift` |
+| F13 | the bouncer/records harness TUs (which `#include` `bouncer_session.c`) are built without `-fsanitize=signed-integer-overflow` |
 | F12 | `--wrap=add_listener` keeps both families on a block that matches an existing listener |
 | F7 | conf campaign runs with `ASAN_OPTIONS=malloc_fill_byte=0` |
 | F8 | `--wrap=init_lexer_file` caps include depth at 2 |
