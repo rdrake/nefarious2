@@ -47,6 +47,7 @@ trusted-but-not-blindly, config operator-controlled).
 | F21 | Low | `ircd/bouncer_session.c:3529` | `CurrentTime - disconnect_time` overflow | corrupt stored record |
 | F22 | Low (inherited) | `ircd/crule.c:742` | CRULE argument list overflows `arg[3]` (heap write) | ircd.conf / linesync |
 | F23 | Low (inherited) | `ircd/crule.c:767` / `:548-569` | CRULE `&&` with a missing operand: NULL / uninitialized child freed | ircd.conf / linesync |
+| F24 | Low (inherited) | `ircd/parse.c:2103` | `parse_server` reads up to 2 bytes past a prefix-only line | a linked server |
 
 "Inherited" = the same code is in upstream ircu; it is reachable here all
 the same.  Informational notes (behaviour differences, latent hazards,
@@ -613,6 +614,33 @@ server at boot or REHASH.
 
 **Fix** reject a missing operand before allocating the node, initialize
 `arg[1] = NULL`, and make `crule_free` NULL-safe.
+
+## F24 — `parse_server`: prefix-only line read past its NUL (Low, inherited)
+
+**Reproducer** `findings/F24-parse_server-prefix-only-overread.bin`
+(target `parse`, mode 1 = server link, `FUZZ_STRICT=1`): the line `A`×8702
+(an unknown numeric prefix filling `cli_buffer`).  Generator:
+`python3 -c "import sys;sys.stdout.buffer.write(b'\x01'+b'A'*8702)"`.
+
+```
+heap-buffer-overflow READ of size 1
+#0 parse_server ircd/parse.c:2103
+```
+
+**Root cause** for a prefix whose numeric is unknown (`from == NULL`,
+`ircd/parse.c:2084-2108`) the code skips spaces and then tests `ch[1]` and
+`ch[2]` without checking that `*ch` is not the terminator.  A line that is
+nothing but a prefix leaves `ch` on the NUL, so `ch[1]`/`ch[2]` are read
+past it — past `cli_buffer` itself when the line is `FULL_MSG_SIZE - 1`
+bytes (the next `struct Connection` fields in the real layout).
+
+**Reachability** P10 input from a directly linked server (any line can
+carry a numeric prefix the receiver does not know, e.g. during a netsplit
+race).  Over-read of two bytes; the result only selects whether the line
+is dropped.
+
+**Fix** `if (!*ch) return 0;` after skipping the spaces (and test `ch[1]`
+before `ch[2]`).
 
 ---
 
