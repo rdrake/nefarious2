@@ -1,0 +1,5 @@
+# verification run outputs
+*.log
+*.out
+states/
+logs/
