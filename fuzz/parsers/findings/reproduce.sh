@@ -11,14 +11,19 @@ export ASAN_OPTIONS=detect_leaks=0 UBSAN_OPTIONS=print_stacktrace=1
 pass=0 fail=0
 # file | target | expected substring in the output ("TIMEOUT" = must hang)
 #      [| nostrict: replay with the guards on, so only this bug fires]
+#      [| stale: guards on and the parse buffer kept between files]
 while IFS='|' read -r f t sig mode; do
   [ -z "$f" ] && continue
   case "$f" in \#*) continue;; esac
   [ -n "$1" ] && case "$f" in "$1"*) ;; *) continue;; esac
+  # several files separated by ',' are replayed in order in one process
+  files=(); IFS=',' read -ra parts <<<"$f"; for p in "${parts[@]}"; do files+=("$HERE/$p"); done
   if [ "$mode" = nostrict ]; then
-    out=$(env -u FUZZ_STRICT timeout 10 "$OUT/repro_$t" "$HERE/$f" 2>&1); rc=$?
+    out=$(env -u FUZZ_STRICT timeout 10 "$OUT/repro_$t" "${files[@]}" 2>&1); rc=$?
+  elif [ "$mode" = stale ]; then
+    out=$(env -u FUZZ_STRICT FUZZ_PARSE_STALE=1 timeout 10 "$OUT/repro_$t" "${files[@]}" 2>&1); rc=$?
   else
-    out=$(timeout 10 "$OUT/repro_$t" "$HERE/$f" 2>&1); rc=$?
+    out=$(timeout 10 "$OUT/repro_$t" "${files[@]}" 2>&1); rc=$?
   fi
   if [ "$sig" = TIMEOUT ]; then
     [ $rc -eq 124 ] && ok=1 || ok=0
@@ -58,6 +63,8 @@ F25b-dns-truncated-AAAA-rdata.bin|dns|heap-buffer-overflow
 F26-reslib-bitstring-shift.bin|dns|left shift of
 F27-reslib-labellen-overread.bin|dns|heap-buffer-overflow
 F28-parse_server-numeric-000.bin|parse|null pointer
+F29a-parse_server-tags-only-overread.bin|parse|heap-buffer-overflow
+F29b-parse_server-stale-replay-line1.bin,F29b-parse_server-stale-replay-line2.bin|parse|null pointer|stale
 LIST
 echo "$pass reproduced, $fail failed"
 [ $fail -eq 0 ]
