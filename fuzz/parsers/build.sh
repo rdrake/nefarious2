@@ -60,6 +60,14 @@ T[webpush]="webpush/fuzz_webpush.c webpush/mwebpush_wrap.c $I/webpush_keyring.c 
 A[webpush]=1
 T[bouncer_record]="bouncer_record/fuzz_bouncer_record.c $C/fake_db.c $I/ircd_snprintf.c $I/ircd_string.c $I/ircd_alloc.c $I/account_id.c $I/webpush_keyring.c $C/ircd_stubs.c | -lssl -lcrypto -ljansson -lzstd"
 A[bouncer_record]=1
+T[paste_listener]="paste_listener/fuzz_paste_listener.c $C/fake_db.c $I/ml_content.c $I/ircd_compress.c $I/ircd_string.c $I/ircd_snprintf.c $I/ircd_alloc.c $C/ircd_stubs.c | -lssl -lcrypto -lzstd"
+A[paste_listener]=1
+T[ircd_compress]="ircd_compress/fuzz_ircd_compress.c $I/ircd_compress.c $C/ircd_stubs.c | -lzstd"
+T[dbuf]="dbuf/fuzz_dbuf.c $I/dbuf.c $I/ircd_string.c $I/ircd_alloc.c $C/ircd_stubs.c |"
+T[db_casefold]="db_casefold/fuzz_db_casefold.c $I/db_casefold.c $C/fake_db.c $I/ircd_string.c $C/ircd_stubs.c |"
+T[crule]="crule/fuzz_crule.c $I/crule.c $I/ircd_string.c $I/ircd_alloc.c $C/ircd_stubs.c |"
+A[crule]=1
+T[ircd_snprintf]="ircd_snprintf/fuzz_ircd_snprintf.c $I/ircd_snprintf.c $C/ircd_stubs.c |"
 T[kc_jwt]="kc_jwt/fuzz_kc_jwt.c $I/kc/kc_base64.c $C/kc_log_stub.c | -ljansson -lcrypto"
 
 # register_throttle is built like its cmocka suite: 1 bucket x 4 slots

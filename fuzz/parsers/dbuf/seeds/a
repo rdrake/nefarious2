@@ -1,0 +1,5 @@
+NICK foo
+USER a b c :d
+
+PRIVMSG #x :hi
+partial
