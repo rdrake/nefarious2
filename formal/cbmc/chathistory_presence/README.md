@@ -49,16 +49,18 @@ fully unwound (`--unwinding-assertions`).
 
 ## Findings (confirmed with `confirm.c`, real file, ASan+UBSan)
 
-- **P1 PN line with a non-positive start grants all history (confirmed;
-  medium, trust boundary = linked server).** m_markread.c:469-471 parses
-  `start/end` with `strtoull`, casts to int64 and rejects only `== 0`.
-  `PRESENCE <acct> <chan> -1 <now>` (or any value >= 2^63) yields
-  start = -1, and `record_union_close` stores `[-1, now]`: the account
-  is "present" for the channel's entire history on every server that
-  applies the flood (relayed butone). Strict presence is meant to be
-  a security gate; a buggy/old/compromised peer bypasses it network-wide.
+- **P1 PN accepts non-positive / wrapped stamps (confirmed; low).**
+  m_markread.c:469-471 parses `start/end` with `strtoull`, casts to
+  int64 and rejects only `== 0`. `PRESENCE <acct> <chan> -1 <now>` (or
+  any value >= 2^63) yields start = -1 and `[-1, now]` is stored and
+  relayed (m_markread.c:476): the account becomes "present" for the
+  channel's entire history network-wide. Note the trust model: a linked
+  server can already assert any well-formed window (e.g. start = 1 is
+  normalised to 1 s after the epoch), so this is input validation at a
+  trusted boundary, not a privilege escalation -- but a buggy peer that
+  emits garbage silently disables strict presence for that account.
   Fix: after normalisation require `0 < start <= end <= now + skew`
-  (drop otherwise), and clamp in `presence_apply_close`.
+  and drop otherwise (also in `presence_apply_close`).
 - **P2 `presence_norm_time` shift overflow (confirmed UB).** For
   v in [2^47, 1e15) (~1.4e14..1e15, "milliseconds" past year 6429)
   `PRESENCE_TIME_FROM_MS(v)` (chathistory_presence.c:336) shifts out of

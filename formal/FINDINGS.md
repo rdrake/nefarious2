@@ -107,3 +107,4 @@ None of these have been independently validated or fixed yet.
 | Live reproductions | `formal/repro/` |
 | Protocol proposals | `formal/PROTOCOL-PROPOSALS.md`; an editable copy is the Claude doc "Bouncer P10 protocol change proposals" |
 | Fix branches | `fix/*`, one per PR |
+| Stateful fuzzing plan | `formal/STATEFUL-FUZZ-PLAN.md`; an editable copy is the Claude doc "Stateful fuzz harness plan" |
