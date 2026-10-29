@@ -35,6 +35,8 @@
 #include "whowas.h"
 #include "fileio.h"
 #include "dnsbl.h"
+#include "listener.h"
+#include "ircd_string.h"
 #include "fuzz_common.h"
 
 #include <dirent.h>
@@ -212,6 +214,35 @@ int __wrap_init_lexer_file(char *file)
     return 0;
 #endif
   return __real_init_lexer_file(file);
+}
+
+/* FINDINGS.md F12: add_listener() frees an existing (still listed)
+ * listener when the new Port block leaves it no usable address family.
+ * Keep both families on a Port block that matches an existing listener
+ * so the fuzzer gets past it (FUZZ_UNMASK_KNOWN: unchanged). */
+extern void __real_add_listener(int port, const char *vhost_ip,
+                                const char *mask,
+                                const struct ListenerFlags *flags);
+void __wrap_add_listener(int port, const char *vhost_ip, const char *mask,
+                         const struct ListenerFlags *flags)
+{
+#ifndef FUZZ_UNMASK_KNOWN
+  struct irc_in_addr vaddr;
+  struct Listener *l;
+  memset(&vaddr, 0, sizeof(vaddr));
+  if (port && (EmptyString(vhost_ip) || !strcmp(vhost_ip, "*") ||
+               ircd_aton(&vaddr, vhost_ip))) {
+    for (l = ListenerPollList; l; l = l->next)
+      if (l->addr.port == port && !memcmp(&vaddr, &l->addr.addr, sizeof(vaddr))) {
+        struct ListenerFlags f = *flags;
+        FlagSet(&f, LISTEN_IPV4);
+        FlagSet(&f, LISTEN_IPV6);
+        __real_add_listener(port, vhost_ip, mask, &f);
+        return;
+      }
+  }
+#endif
+  __real_add_listener(port, vhost_ip, mask, flags);
 }
 
 /* FUZZ_VERBOSE=1: show conf parse errors (yyerror only prints to stderr
