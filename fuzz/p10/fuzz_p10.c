@@ -473,6 +473,19 @@ static void make_local_users(void)
     local_fd[i] = cli_fd(c);
     watch_fd = local_fd[i];
     locals[i] = c;
+    if (i == 0) {
+      /* alice negotiates the IRCv3 caps that change S2S->client delivery
+       * (tags, batches, multiline, echo, account/away notify); bob stays
+       * a plain client */
+      feed_client_line(c, "CAP LS 302");
+      feed_client_line(c, "CAP REQ :message-tags server-time batch echo-message "
+                       "account-tag away-notify extended-join account-notify "
+                       "chghost setname userhost-in-names multi-prefix");
+      feed_client_line(c, "CAP REQ :draft/multiline draft/chathistory "
+                       "draft/event-playback draft/message-redaction "
+                       "draft/metadata-2 draft/read-marker labeled-response");
+      feed_client_line(c, "CAP END");
+    }
     snprintf(line, sizeof(line), "NICK %s", nicks[i]);
     if (!feed_client_line(c, line)) { locals[i] = NULL; continue; }
     snprintf(line, sizeof(line), "USER %s 0 * :%s real", nicks[i], nicks[i]);
@@ -712,6 +725,9 @@ static int known_bug_line(const char *line, size_t len)
     for (i = 2; i < ft.n; i++)
       if (minus && strchr(ft.t[i], ':'))
         return 1;
+    for (i = 2; i < ft.n; i++)                         /* F4 via MODE */
+      if (!ft.t[i][0])
+        return 1;
   }
 
   /* F11 / F12 / F13: handlers that assume a user (or server) source */
@@ -721,7 +737,8 @@ static int known_bug_line(const char *line, size_t len)
       src = NULL;
     if (src && IsServer(src) &&
         (((fcmd(ft.cmd, "T") || fcmd(ft.cmd, "TOPIC")) && ft.n <= 4) ||
-         fcmd(ft.cmd, "RH") || fcmd(ft.cmd, "REHASH")))
+         fcmd(ft.cmd, "RH") || fcmd(ft.cmd, "REHASH") ||
+         fcmd(ft.cmd, "W") || fcmd(ft.cmd, "WHOIS")))   /* F12, F14 */
       return 1;
     if (src && !IsServer(src) && !IsMe(src) &&
         (fcmd(ft.cmd, "S") || fcmd(ft.cmd, "SERVER")))
@@ -729,7 +746,8 @@ static int known_bug_line(const char *line, size_t len)
     /* empty prefix -> parse_server uses the link itself */
     if (!src && ft.src[0] != ':' &&
         (((fcmd(ft.cmd, "T") || fcmd(ft.cmd, "TOPIC")) && ft.n <= 4) ||
-         fcmd(ft.cmd, "RH") || fcmd(ft.cmd, "REHASH")))
+         fcmd(ft.cmd, "RH") || fcmd(ft.cmd, "REHASH") ||
+         fcmd(ft.cmd, "W") || fcmd(ft.cmd, "WHOIS")))   /* F12, F14 */
       return 1;
   }
 

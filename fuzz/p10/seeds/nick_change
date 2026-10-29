@@ -2,6 +2,6 @@
 AB N Acct2 2 1760000000 acct2 acct2.example.net +ixr acct2 AKAAAM ABAAB :Acct2 real
 AB N Oper3 2 1760000000 oper3 oper3.example.net +iowg AKAAAN ABAAC :Oper3 real
 AB N Six4 2 1760000000 six4 six4.example.net +i _ ABAAD :Six4 real
-ABAAA N NewNick 1793293035
-ABAAB N nick1 1793293035
-ABAAC N Oper3 1793293035
+ABAAA N NewNick 1793296576
+ABAAB N nick1 1793296576
+ABAAC N Oper3 1793296576

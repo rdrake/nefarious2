@@ -5,6 +5,6 @@ AB N Six4 2 1760000000 six4 six4.example.net +i _ ABAAD :Six4 real
 AB B #test 1759999900 +nt ABAAA:o,ABAAB:v,ABAAC
 AB B #fuzz 1759900001 +ntk key ABAAA:o,ABAAB
 AB B #bans 1760000000 +ntlim 10 ABAAC:ov,ABAAD :%*!*@bad.host ~*!*@good.host
-@AaGImCX4ABAAAAAAAAAAAB,C+typing=active ABAAA TG #fuzz
+@AaGIzi4AABAAAAAAAAAAAB,C+typing=active ABAAA TG #fuzz
 @+typing=paused ABAAA TG AKAAA
-@AaGImCX4ABAAAAAAAAAAAB,C+react=x ABAAA TG AKAAB
+@AaGIzi4AABAAAAAAAAAAAB,C+react=x ABAAA TG AKAAB

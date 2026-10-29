@@ -11,10 +11,10 @@ ABAAA ML cab1 #fuzz :concat
 ABAAA ML -ab1 #fuzz :
 ABAAA ML +ab2 AKAAA :dm one
 ABAAA ML -ab2 AKAAA :
-@AaGImCX4ABAAAAAAAAAAAB,M+ab3 ABAAA ML #fuzz :new form
-@AaGImCX4ABAAAAAAAAAAAB,Mcab3 ABAAA ML #fuzz :concat new
-@AaGImCX4ABAAAAAAAAAAAB,M.ab3 ABAAA ML #fuzz :plain
-@AaGImCX4ABAAAAAAAAAAAB,M-ab3 ABAAA ML #fuzz :
-@AaGImCX4ABAAAAAAAAAAAB,M? ABAAA ML #fuzz :bad
+@AaGIzi4AABAAAAAAAAAAAB,M+ab3 ABAAA ML #fuzz :new form
+@AaGIzi4AABAAAAAAAAAAAB,Mcab3 ABAAA ML #fuzz :concat new
+@AaGIzi4AABAAAAAAAAAAAB,M.ab3 ABAAA ML #fuzz :plain
+@AaGIzi4AABAAAAAAAAAAAB,M-ab3 ABAAA ML #fuzz :
+@AaGIzi4AABAAAAAAAAAAAB,M? ABAAA ML #fuzz :bad
 ABAAA ML ab9 #fuzz :orphan continuation
 ABAAA ML -ab9 #fuzz :
