@@ -23,7 +23,7 @@ static void nondet_ip(struct irc_in_addr *a)
 {
   int i;
   for (i = 0; i < 8; i++)
-    a->in6_16[i] = (unsigned short)nondet_unsigned();
+    a->in6_16[i] = nondet_ushort();
 }
 
 /* Havoc the whole module state, constrained only by what the module can
@@ -96,8 +96,17 @@ void harness_refusal_records_nothing(void)
   gc = reg_global_count;
   r = reg_throttle_check(&ip, now, nondet_int(), nondet_int(), nondet_int());
   if (r != REG_THROTTLE_OK) {
-    __CPROVER_assert(memcmp(snap_table, reg_table, sizeof(reg_table)) == 0,
-                     "refusal leaves the per-IP table untouched");
+    int b, i, w;
+    for (b = 0; b < REG_THROTTLE_TABLE_SIZE; b++)
+      for (i = 0; i < REG_THROTTLE_BUCKET_DEPTH; i++) {
+        const struct reg_throttle_entry *x = &snap_table[b][i], *y = &reg_table[b][i];
+        for (w = 0; w < 8; w++)
+          __CPROVER_assert(x->addr.in6_16[w] == y->addr.in6_16[w],
+                           "refusal leaves the per-IP table untouched (addr)");
+        __CPROVER_assert(x->last == y->last && x->attempts == y->attempts
+                         && x->in_use == y->in_use,
+                         "refusal leaves the per-IP table untouched");
+      }
     __CPROVER_assert(gs == reg_global_start && gc == reg_global_count,
                      "refusal leaves the global window untouched");
   }
