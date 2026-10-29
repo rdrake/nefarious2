@@ -197,7 +197,7 @@ KillHere(W, s, x, why) ==
 (* Live primary -> alias demotion: bounce_demote_live_primary_to_alias    *)
 (* (BS:6472-6564) + bounce_finish_live_primary_demote (BS:6566-6716).     *)
 (* NB: neither checks MyConnect(acptr); alias entry and BX C numeric are  *)
-(* built from cli_yxx(&me) (BS:6540-6543, 6650-6653).                     *)
+(* built from cli_yxx(&me) (BS:6551-6552, 6634-6635).                     *)
 (***************************************************************************)
 Demote(W, s, x, np) ==
   IF ~(S(W,s).ex /\ S(W,s).prim = x /\ Hashed(W, s, x) /\ ~IsHold(W, s, x)
