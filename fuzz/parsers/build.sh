@@ -43,7 +43,24 @@ T[kc_url]="kc_url/fuzz_kc_url.c $I/kc/kc_url.c $C/kc_log_stub.c | -lcurl"
 T[kc_error_classify]="kc_error_classify/fuzz_kc_error_classify.c $I/kc/kc_error_classify.c $C/kc_log_stub.c | -ljansson"
 T[kc_cache]="kc_cache/fuzz_kc_cache.c $I/kc/kc_cache.c $C/kc_log_stub.c | -ljansson"
 T[kc_cred_derive]="kc_cred_derive/fuzz_kc_cred_derive.c $I/kc/kc_cred_derive.c $I/kc/kc_base64.c | -ljansson -lcrypto"
+T[chathistory]="chathistory/fuzz_chathistory.c $C/fake_db.c $I/history.c $I/ml_content.c $I/ircd_compress.c $I/redact_index.c $I/db_casefold.c $I/ircd_string.c $I/ircd_snprintf.c $I/ircd_alloc.c $C/ircd_stubs.c | -lzstd -lcrypto -lssl -ljansson"
+A[chathistory]=1
+T[metadata]="metadata/fuzz_metadata.c metadata/mmeta_wrap.c $C/fake_db.c $I/ircd_compress.c $I/db_casefold.c $I/ircd_string.c $I/ircd_snprintf.c $I/ircd_alloc.c $C/ircd_stubs.c | -lzstd -lcrypto -lssl -ljansson"
+A[metadata]=1
+T[webpush_line]="webpush_line/fuzz_webpush_line.c $I/webpush_line.c |"
+T[webpush_mute]="webpush_mute/fuzz_webpush_mute.c $I/webpush_mute.c |"
+T[webpush_expiry]="webpush_expiry/fuzz_webpush_expiry.c $I/webpush_expiry.c |"
+T[webpush_keyring]="webpush_keyring/fuzz_webpush_keyring.c $I/webpush_keyring.c |"
+T[account_id]="account_id/fuzz_account_id.c $I/account_id.c $I/webpush_keyring.c |"
+T[recv_classify]="recv_classify/fuzz_recv_classify.c $I/recv_classify.c |"
+T[exit_reason]="exit_reason/fuzz_exit_reason.c $I/exit_reason.c |"
+T[register_throttle]="register_throttle/fuzz_register_throttle.c $OUT/gen/register_throttle_small.c |"
+T[webhook_eventlog]="webhook_eventlog/fuzz_webhook_eventlog.c $I/webhook_eventlog.c |"
 T[kc_jwt]="kc_jwt/fuzz_kc_jwt.c $I/kc/kc_base64.c $C/kc_log_stub.c | -ljansson -lcrypto"
+
+# register_throttle is built like its cmocka suite: 1 bucket x 4 slots
+mkdir -p "$OUT/gen"
+printf '#define REG_THROTTLE_TABLE_BITS 0\n#define REG_THROTTLE_BUCKET_DEPTH 4\n#include "%s/register_throttle.c"\n' "$I" > "$OUT/gen/register_throttle_small.c"
 
 # per-target extra compiler flags
 declare -A F
