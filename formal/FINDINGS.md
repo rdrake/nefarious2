@@ -96,14 +96,14 @@ dbuf exhausted CBMC's memory; it was instead checked bounded-exhaustively under 
 ## Fuzzing campaigns
 
 Each campaign pushes harnesses, scripts, minimized reproducer files, a corpus
-and a `FINDINGS.md` to its own branch. Counts as of 17:50 UTC:
+and a `FINDINGS.md` to its own branch. Counts as of 18:46 UTC:
 
 | Branch | Findings file | Entries |
 | --- | --- | --- |
 | `fuzz/client-protocol` | `fuzz/client/FINDINGS.md` | 6 |
-| `fuzz/p10-server` | `fuzz/p10/FINDINGS.md` | 9 |
-| `fuzz/parsers` | `fuzz/parsers/FINDINGS.md`; reproducers and `reproduce.sh` in `fuzz/parsers/findings/` | 27 |
-| `fuzz/config-records` | `fuzz/config/FINDINGS.md`; reproducers in `fuzz/config/repro/` | 13 |
+| `fuzz/p10-server` | `fuzz/p10/FINDINGS.md` | 13 |
+| `fuzz/parsers` | `fuzz/parsers/FINDINGS.md`; reproducers and `reproduce.sh` in `fuzz/parsers/findings/` | 28 |
+| `fuzz/config-records` | `fuzz/config/FINDINGS.md`; reproducers in `fuzz/config/repro/` | 14 |
 
 **Highlights reported by the campaigns (not yet independently validated here):**
 - **client:** `/TRACE` with a held ghost reads `link_u[-1]`; `BOUNCER ORESET` on your own account is a use-after-free; `MARKREAD` with a high byte reads past the `ToLower` table.
