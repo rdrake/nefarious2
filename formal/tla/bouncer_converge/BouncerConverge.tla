@@ -309,7 +309,8 @@ PeerConf(W, s, f, sid) ==
   \E x \in PeerPrims(W, s, f, sid) : Conf(SessKc(W, s), W.kc[x])
 NewReplica(W, s, m) ==                                               \* BS:4471-4517
   [W EXCEPT !.sess[s] = [ex |-> TRUE, sid |-> m.sid, tok |-> m.tok, st |-> m.st,
-                         prim |-> 0, als |-> {}, kc |-> 0, org |-> m.src]]
+                         prim |-> 0, als |-> {}, kc |-> IF "K" \in Fixes THEN m.kc ELSE 0,
+                         org |-> m.src]]
 Rename(W, s, sid) ==                                                 \* BS:4419-4455
   LET W1 == [W EXCEPT !.sess[s].sid = sid]
       mem == { x \in Clients : Pres(W1, s, x) /\
@@ -337,6 +338,9 @@ RcvBSC(W, f, s, m) ==
   ELSE IF Ss.ex THEN
      IF Ss.sid = m.sid THEN Fwd(W)                                   \* BS:4363
      ELSE IF PeerConf(W, s, f, m.sid) THEN Fwd(W)                    \* BS:4374-4385
+     ELSE IF "K" \in Fixes /\ Conf(SessKc(W, s), m.kc) THEN Fwd(W)
+          \* FIX K: the id rides on BS C itself, so the gate does not depend on
+          \* the peer primary having survived N-time collision handling
      ELSE IF "S" \in Fixes /\ Ss.st = "H" /\ m.st = "A" /\ <<s, f>> \in W.burst
              /\ PeerPrims(W, s, f, m.sid) = {} THEN Fwd(W)
              \* FIX S: in a burst, a peer session whose primary we refused at
@@ -500,7 +504,7 @@ BurstMsgs(W, a) ==
                 IN Msg("N", x, 0, 0, V(W, a, x).sid, 0, IF HeldAt(W, a, x) THEN "H" ELSE "", W.ts[x], W.kc[x],
                        V(W, a, x).nick, W.home[x])]                   \* SV:423-431 ,S hint
       Ss  == S(W, a)
-      BSC == IF Ss.ex THEN <<Msg("BSC", 0, 0, 0, Ss.sid, Ss.tok, Ss.st, 0, 0, 0, a)>>
+      BSC == IF Ss.ex THEN <<Msg("BSC", 0, 0, 0, Ss.sid, Ss.tok, Ss.st, 0, SessKc(W, a), 0, a)>>
              ELSE <<>>                                                \* BS:3889-3905 sptr=&me
       BSA == IF Ss.ex /\ Ss.prim # 0               \* BS:3945-3952: XXX only, sent from &me
              THEN <<Msg("BSA", Ss.prim, 0, IF "E" \in Fixes THEN W.home[Ss.prim] ELSE 0,
@@ -597,7 +601,7 @@ Login(s, k, n) ==
                                          prim |-> c, als |-> {}, kc |-> k, org |-> s],
                             !.vw[s][c] = [pres |-> TRUE, al |-> FALSE, sid |-> sid,
                                           ap |-> 0, nick |-> n]]
-            X2 == Bcast(X1, s, 0, Msg("BSC", 0, 0, 0, sid, sid, "A", 0, 0, 0, s))
+            X2 == Bcast(X1, s, 0, Msg("BSC", 0, 0, 0, sid, sid, "A", 0, k, 0, s))
             X3 == Bcast(X2, s, 0, Msg("N", c, 0, 0, sid, 0, "", X1.ts[c], k, n, s))
         IN Bcast(X3, s, 0, Msg("BSA", c, 0, 0, sid, 0, "", 0, k, 0, s))
   IN
