@@ -14,6 +14,10 @@ dir=$(dirname "$src")
 here=$(cd "$(dirname "$0")" && pwd)
 root=$(cd "$here/../../.." && pwd)
 conv=--conversion-check
+# CBMC_SOLVER=default uses CBMC's built-in MiniSat (lower peak memory on
+# a few large formulas); otherwise CaDiCaL.
+solver="--sat-solver cadical"
+[ "${CBMC_SOLVER:-}" = default ] && solver=
 [ -n "${NOCONV:-}" ] && conv=
 mkdir -p "$dir/logs"
 log="$dir/logs/$fn.log"
@@ -24,7 +28,7 @@ cbmc "$src" -I "$root/include" -I "$here" \
   --bounds-check --pointer-check --pointer-overflow-check \
   --signed-overflow-check --undefined-shift-check $conv \
   --unwind "$unwind" --unwinding-assertions \
-  --object-bits 12 --sat-solver cadical --trace "$@" > "$log" 2>&1
+  --object-bits 12 $solver --trace "$@" > "$log" 2>&1
 rc=$?
 secs=$(( $(date +%s) - start ))
 if grep -q "VERIFICATION SUCCESSFUL" "$log"; then

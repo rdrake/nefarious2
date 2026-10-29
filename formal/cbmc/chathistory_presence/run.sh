@@ -15,10 +15,13 @@ sed 's/^#define PRESENCE_MAX_INTERVALS 256$/#define PRESENCE_MAX_INTERVALS 8/' \
 fail=0
 for fn in harness_union_wf harness_union_sound harness_union_complete_below_cap \
           harness_union_cap_drops_oldest harness_union_idempotent \
-          harness_union_commutative \
+          \
           harness_join_part harness_next_visible; do
   NOCONV=1 $R $H $fn 8 -DCAP=3 -DPRESENCE_SMALL || fail=1
 done
+# four unions: CaDiCaL exceeds 6 GB, MiniSat fits in 9 GB
+CBMC_SOLVER=default CBMC_MEM_KB=9500000 NOCONV=1 $R $H harness_union_commutative 8 \
+  -DCAP=3 -DPRESENCE_SMALL -DCOMM_BASE=1 || fail=1
 NOCONV=1 $R $H harness_pn_ingest_any 8 -DCAP=3 -DPRESENCE_SMALL || fail=1
 NOCONV=1 $R $H harness_union_any_time 8 -DCAP=3 -DPRESENCE_SMALL || fail=1
 NOCONV=1 $R $H harness_norm_time_any 2 -DPRESENCE_SMALL || fail=1

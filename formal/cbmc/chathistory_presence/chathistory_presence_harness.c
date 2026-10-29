@@ -213,12 +213,15 @@ void harness_union_idempotent(void)
                        "idempotent (intervals)");
 }
 
+#ifndef COMM_BASE
+#define COMM_BASE 0   /* windows already in the record before A and B */
+#endif
 void harness_union_commutative(void)
 {
   struct presence_record rab, rba;
   int64_t as = t_in_domain(), ae = t_in_domain();
   int64_t bs = t_in_domain(), be = t_in_domain(), t = t_in_domain();
-  nondet_wf_record(&rab, CAP - 2);
+  nondet_wf_record(&rab, COMM_BASE);
   rba = rab;
   record_union_close(&rab, as, ae);
   record_union_close(&rab, bs, be);
