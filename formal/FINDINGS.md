@@ -146,7 +146,7 @@ and a `FINDINGS.md` to its own branch. Counts as of 18:46 UTC:
 
 | Branch | Findings file | Entries |
 | --- | --- | --- |
-| `fuzz/client-protocol` | `fuzz/client/FINDINGS.md` | 6 |
+| `fuzz/client-protocol` | `fuzz/client/FINDINGS.md`; reproducers in `fuzz/client/crashes/01..06` | 6, final (a850fcc). About 2.5 h, ~7M execs, 54,890/72,179 edges. F-5 is the multiline crash already fixed in PR #6. Low-privilege: F-3 (MARKREAD high byte), F-5. Oper-only: F-1 (/TRACE), F-2 (ORESET UAF), F-4 (*LINE expiry overflow), F-6 (CLEARMODE stack overflow) |
 | `fuzz/p10-server` | `fuzz/p10/FINDINGS.md` | 13 |
 | `fuzz/parsers` | `fuzz/parsers/FINDINGS.md`; reproducers and `reproduce.sh` in `fuzz/parsers/findings/` | 28 |
 | `fuzz/config-records` | `fuzz/config/FINDINGS.md`; reproducers in `fuzz/config/repro/` | 14 |
