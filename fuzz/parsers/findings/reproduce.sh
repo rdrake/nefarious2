@@ -57,6 +57,7 @@ F25a-dns-truncated-A-rdata.bin|dns|heap-buffer-overflow
 F25b-dns-truncated-AAAA-rdata.bin|dns|heap-buffer-overflow
 F26-reslib-bitstring-shift.bin|dns|left shift of
 F27-reslib-labellen-overread.bin|dns|heap-buffer-overflow
+F28-parse_server-numeric-000.bin|parse|null pointer
 LIST
 echo "$pass reproduced, $fail failed"
 [ $fail -eq 0 ]

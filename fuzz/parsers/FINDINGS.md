@@ -11,7 +11,7 @@ stub and script is under `fuzz/parsers/`; no ircd source was modified.
   back into `<t>/corpus`; `./coverage.sh` gives source line coverage.
 * Reproduce: `./findings/reproduce.sh` replays every reproducer below
   through the plain ASan build with the known-bug guards off and checks its
-  signature (30/30 at the time of writing).
+  signature (31/31 at the time of writing).
 
 Each harness steps around the bugs already reported here so the campaign
 could keep looking past them; `FUZZ_STRICT=1` (and, for the WebSocket and
@@ -26,6 +26,7 @@ trusted-but-not-blindly, config operator-controlled).
 |----|----------|-------|------|------------------------|
 | F01 | **High** | `ircd/websocket.c:188` | infinite loop in `parse_ws_handshake` | any client on a WebSocket port, before registration |
 | F14 | **High** | `ircd/history.c:399` / `:462` | `|` in a nick shifts the stored history fields: account spoofing on replay | any client (nick change) |
+| F28 | **Medium-High** (inherited) | `ircd/parse.c:2141-2247` | a server line with command `000` (or `0*l`, ...) dereferences a NULL `mptr`: crash | any linked server |
 | F03 | Medium | `ircd/kc/kc_webhook.c:563` | webhook requests whose first read fills 4096 bytes are refused 400 | Keycloak (large events are lost) |
 | F16 | Medium | `ircd/m_chathistory.c:4356-4360` | `ch_base64_decode` length goes negative, NUL written before the buffer | a linked server (CH Z / CH B / CH WB) |
 | F18 | Medium | `ircd/m_webpush.c:123` | push endpoint SSRF check is a substring denylist | any logged-in client (WEBPUSH REGISTER) |
@@ -144,6 +145,38 @@ ships to peers.
 or split from the right for the account (accounts cannot contain `|`) and
 validate that the sender has the `nick!user@host` shape.  Existing rows
 written by `|`-nicks can be recognized (sender without `!`) and dropped.
+
+## F28 — `parse_server`: numeric "000" crashes the receiving server (Medium-High, inherited)
+
+**Reproducer** `findings/F28-parse_server-numeric-000.bin` (target
+`parse`, mode 1 = server link, `FUZZ_STRICT=1`):
+`txt: \x01  000 x :y` (`b64: ASAgMDAwIHggOnk=`) — the P10 line
+`  000 x :y` (empty prefix slot, then the command).  With a real peer the
+line is `<its numeric> 000 x :y`.  Found by the campaign as
+`" AW 0*l :..."` and `"      000   ..."`.
+
+```
+ircd/parse.c:2247:9: runtime error: member access within null pointer of type 'struct Message'
+#0 parse_server ircd/parse.c:2247
+```
+(without UBSan: SIGSEGV.)
+
+**Root cause** `ircd/parse.c:2141-2147`: a 3-character command whose first
+byte is a digit is taken as a numeric, `numeric = d0*100 + d1*10 + d2`
+(only `d0` is checked with `IsDigit`), and `mptr` is set to NULL.  The
+dispatch at `:2245-2247` uses the value as the flag — `if (numeric) return
+do_numeric(...); mptr->count++;` — so a numeric that computes to 0 (`000`,
+or `0*l`, `01l`, ... since the other two bytes are not checked) falls
+through to `mptr->count++` with `mptr == NULL`.
+
+**Reachability** every line a directly linked server sends
+(`read_packet` → `parse_server`); the receiving server crashes, so one
+buggy or hostile leaf takes down its hub (and the whole network's view of
+it).  Clients cannot reach it (`parse_client` has no numeric path).
+
+**Fix** keep a separate `is_numeric` flag (or test `mptr == NULL`), and
+require all three bytes to be digits: `if (len == 3 && IsDigit(ch[0]) &&
+IsDigit(ch[1]) && IsDigit(ch[2]))`.
 
 ## F03 — webhook listener refuses any request whose first read fills its buffer (Medium)
 
