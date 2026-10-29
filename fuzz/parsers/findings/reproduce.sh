@@ -53,6 +53,10 @@ F21-bouncer-record-time-overflow.bin|bouncer_record|signed integer overflow
 F22-crule-arglist-overflow.bin|crule|heap-buffer-overflow
 F23-crule-empty-operand.bin|crule|null pointer
 F24-parse_server-prefix-only-overread.bin|parse|heap-buffer-overflow
+F25a-dns-truncated-A-rdata.bin|dns|heap-buffer-overflow
+F25b-dns-truncated-AAAA-rdata.bin|dns|heap-buffer-overflow
+F26-reslib-bitstring-shift.bin|dns|left shift of
+F27-reslib-labellen-overread.bin|dns|heap-buffer-overflow
 LIST
 echo "$pass reproduced, $fail failed"
 [ $fail -eq 0 ]

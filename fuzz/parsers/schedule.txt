@@ -36,3 +36,4 @@ crule 120
 kc_url 120
 kc_cache 120
 kc_error_classify 120
+dns 2400
