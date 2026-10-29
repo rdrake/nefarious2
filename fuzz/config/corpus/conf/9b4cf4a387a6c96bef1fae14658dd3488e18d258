@@ -1,0 +1,182 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; vhost = "127.0.0.1"; };
+Admin { location = "here"; contact = "me@example.net"; };
+Class { name = "Bounce"; pingfreq = 1 minutes 30 seconds; sendq = 1 mbytes; recvq = 4 kb; maxlinks = (10*2)+1; usermode = "+iwx"; maxchans = 20; snomask = 1+2+4; fakelagminimum = 2; fakelagfactor = 120; autojoinchannel = "#a,#b"; autojoinnotice = "hi"; restrict_join = yes; restrict_privmsg = no; restrict_umode = yes; require_sasl = yes; bouncer = yes; };
+Class { name = "Server"; pingfreq = 90; co(nnectfreq = 5 minutes; maxlinks = 1; sendq = 9000000; };
+Client { class = "Bounce"; ip = "10.0.0.0/8"; host = "*.example.net"; username = "~*"; password = "x"; maxlinks = 2; port = 6697; country = "CA"; continent = "NA"; sslfp = "AB:CD"; noidenttilde = yes; redirect = "irc.example.org 6667"; hidehostcomponants = 2; autojoinchannel = "#c"; autojoinnotice = "n"; };
+Connect { name = "hub.example.net"; host = "127.0.0.2"; password = "p"; port = 4400; class = "Server"; vhost = "127.0.0.1";``````````````````````````````````````````````````````````````````````````````````````````````````````````````` from = "fuzz.example.net"; hub = "*"; maxhops = 3; autoconnect = no; ssl = yes; sslfp = "00:11"; sslciphers = "HIGH"; };
+UWorld { name = "services.example.net"; oper = "x"; };
+Operator { name = "op"; password = "$5$abc"; host = "*@*"; class = "Bounce"; sslfp = "AA"; snomask = 15; autojoinchannel = "#opers"; autojoinnotice = "o"; swhois = "is an oper"; local = no; die = yes; restart = yes; rehash = yes; gitsync = yes; };
+Port { port = 6667; };
+Port { port = ipv4 6697; ssl = yes; vhost = "127.0.0.1"; mask = "*"; hidden = yes; };
+Port { port = ipv6 4400; server = yes; vhost = "::1"; };
+Port { port = 8080; websocket = yes; };
+Port { port = 8443; paste = yes; ssl = yes; };
+Jupe { nick = "root,admin"; };
+Kill { host = "*.bad"; reason = "go away"; username = "x"; realname = "y"; country = "XX"; continent = "AN"; version = "*mirc*"; authexempt = yes; mark = "m"; };
+Kill { host = "*.bad2"; file = "kill.txt"; };
+CRule { server = "*.example.net"; rule = "connected(hub.*) || !directcon(*.eu)"; all = yes; };
+Motd { host = "*.ca"; country = "CA"; continent = "NA"; file = "motd.txt"; };
+Quarantine { "#spam" = "spam"; "#x" = "y"; };
+Pseudo "CHANSERV999999999999999999999999999999999999999999999999999999999999999999" { name = "X"; nick = "X@channels.example.net"; prepend = "pre"; defaulttext = "help"; };
+Forwards { "!" = "services.example.net"; "?" = "x"; };
+WebIRC { host = "*@127.0.0.1"; password = "w"; ident = "web"; userident = yes; ignoreident = no; sGeneral { name = "fuzz.example.net"; description = "fuzz"; numeric = 0; };
+Port {
+     port = 8443;
+     ssl = yes;
+     websocket = yes;
+};
+
+#@REHA     maxlinks = 10leaf0;
+     sendq = 1600"; descGeneral { name = "fuzz.example.net"; description = "fuzz";WHOX numeric = 1; vhost = "127.0.0.1"; };
+Admin { location = "here"; contact = "me@example.net"; };
+Class { name = "Bounce"; pingfreq = 1 minutes 30 seconds; sendq = 1 mbytes; recvq = 4 kb; maxlinks = (10*2)+1; usermode = "+iwx"; maxchans = 20; snomask = 1+2+4; fakelagminimum = 2; fakelagfactor = 120; autojoinchannel = "#a,#b"; autojoinnotice = "hi"; restrict_join = yes; restrict_privmsg = no; restrict_umode = yes; require_sasl = yes; bouncer = yes; };
+Class { name = "Server"; pingfreq = 90; connectfreq = 5 minutes; maxlinks = 1; sendq = 9000000; };
+Client { class = "Bounce"; ip = "10.0.0.0/8"; host = "*.example.net"; username = "~*"; password = "x"; maxlinks = 2; port = 6697; country = "CA"; continent = "NA"; sslfp = "AB:CD"; noidenttilde = yes; redirect = "irc.example.org 6667"; hidehostcomponants = 2; autojoinchannel =n = yes; restrict_privmsg = no; restrict_umode = yes; require_sasl = yes; bouncer = yes; };
+Class { name = "Server"; pingfreq = 90; connectfreq = 5 minutes; maxlinks = 1; sendq = 9000000; };
+Client { class = "Bounce"; ip = "10.0.0.0/8"; host = "*.example.net"; username = "~*"; password = "x"; maxlinks = 2; port = 6697; country = "CA"; continent = "NA"; sslfp = "AB:CD"; noidenttilde =Jyes; redirect = "irc.example.org 6667"; hidehostcomponants = 2; autojoinchannel = "#c"; autojoinnotice = "n"; };
+Connect { name = "hub.example.net"; host = "127.0.0.2"; password = "p"; port = 4400; class = "Server"; vhost = "127.0.0.1"; from = "fuzz.example.net"; hub = "*"; maxhops = 3; autoconnect = no; ssl = yes; sslfp = "00:11"; sslciphers = "HIGH"; };
+UWorld { name = "services.example.net"; oper = "x"; };
+Operator { name = "op"; password = "$5$abc"; host = "*@*"; class = "Bounce"; sslfp = "AA"; snomask = 15; autojoinchannel = "#opers"; autojoinnotice = "o"; swhois = "is an oper"; local = no; die = yes; restart = yes; rehash = yes; gitsync = yes; };
+Port { port = 6667; };
+Port { port = ipv4 6697; ssl = yes; vhost = "127.0.0.1"; masGe.neral { name z "fuzz.example.net?"; descrip1ion = "fuzz"; numericGeneral { name = "fuzz.example.net"; description = "fuzz"; numeric = 0; };
+Port {
+     port = 8443;
+     ssl = yes;
+     websocket = yes;
+};
+
+#@REHA     maxlinks = 10leaf0;
+     sendq = 1600"; descGeneral { name = "fuzz.example.net"; description = "fuzz";WHOX numeric = 1; vhost = "127.0.0.1"; };
+Admin { location = "here"; contact = "me@example.net"; };
+Class { name = "Bounce"; pingfreq = 1 minutes 30 seconds; sendq = 1 mbytes; recvq = 4 kb; maxlinks = (10*2)+1; usermode = "+iwx"; maxchans = 20; snomask = 1+2+4; fakelagminimum = 2; fakelagfactor = 120; autojoinchannel = "#a,#b"; autojoinnotice = "hi"; restrict_join = yes; restrict_privmsg = no; restrict_umode = yes; require_sasl = yes; bouncer = yes; };
+Class { name = "Server"; pingfreq = 90; connectfreq = 5 minutes; maxlinks = 1; sendq = 9000000; };
+Client { class = "Bounce"; ip = "10.0.0.0/8"; host = "*.example.net"; username = "~*"; password = "x"; maxlinks = 2; port = 6697; country = "CA"; continent = "NA"; sslfp = "AB:CD"; noidenttilde = yes; redirect = "irc.example.org 6667"; hidehostcomponants = 2; autojoinchannel =n = yes; restrict_privmsg = no; restrict_umode = yes; require_sasl = yes; bouncer = yes; };
+Class { name = "Server"; pingfreq = 90; connectfreq = 5 minutes; maxlinks = 1; sendq = 9000000; };
+Client { class = "Bounce"; ip = "10.0.0.0/8"; host = "*.example.net"; username = "~*"; password = "x"; maxlinks = 2; port = 6697; country = "CA"; continent = "NA"; sslfp = "AB:CD"; noidenttilde =Jyes; redirect = "irc.example.org 6667"; hidehostcomponants = 2; autojoinchannel = "#c"; autojoinnotice = "n"; };
+Connect { name = "hub.example.net"; host = "127.0.0.2"; password = "p"; port = 4400; class = "Server"; vhost = "127.0.0.1"; from = "fuzz.example.net"; hub = "*"; maxhops = 3; autoconnect = no; ssl = yes; sslfp = "00:11"; sslciphers = "HIGH"; };
+UWorld { name = "services.example.net"; oper = "x"; };
+Operator { name = "op"; password = "$5$abc"; host = "*@*"; class = "Bounce"; sslfp = "AA"; snomask = 15; autojoinchannel = "#opers"; autojoinnotice = "o"; swhois = "is an oper"; local = no; die = yes; restart = yes; rehash = yes; gitsync = yes; };
+Port { port = 6667; };
+Port { port = ipv4 6697; ssl = yes; vhost = "127.0.0.1"; masGe.neral { name z "fuzz.example.net?"; descrip1ion = "fuzz"; numeric = 1; };
+features
+{
+
+
+
+ "LOG" =WHOXSTEM" "E"FIL "ircd.log";
+ "ircd.log"; "LOG" = "SYSTEM" "LEVEL" "DEBUG"; "NETWORK" = "Fuzz"; "WEBHOOK_PORT" =General {
+     name = "fuzz.example.net";
+     description = "fuzz server";
+     numeric = 1;
+};
+
+Features {
+     "LOG" = "SYSTEM" "FILE" "ircd.log";
+     "LOG" = "SYSTEM" "LEVEL" "CRIT";
+
+     # Enable draft IRCv3 capabilities
+     "CAP_draft_chathistory" = "TRUE";
+     "CAP_draft_metadata_2" = "TRUE";
+
+     # PM Chathistory
+     "CHATHISTORY_PRIVATE" = "TRUE";
+};
+
+Admin {
+     Location = "Uarth";
+     Contact = "admin@example.net";
+};
+
+Class {
+     name = "Server";
+     pingfreq = 1 minutes 30 seconds;
+     connectfr "5"; };
+include "ircd.conf";
+
+#@REH)ASH@
+G
+
+
+
+
+
+
+
+
+
+
+=
+
+
+
+
+
+
+
+////////////////////////////////////////eq 00;
+};
+
+Class {
+     name = "Local";
+     pingfreq = 1 minutes 30 seconds;
+     maxlinks = 100;
+     sendq = 160000;
+     fakelagminimum= ;0 
+     fakelagfactor = 0;
+};
+
+Class {
+     name = "Opers";
+     pingfreq = 90;
+     connectfreqtripsslfp = yes; enableoptions = yes; trustaccount = yes; description = "gw"; };
+SpoofHost "fake.host" { host = "*@*"; pass = "s"; +iwx"; maxchans = soju.im/FIL = 1+2+4; fakelagminimum = 2; fakelagfactor = 120; autojoinchannel = "#a,#b"; autojoinnotice = "hi"; restrict_join = yes; restrict_privmsg = no; restrict_umode = yes; require_sasl = yes; bouncer = yes; };
+Class { name = "Server"; };
+CRule { server = "*.example.net"; rule = "connected(hub.*) || !directcon(*.eu)"; all = yes; };
+Motd { host = "*.ca"; country = "CA"; continent = "NA"; file = "motd.txt!; };
+Quarantine { "#spam" = "spam"; "#x" = "y"; };
+Pseudo "CHANSERV" { tame = "X"; nick = "X@channels.example.net"; prepend = "pre"; defaulttext = "help"; };
+Forwards { "!" = "services.example.net"; "?" = "x"; };
+WebIRC { host = "*@127.0.0.1"; password s; rehash = yes; gitsync = yes; };
+Port { port = 6667; };
+Port { port = ipv4 6697; ssl = yes; vhost = "127.0.0.1"; mask = "*"; hidden = yes; };
+Port { port = ipv6 4400; server =yes; vhost = "::2"; };
+Port { port = 8080; websocket = yes; };
+Port { port = 8443; paste = yes; ssl = yes; };
+Jupe { nick = "root,admin"; };
+Kill { host = "*.bad"; reason } "go away"; username = "x"; realname = "y"; country = "XX"; continent = "AN"; version = "*mirc*"; authexempt = yes; mark = "m"; };
+Kill { host = "*.bad2"; file = "kill.txt"; };
+CRule { server = "*.example.net"; rule = "connected(hub.*) || !directcon(*.eu)"; all = yes; };
+Motd { host = "*.ca"; country = "CA"; continent = "NA"; file = "motd.txt"; };
+Quarantine { "#spam" = "spam"; "#x" = "y"; };
+Pseudo "CHANSERV" { name = "X"; nick = "X@channels.example.net"; prepend = "pre"; defaulttext = "help"; };
+Forwards { "!" = "se   # PM Chathistory
+     "CHATHISTORY_PRIVATE" = "TRUE";
+};
+
+Admin {
+     Location = "Earth";
+     Contact = "admin@exampl  maxlinks = 0;
+     sendq = 9000000;
+};
+
+Class {
+     name = "Local";
+     pingfreq = 1 minutes 30 seconds;
+     maxlink/s = 100;
+     sendq = 160000;
+     fakelagminimum = 0;
+     fakelagfactor = 0;
+};
+
+Class {
+     name = "Opers";
+     pinrvices.exampgfreq = 90;
+     connectf = 1; };
+features
+{
+
+
+
+ "LOG" =WHOXSTEM" "E"FIL "ircle.net"; "?" = "x"; };
+WebIRC { host = "*@127d.log";
+ "ircd.l.0.og

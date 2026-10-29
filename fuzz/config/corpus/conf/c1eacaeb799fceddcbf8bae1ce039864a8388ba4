@@ -1,0 +1,10 @@
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; vhost = "127.0.0.1"; };
+Admin { location = "here"; contact = "me@example.net"; };
+Class { name = "Bounce"; pingfreq = 1 minutks = 1; sendq = 900 "irc.example.org 6667"; hidehostcomponants = 2; autojoinchannel = "#c"; autojoinnotice = "n"; };
+Connect { name = "hub.example.net"; host = "127.0.0.2"; paGeneral { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; shvt oes; recvq = 4 kb; maxlinks = (10*2)+1; usermode := "+iwx"; maxchans = 20; snomask = 1+2+4; fakelagminimum = 2; fakelagfactor = 120; autojoinchanneconnectfreq; autojoinnotice = "hi"; restrict_join = yes; restrict_privmsg = no; restrict_umode = yes; require_sasl = yes; bouncer = yes; };
+Class { name = "Server"; };
+CRule { server = "*.example.net"; rule = "connected(hubFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF?FFFFFFFFFFFFFFFFFFFFFFFFF.*) || !directcon(*.eu)"; all = yes; };
+Motd { host = ÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ"*.ca"; country = "CA"; continent = "NA"; file = "motd.txt"; };
+Quarantine { "#spam" = "spam"; "#x" =("y"; };
+Pseudo "CHANSERV" { name = maxlinks"X"; nick = "X@channels.example.net"; prepend ÿÿÿûÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿÿ= "pre"; defaulttext = "help"; };
+Forwtilde ards { "!" = "services.example.n=e yzs; retd
