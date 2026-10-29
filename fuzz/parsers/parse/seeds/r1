@@ -1,0 +1,1 @@
+@label=abc;+draft/reply=xyz;+typing=active;batch=b1;draft/multiline-concat PRIVMSG #chan :hello world

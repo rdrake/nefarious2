@@ -43,6 +43,14 @@ for lib in libs:
             libsyms.add(parts[-1].split('@')[0])
 
 funcs = set()
+# functions declared in the ircd headers (catches handlers that are only
+# referenced by address, e.g. parse.c's msgtab, which have no PLT call)
+import glob, os
+inc = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', 'include')
+for h in glob.glob(os.path.join(inc, '*.h')) + glob.glob(os.path.join(inc, 'kc', '*.h')):
+    txt = open(h, errors='replace').read()
+    for m in re.finditer(r'extern\s+[^;(){}]*?\b(\w+)\s*\(', txt):
+        funcs.add(m.group(1))
 for o in objs:
     out = subprocess.run(['objdump', '-r', o], capture_output=True, text=True).stdout
     for line in out.splitlines():
