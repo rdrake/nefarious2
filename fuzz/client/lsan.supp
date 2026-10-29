@@ -1,0 +1,2 @@
+# One-time allocations made while opening the RocksDB stores at init.
+leak:rocksdb_list_column_families

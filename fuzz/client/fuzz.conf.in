@@ -1,0 +1,176 @@
+# Fuzz-only ircd.conf.  @DIR@ is replaced by the harness with a private
+# temporary directory (RocksDB stores, motd, pid, logs) at init time.
+General {
+     name = "fuzz.test.net";
+     description = "client protocol fuzz";
+     numeric = 7;
+};
+
+Admin {
+     Location = "fuzz";
+     Contact = "fuzz@example.invalid";
+};
+
+Class {
+     name = "Server";
+     pingfreq = 90;
+     connectfreq = 300;
+     maxlinks = 1;
+     sendq = 9000000;
+};
+
+Class {
+     name = "Opers";
+     pingfreq = 90;
+     connectfreq = 0;
+     maxlinks = 100;
+     sendq = 4000000;
+     local = no;
+     whois_notice = yes;
+     remove = yes;
+     freeform = yes;
+     hide_channels = yes;
+     local_opmode = yes;
+     opmode = yes;
+     force_local_opmode = yes;
+     walk_lchan = yes;
+     deop_lchan = yes;
+     mode_lchan = yes;
+     shun = yes;
+     local_shun = yes;
+     gline = yes;
+     local_gline = yes;
+     zline = yes;
+     local_zline = yes;
+     jupe = yes;
+     local_jupe = yes;
+     rehash = no;
+     restart = no;
+     die = no;
+     hide_idle = yes;
+     xtraop = yes;
+     see_chan = yes;
+     list_chan = yes;
+     wide_gline = yes;
+     snomask = 5645;
+     remote = yes;
+};
+
+Class {
+     name = "Users";
+     pingfreq = 90;
+     maxlinks = 4000;
+     sendq = 4000000;
+     recvq = 8192;
+     usermode = "x";
+     fakelagminimum = 0;
+     fakelagfactor = 0;
+};
+
+Client {
+     ip = "*";
+     host = "*";
+     class = "Users";
+};
+
+Operator {
+     host = "*@*";
+     password = "$PLAIN$fuzzoperpass";
+     name = "fuzzoper";
+     class = "Opers";
+};
+
+WebIRC {
+     host = "*@*";
+     password = "$PLAIN$fuzzwebirc";
+     description = "fuzz gateway";
+     enableoptions = yes;
+     trustaccount = yes;
+};
+
+Except {
+     host = "*@*";
+     ipcheck = yes;
+     ident = yes;
+     rdns = yes;
+};
+
+UWorld {
+     name = "services.fuzz.test.net";
+};
+
+Jupe {
+     nick = "ChanServ,NickServ";
+};
+
+Quarantine {
+     "#quarantined" = "fuzz quarantine";
+};
+
+Pseudo "CHANSERV" {
+     name = "X";
+     nick = "X@services.fuzz.test.net";
+};
+
+Pseudo "LOGIN" {
+     name = "X";
+     prepend = "LOGIN ";
+     nick = "X@services.fuzz.test.net";
+};
+
+Spoofhost "fuzz.spoofed.host" {
+     pass = "spoofpass";
+     host = "*@*";
+     autoapply = no;
+     ismask = no;
+     matchusername = no;
+};
+
+Features {
+     "LOG" = "SYSTEM" "FILE" "@DIR@/ircd.log";
+     "LOG" = "SYSTEM" "LEVEL" "CRIT";
+     "MPATH" = "@DIR@/ircd.motd";
+     "RPATH" = "@DIR@/remote.motd";
+     "PPATH" = "@DIR@/ircd.pid";
+     "TPATH" = "@DIR@/ircd.tune";
+     "NODNS" = "TRUE";
+     "NOIDENT" = "TRUE";
+     "NETWORK" = "FuzzNet";
+     "HOST_HIDING" = "TRUE";
+     "HIDDEN_HOST" = "users.fuzz.test.net";
+     "CAP_draft_chathistory" = "TRUE";
+     "CAP_draft_metadata_2" = "TRUE";
+     "CAP_draft_event_playback" = "TRUE";
+     "CAP_draft_message_redaction" = "TRUE";
+     "CAP_draft_account_registration" = "TRUE";
+     "CAP_draft_read_marker" = "TRUE";
+     "CAP_draft_channel_rename" = "TRUE";
+     "CAP_evilnet_channel_relocate" = "TRUE";
+     "CAP_draft_webpush" = "TRUE";
+     "CAP_draft_multiline" = "TRUE";
+     "CAP_draft_bouncer" = "TRUE";
+     "CAP_draft_persistence" = "TRUE";
+     "CAP_draft_authtoken" = "TRUE";
+     "CAP_soju_search" = "TRUE";
+     "CAP_draft_pre_away" = "TRUE";
+     "CAP_draft_extended_isupport" = "TRUE";
+     "CAP_no_implicit_names" = "TRUE";
+     "CHATHISTORY_PRIVATE" = "TRUE";
+     "CHATHISTORY_DB" = "@DIR@/history";
+     "METADATA_DB" = "@DIR@/metadata";
+     "WEBPUSH_DB" = "@DIR@/webpush";
+     "HISTORY_MAP_SIZE_MB" = "64";
+     "SASL_LOCAL" = "TRUE";
+     "SASL_LOCAL_MECHANISMS" = "PLAIN,EXTERNAL,OAUTHBEARER,SCRAM-SHA-256";
+     "KEYCLOAK_URL" = "http://127.0.0.1:9";
+     "KEYCLOAK_REALM" = "fuzz";
+     "KEYCLOAK_CLIENT_ID" = "ircd";
+     "KEYCLOAK_CLIENT_SECRET" = "secret";
+     "BOUNCER_ENABLE" = "TRUE";
+     "BOUNCER_REQUIRE_TLS" = "FALSE";
+     "BOUNCER_MAX_SESSIONS" = "4";
+     "WEBSOCKET" = "TRUE";
+     "LOCAL_CHANNELS" = "TRUE";
+     "THREAD_POOL_SIZE" = "0";
+     "ASYNC_LOGGING" = "FALSE";
+};
