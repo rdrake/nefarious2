@@ -1,0 +1,11 @@
+_JOIN #a
+PRIVMSG #a :hi
+NOTICE #a :n
+P‹RT #a :+lblbi
+NOTICE #a :n
+PART AWA“MODE f#a :hi
+NOTICE #a :n
++TRT #a:+lbi
+NOTICE #a :n
+PART AWAY
+QUIT :done

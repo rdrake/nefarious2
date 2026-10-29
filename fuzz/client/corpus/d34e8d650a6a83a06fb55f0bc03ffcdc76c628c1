@@ -1,0 +1,19 @@
+_OPER fuzzoper fuzzoperpass
+MODE fuzzDE fuzzA +s 0CPRIVMSG+cdk
+SNO +x
+WALLOPS :hi
+WALLUSERS :hi
+GLfuzzoperpass
+MODE fuzzDE fuzzA +s 0CPRIVMSG+cdk
+SNO +x
+WALLOPS :hi
+WALLUSERS :hi
+GLINE  +s 0CPRIVMSG+cdk
+SNO +x
+WALLOpS :hi
+WALLUSERS :hi
+GLINE +*@1. fuzz.INE  +s 0CPRIVMSG+cdk
+SNO +x
+WALLOpS :hi
+WALLUSERS :hi
+GLINE +*@1. fuzz.test.net

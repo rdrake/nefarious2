@@ -1,0 +1,11 @@
+_OPESERVERoper fuzzoperpass
+MODE fuzzA +s +cdk
+SNO +x
+WALLOPS :hi
+WALLUSERS :hi
+GLINE +*@1.2.3.4 600 :bad
+GLINE
+GLINE ­*@1.2?.ì./12 600 :z
+SHUN -*@1.ÿÿÿ2.A x y
+GITSYNC
+DES§±¼·ßÅ›÷ASLL test,net

@@ -1,6 +1,0 @@
-CAP LS 302
-CAP LIST
-CAP REQ :sasl message-tags
-CAP REQ :-saRESETp CLEAR
-
-CAP REQ :sasl mUSER u 0 * :u

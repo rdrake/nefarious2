@@ -1,0 +1,9 @@
+_JOIN #a
+PRIVMSG  a :hi
+NOTICE #a :n
+PART #a :+lblbi
+NOTICE #a :n
+PART AWA“MODE f#a :hi
+NOTICE #:n
+PART AWA“MODE f#NOTIG  aCE:#  an
+PART AWAYŠQUIT :done

@@ -1,0 +1,10 @@
+_MODE #fuzz +o fuzzA
+TOPIC #fuzz :new topic
+TOPIC #fuzz
+KICK #fuzz fuzzB :out
+ fuzzB :out
+JOIN #fuzz #fuzz
+INVITE
+KICK #fuzz fõÿÿÿÿÿÿRPONGLIST >0,<`100,C>1,T<99999999
+LIST #fuzz
+LIST :#f*

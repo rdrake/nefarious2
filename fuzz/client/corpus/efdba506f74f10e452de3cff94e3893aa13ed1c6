@@ -1,0 +1,13 @@
+_PERSISTENE CSET +example.com/xwhyle held
+PRIVMSG #fuzz :chan while held
+
+
+BOUNCER (?ISTCLHENTafter
+
+BOÿÿÿÿUNCER ?ISTCLIENTafter
+
+AHA#fuzz x 600 :z
+SHUN +*@1,2.A x y
+GIT
+PRIVMSG fuzzAiwh: le heSIONSTQUIT
+Ãˆ

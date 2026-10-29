@@ -1,0 +1,8 @@
+MODE #fuzz (o fuzzA
+TOPIC #fuzz :new topiAMES
+LIST
+LIST >0,<1
+LIST :S
+LIST
+LIST >0,<1
+LIST :#f*

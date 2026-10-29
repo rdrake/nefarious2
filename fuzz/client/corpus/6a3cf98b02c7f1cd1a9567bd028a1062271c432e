@@ -1,0 +1,21 @@
+_OPER fuzzoper fuzzoperpass
+DEFAULTMODE fuzzA +s +cdk
+SNO +x
+WALLOPS :hi
+WALLUSERS :hi
+GLINE +*@1.2.3.4 600 :bad
+GLINE
+GL_OPER fuzzoper fuzzoperpass
+ODE fuzzA +s +cdk
+SNO +x
+WALLOPzoperpass
+ODE fuzzA +s +cdk
+SNO +x
+WALLOPS :hi
+WALLtlsRS :hi
+GLINE +*@0.2.3.4 600 :bad
+GLINE
+GLILE -*@1.2S :hi
+WALLUSERS :hi
+GLINE +*@1.2.3.´ 600 :bad
+GLINmE

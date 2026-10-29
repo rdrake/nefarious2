@@ -1,0 +1,11 @@
+SWHOISSTENCE SET ON
+PRIVMSG #fuzz :bgfore droS
+PRIVMSG #fuzz :after
+
+BOUNCER LISTSESSIONS
+?UIT
+Ã:after
+rop
+BOUNCER LISTSESSIONS
+QUIT
+Ãˆ

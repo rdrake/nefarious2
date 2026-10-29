@@ -1,0 +1,16 @@
+Oone
+@batch=ml1;draft/multilime-concat PRIime:
+BATCH -ml1
+BATCH +ml2 draft_OPER fuzzoper fuzzLOPS :hi
+WALLUSERS :hi
+GLINE +*@1.2.3.4 600 :bad
+GLINE
+GLINE ­*00 :z
+SHUN +*@1.2.3.5 680  :b/@multiliad
+GLINE
+GLINE ­*00 :z
+SHUN +*@1.2 :bane fuzzB
+@batcOWEd
+GLINE
+GLINE ­*00GLBPUme:
+BATINECH 

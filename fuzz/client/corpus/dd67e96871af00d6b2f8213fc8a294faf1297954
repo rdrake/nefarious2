@@ -1,0 +1,20 @@
+OMETADATA * SET avatar :https://example.com/a.ar
+METADATA * SYNC
+METADATA #fuzz SYNC
+METADATA * CLEAR
+METADATA * SET bad key :v
+METADATA * SET kkkkkkkkkkkkkkkkkkkkkkckkkkkkkkkk~kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkk :v
+METADATA * SET avatar :vvvvvvvvwvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvd key :v
+METADATA * SET kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkTTADkAEA * BOGUS
+METADATA
+METADATA nobody LIST
+MEDISCONNECTET status :vvvvvvvvvvvvvvvvvvvvvvvvvd key :v
+METADATA * SET kkkkkkkkkkkkkk$kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvd key :v
+METADATA * SET kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkTTADkAEA * BOGUS
+METADATA
+METADATA nobody LIST
+MEDISCONNECTET status :vvvvvvvvvvvvvvvvvvvvvvvvvd key :v
+METADATA * SET kkkkkkkkkkkkkk$kkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkkTTADkAEA * BOGUS
+METADATA
+METADATA nobody LISbusy
+METATf zADuAzB GET status

@@ -1,0 +1,14 @@
+_WHO #fuzz
+WHO * %nuhsrfdlaotc,1
+WHO fuzz* o
+WHO 0 o
+WHO #fuzz %
+WHO :x y z
+WHOIS fuzzB fuzzB
+WHOIS *
+ÿWHOIS fuzz.test.net fuzzB
+WHOWAS fuzzB
+WHOWAS fuzzB 4 fuzz.test.***********uzz* o
+WHO 0 o
+WHO #fuzz %
+WHO O * %nobod

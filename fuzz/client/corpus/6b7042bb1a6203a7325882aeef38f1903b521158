@@ -1,0 +1,45 @@
+OWEBPUSH VAPID
+WEB_@label=1 CAP LS 302
+@aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaUSH REGISTER http://insecure.example/x a b
+WEBPUSH REGISTER
+WEBPUSH UNREGISTER https://push.eaNICK a
+SETNAME :new name
+SETNAME
+SETNAME :rrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrrxample.com/abc
+WEBPUSH LIST
+WEBPUSH BOGUS
+@+draft/webpush/mute=#fuzz WEBPUSH VAPID
+METADATA * SET draft/webpush/idle :65
+PRIVMSG fuzzA :wake up fuzzA
+x
+PRIVMSG #fuzz :fuzzA: mentionPUSH REGISTER :x
+@;; PING x
+@ PING x
+@+x=\\\\
+WEBPUSH UNREGISTER https://push.example.com/abc
+WEBP0Z 5
+CHATHISTORY AROUND #fuzzY AROUND# #fuzz timestamp=2026-10-29T00:00:00.000Z@ 3
+CHATHISTORY BETWEEN #fuzz timestamp2000-01-01T00:00:00.000Z times+mmp=2030-01-01T00:00:00.000Z 10USH LIST
+WEBPUSH BOGUS
+@+draft/webpush/mute=#fuzz WEBPUSH VAPID
+METADATA * SET draft/webpush/idle :00
+PRIt/webpush/mute=#fuzz WEBPUSH VAPID
+METADATA * SET draft/webpush/idle :65
+PRIVMSG fuzzA :wake up fuzzA
+x
+PRIVMSG #fuzz :fuzzA: mentionPUSH REGISTER :x
+@;; PING x
+@ PING x
+@+x=\\\\
+WEBPUSH UNREGISTER https://push.example.com/abc
+WEBP0Z 5
+CHATHISTORY AROUND #fuzzY AROUND# #fuzz timestamp=2026-10-29T00:00:00.000Z@ 3
+CHATHISTORY BETWEEN #fuzz timestamp2000-01-01T00:00:00.000Z times+mmp=2030-01-01T00:00:00.000Z 10USH LIST
+WEBPUSH BOGUS
+@+draft/webpush/mute=#fuzz WEBPUSH VAPID
+METADATA * SET draft/webpush/idle :00
+PRIVMSG fuzzA :w[ake up fuzzA\\\\\\\\\\\\
+x
+PRIVMSG #fuzz :fuzSETTINGSfuzzA :w[ake up fuzzA\\\\\\\\\\\\
+x
+PRIVMSG #fuzz :fuzz\\\\\\\\\\\\\\ PING xA: mentio%un

@@ -1,0 +1,9 @@
+_OPER fo rzpeuzfuzzoperpass
+MODE fuzzA +s +cdk
+SNO +x
+WALLOPS :hi
+WALLUSERS :hi
+GLINE +88888888888888888888888888888888888*@1.2.3.4 600 :bád
+GLINE
+GLINE -*@0.2.3.4_ZLINE +1.2.3SYNCH :d
+ASLL fuzz.Cest.net

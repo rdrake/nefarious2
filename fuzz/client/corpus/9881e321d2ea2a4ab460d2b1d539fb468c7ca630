@@ -1,0 +1,9 @@
+_PRIVMSG ccccATAVMSG #fuzz :three
+PRIVMSG fuzzB :p,
+PRIVMSG fu * 05
+CHATHISTORY LATEST fuz * GET avatar zB * 51
+CHccccccccccccccccccccccccccccccccccccccccccccccATAVMSG #fuzz :three
+PRIVMSG fuzzB :p,
+PRIVMSG fu * 05
+CHATHISTORY LATEST fuz * GET avatar zB * 51
+CHATHdiISTCLOR

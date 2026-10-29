@@ -1,0 +1,12 @@
+_NICK
+NICK*@1.2.3.4
+ZLINE OP+1®2.3.0/24 600 0:z
+SHUN00 :b¤›
+GLINE
+GLINE ­*4.4 600 :bad
+GLINE
+GLINE ­*@1.2.6.4
+ZLINE OP+1.2.3.0/24 600 0:z
+SHUN +*@ÙÑÍÑ3.0/24 600 0:z
+SHUN +&@ÙÑÍÑ3.5&local 600 :s
+J%.2.3.

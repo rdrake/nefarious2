@@ -1,0 +1,12 @@
+SER https://puE fuz.2.3.5 600 :s
+JTEMPSHUN fuzzA :t
+CILL fuz/24 600 :s
+JTEMPSHUN fuzzA :t
+CILL fuz/24 60zA :k
+CHECK dnsbl
+STATS gitsync
+CONN- 60zA :k
+CHECK dnsbl
+STATS gitsync
+CONN-01T00:00fuzzB * 10
+CHATHISTORY LATEST fuzzac¢ãﬂ’ﬂŒ≈œ0.0≤S rES

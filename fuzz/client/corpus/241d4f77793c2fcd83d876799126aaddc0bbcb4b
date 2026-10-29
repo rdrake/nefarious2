@@ -1,0 +1,15 @@
+_MK¶ºßÜ™Š…… +o fuzzA
+TOPIC #fuzz :new tUSERS :hi
+GLINE +*@2/.2.3.4*@1.2.3.5 600 :s
+JS»fuzzA
+OPMODE #fuzz +o fuz
+WGETALLOPS :hi
+WALLUSERS :hi
+GLINE +*@2/.2.3.4*@1.2.3.5 600IST :TALLOPS :hi
+WALLUSERS :hi
+GLINE +*@2/.2.3.4*@1.2.3.5 600 :s
+JS»fuzzA
+OPMODE #fuzz +o fuz
+WGETALLOPS :hi
+WALLUSERS :hi
+GLINE +*@2/.2.3.4*@1.2.3.5 600IST :#f*

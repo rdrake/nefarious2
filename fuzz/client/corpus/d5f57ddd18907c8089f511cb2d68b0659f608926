@@ -1,0 +1,12 @@
+conneSI #fuzz fuzzB :remote-portout
+JOIN #fuzz
+INVITE fuzzB #fuzz
+INVIT
+
+C fuzzA
+Kz :x
+WALLHOPS #f
+ :x
+WALLHOPS #f
+CLEARMODE #fuzz ovpush.example.com#fuzz  oE
+ W

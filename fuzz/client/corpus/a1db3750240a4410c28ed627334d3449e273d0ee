@@ -1,0 +1,15 @@
+O@label=abc P6IVMSG #fuzz :labeled
+@label=ˆÄÔŒyÿÿng=done PRIVMSG fuzzB :t
+@label=LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL;LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL PING 
+i=t@mex2020-01-01T00:00:00.000Z;msgid=fake PRIVMSG #fuzz :spoof
+@batch=nope PRIVMSG #fuzz :x
+@+draft/channel-context=#fuzz PRIVMSG fuzzB :ctx
+@+evilnet.github.io/ssid=abc;+eviRIVMSG fuzzB :t
+@label=LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL;LLLLLLLLLLLLLLLLLLLLLLLLLLLLLLL PING 
+i=t@mex2020-01-01T00:00:00.000Z;msgid=fake PRIVMSG #fuzz :spoof
+@batch=nope PRIVMSG #fuzz :x
+@+draft/channel-context=#fuzz PRIVMSG fuzzB :ctx
+@+evilnet.github.io/ssid=abc;+evilnet.github.io/rsvvvvvvvvv@vvvv;+local-portk6=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k7=vvvvvvvvvvvvvvvvvvvvvvvvvv;+k10=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k01=vvvvvvvvvùvvvvvvvvvvvvvvvvvvv;+k19=vvvvvvvvvvvvvvvvvvvvvvvv2=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvàvv;+k13=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k14=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k15=lnet.github.io/rsvvvvvvvvv@vvvv;+local-portk6=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k7=vvvvvvvvvvvvvvvvvvvvvvvvvv;+k10=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k01=vvvvvvvvvùvvvvvvvvvvvvvvvvvvv;+k19=vvvvvvvvvvvvvvvvvvvvvvvv2=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvàvv;+k13=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k14=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k15=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k16=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv;+k17=vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvJOIN #a,#b,#c,&d k1,k2
+JOIN 0
+JOIN #a,#a,#a
+JOIN #c0,#c1,#c2,#c3,#c4,#c5vvvvvvvvvv;+k18=vvvvvvvvvvvvvvvvvvvvvùv,#c6,#c7,#c8,#=9,#c10,#cvv11,#c1vOMETA

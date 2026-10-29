@@ -1,0 +1,13 @@
+_SILENCE +*!*@*
+SILENCESILENCE +E -*!*@*
+SILENCE_PRIVMSG #fuzz :one
+PRIVMSG #fuzz :two
+PRIVMSG #fuzz :three
+PRIVMSG fuzzB :pm
+PRIVMSG SfuzzA :pm back fuzzA
+SILENCE +~a:x
+WATCH +fuzzB +nobody l L
+WATCH 
+CHzB +nobody l LST #fuzz * 1z
+CHATH%STORY S
+WATCHLUSERS C

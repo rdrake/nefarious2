@@ -1,0 +1,9 @@
+OBATCH +ml1 draft/multilimwebsocketmultiline-concat PRIVMSG #fuzz :cont
+@batch=ml1 PRIVMSG #fuzz :
+BATCH -ml1
+BATCH +ml2 
+WEBPUSH REh=ml2 NOTICE fuzzB :TCH -ml1
+BATCH +ml2 
+WEBPUSH REh=ml2 NOTICE fuzzB :a
+@batch=ml2 PRIVH REh=ml2 NOTICE fuzzB :a
+@batch=ml2 PRIVMSGICT STG fuzzB :b

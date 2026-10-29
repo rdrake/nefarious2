@@ -1,0 +1,15 @@
+_PRIVMSG #fuzz :o˜e
+PRIVMSG #fuzz :two
+PRIVMSG #\uzz :threHTEST #fuzz msgid=x 0
+CHATHISTORY LATEST  chnona#* 10
+CHATHISTORY
+CHATHISTORY B #UGOSfuzz * 1
+CHATHISTORY LATSTORY B #UGOSfuzz * 1
+CHATHISTORY LATEST #fuzz timestamp=garbage -5
+CHATHISTORY LATEST * * 10
+SEARCH i`nr#fuzz;text=one;li timestamp=garbage -5
+CHATHISTORY LATEST * * 10
+SECRCH inr#fuzz;text=one;limit=5
+SEARCH from=fIS *
+WHOIS fuzz.test.net fuzzÿÿzzB
+SEARCH :
