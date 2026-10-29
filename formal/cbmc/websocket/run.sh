@@ -10,7 +10,10 @@ NOCONV=1 $R $H harness_decode_control_fin 14 -DFMAX=8 -DPMAX=4 || fail=1
 NOCONV=1 $R $H harness_decode_len64 16 || fail=1
 NOCONV=1 $R $H harness_encode_bounds 12 -DPMAX=8 || fail=1
 # string-library loops over a ~50-byte request need a larger bound
-NOCONV=1 $R $H harness_handshake_terminates 70 -DHVAL=2 || fail=1
+# The token-scan loop (parse_ws_handshake.4) gets HVAL+4 iterations, far
+# more than a terminating scan of HVAL bytes can use; the header loop 4.
+NOCONV=1 $R $H harness_handshake_terminates 40 -DHVAL=2 \
+  --unwindset parse_ws_handshake.4:6,parse_ws_handshake.7:4 || fail=1
 out=${TMPDIR:-/tmp}/ws_hang_repro.$$
 if gcc -g -fsanitize=address,undefined -I ../common -I ../../../include \
      confirm_subproto_hang.c -lssl -lcrypto -o "$out" 2>/dev/null; then

@@ -17,4 +17,5 @@ for fn in harness_prune_preserves harness_prune_drop; do
 done
 # 22-byte single-entry value with a 20-digit until token
 NOCONV=1 $R $H harness_check_large_until 26 || fail=1
+../common/run_confirm.sh confirm.c ../../../ircd/webpush_mute.c
 exit $fail

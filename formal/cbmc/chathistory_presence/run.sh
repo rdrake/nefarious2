@@ -14,7 +14,8 @@ sed 's/^#define PRESENCE_MAX_INTERVALS 256$/#define PRESENCE_MAX_INTERVALS 8/' \
   $SRC > build/chathistory_presence_small.c
 fail=0
 for fn in harness_union_wf harness_union_sound harness_union_complete_below_cap \
-          harness_union_cap_drops_oldest harness_union_idem_comm \
+          harness_union_cap_drops_oldest harness_union_idempotent \
+          harness_union_commutative \
           harness_join_part harness_next_visible; do
   NOCONV=1 $R $H $fn 8 -DCAP=3 -DPRESENCE_SMALL || fail=1
 done

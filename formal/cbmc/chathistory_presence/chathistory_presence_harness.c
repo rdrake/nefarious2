@@ -193,25 +193,36 @@ void harness_union_cap_drops_oldest(void)
 
 /* U5  idempotence and order independence (claimed in the comment above
  *     record_union_close: "idempotent and order-independent -- the
- *     properties the PN replication flood needs"), below the cap:
- *       union(union(r,A),A) == union(r,A)            (structurally)
- *       union(union(r,A),B) ~ union(union(r,B),A)    (same visible set) */
-void harness_union_idem_comm(void)
+ *     properties the PN replication flood needs"), below the cap.
+ *     U5a: union(union(r,A),A) == union(r,A)            (structurally)
+ *     U5b: union(union(r,A),B) ~ union(union(r,B),A)    (same visible set)
+ *     (split in two: the four-call version exhausted 6 GB) */
+void harness_union_idempotent(void)
 {
-  struct presence_record r, ra, rab, rb, rba;
+  struct presence_record r, ra;
+  int64_t as = t_in_domain(), ae = t_in_domain();
+  nondet_wf_record(&r, CAP - 1);
+  record_union_close(&r, as, ae);
+  ra = r;
+  record_union_close(&r, as, ae);
+  __CPROVER_assert(r.count == ra.count, "idempotent (count)");
+  for (unsigned i = 0; i < CAP; i++)
+    if (i < r.count)
+      __CPROVER_assert(r.intervals[i].start == ra.intervals[i].start
+                       && r.intervals[i].end == ra.intervals[i].end,
+                       "idempotent (intervals)");
+}
+
+void harness_union_commutative(void)
+{
+  struct presence_record rab, rba;
   int64_t as = t_in_domain(), ae = t_in_domain();
   int64_t bs = t_in_domain(), be = t_in_domain(), t = t_in_domain();
-  nondet_wf_record(&r, CAP - 2);
-  ra = r;
-  record_union_close(&ra, as, ae);
-  rab = ra;
+  nondet_wf_record(&rab, CAP - 2);
+  rba = rab;
   record_union_close(&rab, as, ae);
-  __CPROVER_assert(memcmp(&rab, &ra, sizeof(ra)) == 0, "idempotent");
-  rab = ra;
   record_union_close(&rab, bs, be);
-  rb = r;
-  record_union_close(&rb, bs, be);
-  rba = rb;
+  record_union_close(&rba, bs, be);
   record_union_close(&rba, as, ae);
   __CPROVER_assert(record_was_present(&rab, t) == record_was_present(&rba, t),
                    "order independent");
