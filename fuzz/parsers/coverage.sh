@@ -3,6 +3,7 @@
 #   ./coverage.sh [target...]     (default: every target in build.sh)
 # Builds out/cov_<t> (-fprofile-instr-generate -fcoverage-mapping, no
 # sanitizers, common/standalone_main.c), replays <t>/corpus (+ seeds),
+# (and $COV_EXTRA/<t> when set, e.g. COV_EXTRA=/tmp/nefarious-fuzz/corpus),
 # and prints llvm-cov's per-file summary for the ircd sources the target
 # links.  Reports land in out/coverage/<t>.txt; the summary table on
 # stdout is what FINDINGS.md quotes.
@@ -47,7 +48,7 @@ for t in $targets; do
   fi
   $CC -fprofile-instr-generate "${objs[@]}" -o "$OUT/cov_$t" $libs
   rm -f "$od"/*.profraw
-  dirs=(); for d in "$HERE/$t/corpus" "$HERE/$t/seeds"; do [ -d "$d" ] && dirs+=("$d"); done
+  dirs=(); for d in "$HERE/$t/corpus" "$HERE/$t/seeds" ${COV_EXTRA:+"$COV_EXTRA/$t"}; do [ -d "$d" ] && dirs+=("$d"); done
   LLVM_PROFILE_FILE="$od/%p.profraw" FUZZ_WS_KNOWN_HANG= timeout 600 "$OUT/cov_$t" "${dirs[@]}" >/dev/null 2>&1 || true
   llvm-profdata merge -sparse "$od"/*.profraw -o "$od/cov.profdata" 2>/dev/null
   # the harness may #include the ircd source: report on the harness's
