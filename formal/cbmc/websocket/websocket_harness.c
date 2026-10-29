@@ -112,7 +112,7 @@ void harness_encode_bounds(void)
 }
 
 /* W3  parse_ws_handshake TERMINATES on every request.  The request is a
- *     fixed "GET / HTTP/1.1\r\nSec-WebSocket-Protocol:" prefix, then
+ *     fixed "GET \r\nSec-WebSocket-Protocol:" prefix, then
  *     HVAL arbitrary header-value bytes, then the blank line -- i.e.
  *     every possible value of that one header.  --unwinding-assertions
  *     turns a loop that does not finish within the bound into a
@@ -123,7 +123,7 @@ void harness_encode_bounds(void)
 #endif
 void harness_handshake_terminates(void)
 {
-  static const char pre[] = "GET / HTTP/1.1\r\nSec-WebSocket-Protocol:";
+  static const char pre[] = "GET \r\nSec-WebSocket-Protocol:";
   char req[sizeof(pre) - 1 + HVAL + 4 + 1];
   char key[64], origin[256];
   int sub, i;
