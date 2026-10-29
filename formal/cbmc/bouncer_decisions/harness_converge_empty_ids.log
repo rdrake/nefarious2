@@ -1,0 +1,215 @@
+CBMC version 5.95.1 (cbmc-5.95.1) 64-bit x86_64 linux
+Parsing bouncer_decisions_harness.c
+Converting
+Type-checking bouncer_decisions_harness
+Generating GOTO Program
+Adding CPROVER library (x86_64)
+Removal of function pointers and virtual functions
+Generic Property Instrumentation
+Running with 8 object bits, 56 offset bits (default)
+Starting Bounded Model Checking
+Runtime Symex: 0.00348115s
+size of program expression: 223 steps
+simple slicing removed 2 assignments
+Generated 25 VCC(s), 25 remaining after simplification
+Runtime Postprocess Equation: 1.889e-05s
+Passing problem to propositional reduction
+converting SSA
+Runtime Convert SSA: 0.0009225s
+Running propositional reduction
+Post-processing
+Runtime Post-process: 0.000352463s
+Solving with MiniSAT 2.2.1 with simplifier
+2088 variables, 2634 clauses
+SAT checker: instance is UNSATISFIABLE
+Runtime Solver: 0.00248104s
+Runtime decision procedure: 0.00349342s
+
+** Results:
+../../../ircd/bouncer_deauth.c function bounce_alias_field_id
+[bounce_alias_field_id.pointer_dereference.1] line 53 dereference failure: pointer NULL in field[(signed long int)0]: SUCCESS
+[bounce_alias_field_id.pointer_dereference.2] line 53 dereference failure: pointer invalid in field[(signed long int)0]: SUCCESS
+[bounce_alias_field_id.pointer_dereference.3] line 53 dereference failure: deallocated dynamic object in field[(signed long int)0]: SUCCESS
+[bounce_alias_field_id.pointer_dereference.4] line 53 dereference failure: dead object in field[(signed long int)0]: SUCCESS
+[bounce_alias_field_id.pointer_dereference.5] line 53 dereference failure: pointer outside object bounds in field[(signed long int)0]: SUCCESS
+[bounce_alias_field_id.pointer_dereference.6] line 53 dereference failure: invalid integer address in field[(signed long int)0]: SUCCESS
+[bounce_alias_field_id.overflow.1] line 56 arithmetic overflow on signed + in i + 1: SUCCESS
+[bounce_alias_field_id.array_bounds.1] line 57 array 'field_names' lower bound in field_names[(signed long int)i]: SUCCESS
+[bounce_alias_field_id.array_bounds.2] line 57 array 'field_names' upper bound in field_names[(signed long int)i]: SUCCESS
+
+../../../ircd/bouncer_deauth.c function bounce_alias_field_name
+[bounce_alias_field_name.array_bounds.1] line 67 array 'field_names' lower bound in field_names[(signed long int)id]: SUCCESS
+[bounce_alias_field_name.array_bounds.2] line 67 array 'field_names' upper bound in field_names[(signed long int)id]: SUCCESS
+
+../../../ircd/bouncer_deauth.c function bounce_deauth_classify
+[bounce_deauth_classify.pointer_dereference.1] line 77 dereference failure: pointer NULL in s->is_user: SUCCESS
+[bounce_deauth_classify.pointer_dereference.2] line 77 dereference failure: pointer invalid in s->is_user: SUCCESS
+[bounce_deauth_classify.pointer_dereference.3] line 77 dereference failure: deallocated dynamic object in s->is_user: SUCCESS
+[bounce_deauth_classify.pointer_dereference.4] line 77 dereference failure: dead object in s->is_user: SUCCESS
+[bounce_deauth_classify.pointer_dereference.5] line 77 dereference failure: pointer outside object bounds in s->is_user: SUCCESS
+[bounce_deauth_classify.pointer_dereference.6] line 77 dereference failure: invalid integer address in s->is_user: SUCCESS
+[bounce_deauth_classify.pointer_dereference.7] line 77 dereference failure: pointer NULL in s->is_account: SUCCESS
+[bounce_deauth_classify.pointer_dereference.8] line 77 dereference failure: pointer invalid in s->is_account: SUCCESS
+[bounce_deauth_classify.pointer_dereference.9] line 77 dereference failure: deallocated dynamic object in s->is_account: SUCCESS
+[bounce_deauth_classify.pointer_dereference.10] line 77 dereference failure: dead object in s->is_account: SUCCESS
+[bounce_deauth_classify.pointer_dereference.11] line 77 dereference failure: pointer outside object bounds in s->is_account: SUCCESS
+[bounce_deauth_classify.pointer_dereference.12] line 77 dereference failure: invalid integer address in s->is_account: SUCCESS
+[bounce_deauth_classify.pointer_dereference.13] line 77 dereference failure: pointer NULL in s->account_matches: SUCCESS
+[bounce_deauth_classify.pointer_dereference.14] line 77 dereference failure: pointer invalid in s->account_matches: SUCCESS
+[bounce_deauth_classify.pointer_dereference.15] line 77 dereference failure: deallocated dynamic object in s->account_matches: SUCCESS
+[bounce_deauth_classify.pointer_dereference.16] line 77 dereference failure: dead object in s->account_matches: SUCCESS
+[bounce_deauth_classify.pointer_dereference.17] line 77 dereference failure: pointer outside object bounds in s->account_matches: SUCCESS
+[bounce_deauth_classify.pointer_dereference.18] line 77 dereference failure: invalid integer address in s->account_matches: SUCCESS
+[bounce_deauth_classify.pointer_dereference.19] line 82 dereference failure: pointer NULL in s->is_alias: SUCCESS
+[bounce_deauth_classify.pointer_dereference.20] line 82 dereference failure: pointer invalid in s->is_alias: SUCCESS
+[bounce_deauth_classify.pointer_dereference.21] line 82 dereference failure: deallocated dynamic object in s->is_alias: SUCCESS
+[bounce_deauth_classify.pointer_dereference.22] line 82 dereference failure: dead object in s->is_alias: SUCCESS
+[bounce_deauth_classify.pointer_dereference.23] line 82 dereference failure: pointer outside object bounds in s->is_alias: SUCCESS
+[bounce_deauth_classify.pointer_dereference.24] line 82 dereference failure: invalid integer address in s->is_alias: SUCCESS
+[bounce_deauth_classify.pointer_dereference.25] line 83 dereference failure: pointer NULL in s->is_local: SUCCESS
+[bounce_deauth_classify.pointer_dereference.26] line 83 dereference failure: pointer invalid in s->is_local: SUCCESS
+[bounce_deauth_classify.pointer_dereference.27] line 83 dereference failure: deallocated dynamic object in s->is_local: SUCCESS
+[bounce_deauth_classify.pointer_dereference.28] line 83 dereference failure: dead object in s->is_local: SUCCESS
+[bounce_deauth_classify.pointer_dereference.29] line 83 dereference failure: pointer outside object bounds in s->is_local: SUCCESS
+[bounce_deauth_classify.pointer_dereference.30] line 83 dereference failure: invalid integer address in s->is_local: SUCCESS
+[bounce_deauth_classify.pointer_dereference.31] line 94 dereference failure: pointer NULL in s->is_local: SUCCESS
+[bounce_deauth_classify.pointer_dereference.32] line 94 dereference failure: pointer invalid in s->is_local: SUCCESS
+[bounce_deauth_classify.pointer_dereference.33] line 94 dereference failure: deallocated dynamic object in s->is_local: SUCCESS
+[bounce_deauth_classify.pointer_dereference.34] line 94 dereference failure: dead object in s->is_local: SUCCESS
+[bounce_deauth_classify.pointer_dereference.35] line 94 dereference failure: pointer outside object bounds in s->is_local: SUCCESS
+[bounce_deauth_classify.pointer_dereference.36] line 94 dereference failure: invalid integer address in s->is_local: SUCCESS
+[bounce_deauth_classify.pointer_dereference.37] line 95 dereference failure: pointer NULL in s->remote_ok: SUCCESS
+[bounce_deauth_classify.pointer_dereference.38] line 95 dereference failure: pointer invalid in s->remote_ok: SUCCESS
+[bounce_deauth_classify.pointer_dereference.39] line 95 dereference failure: deallocated dynamic object in s->remote_ok: SUCCESS
+[bounce_deauth_classify.pointer_dereference.40] line 95 dereference failure: dead object in s->remote_ok: SUCCESS
+[bounce_deauth_classify.pointer_dereference.41] line 95 dereference failure: pointer outside object bounds in s->remote_ok: SUCCESS
+[bounce_deauth_classify.pointer_dereference.42] line 95 dereference failure: invalid integer address in s->remote_ok: SUCCESS
+[bounce_deauth_classify.pointer_dereference.43] line 99 dereference failure: pointer NULL in s->is_hold: SUCCESS
+[bounce_deauth_classify.pointer_dereference.44] line 99 dereference failure: pointer invalid in s->is_hold: SUCCESS
+[bounce_deauth_classify.pointer_dereference.45] line 99 dereference failure: deallocated dynamic object in s->is_hold: SUCCESS
+[bounce_deauth_classify.pointer_dereference.46] line 99 dereference failure: dead object in s->is_hold: SUCCESS
+[bounce_deauth_classify.pointer_dereference.47] line 99 dereference failure: pointer outside object bounds in s->is_hold: SUCCESS
+[bounce_deauth_classify.pointer_dereference.48] line 99 dereference failure: invalid integer address in s->is_hold: SUCCESS
+
+../../../ircd/bouncer_deauth.c function field_casecmp
+[field_casecmp.pointer_dereference.1] line 39 dereference failure: pointer NULL in *a: SUCCESS
+[field_casecmp.pointer_dereference.2] line 39 dereference failure: pointer invalid in *a: SUCCESS
+[field_casecmp.pointer_dereference.3] line 39 dereference failure: deallocated dynamic object in *a: SUCCESS
+[field_casecmp.pointer_dereference.4] line 39 dereference failure: dead object in *a: SUCCESS
+[field_casecmp.pointer_dereference.5] line 39 dereference failure: pointer outside object bounds in *a: SUCCESS
+[field_casecmp.pointer_dereference.6] line 39 dereference failure: invalid integer address in *a: SUCCESS
+[field_casecmp.pointer_dereference.7] line 39 dereference failure: pointer NULL in *b: SUCCESS
+[field_casecmp.pointer_dereference.8] line 39 dereference failure: pointer invalid in *b: SUCCESS
+[field_casecmp.pointer_dereference.9] line 39 dereference failure: deallocated dynamic object in *b: SUCCESS
+[field_casecmp.pointer_dereference.10] line 39 dereference failure: dead object in *b: SUCCESS
+[field_casecmp.pointer_dereference.11] line 39 dereference failure: pointer outside object bounds in *b: SUCCESS
+[field_casecmp.pointer_dereference.12] line 39 dereference failure: invalid integer address in *b: SUCCESS
+[field_casecmp.pointer_dereference.13] line 40 dereference failure: pointer NULL in *a: SUCCESS
+[field_casecmp.pointer_dereference.14] line 40 dereference failure: pointer invalid in *a: SUCCESS
+[field_casecmp.pointer_dereference.15] line 40 dereference failure: deallocated dynamic object in *a: SUCCESS
+[field_casecmp.pointer_dereference.16] line 40 dereference failure: dead object in *a: SUCCESS
+[field_casecmp.pointer_dereference.17] line 40 dereference failure: pointer outside object bounds in *a: SUCCESS
+[field_casecmp.pointer_dereference.18] line 40 dereference failure: invalid integer address in *a: SUCCESS
+[field_casecmp.pointer_dereference.19] line 41 dereference failure: pointer NULL in *b: SUCCESS
+[field_casecmp.pointer_dereference.20] line 41 dereference failure: pointer invalid in *b: SUCCESS
+[field_casecmp.pointer_dereference.21] line 41 dereference failure: deallocated dynamic object in *b: SUCCESS
+[field_casecmp.pointer_dereference.22] line 41 dereference failure: dead object in *b: SUCCESS
+[field_casecmp.pointer_dereference.23] line 41 dereference failure: pointer outside object bounds in *b: SUCCESS
+[field_casecmp.pointer_dereference.24] line 41 dereference failure: invalid integer address in *b: SUCCESS
+[field_casecmp.overflow.1] line 43 arithmetic overflow on signed - in ca - cb: SUCCESS
+[field_casecmp.overflow.2] line 46 arithmetic overflow on signed - in (signed int)(unsigned char)*a - (signed int)(unsigned char)*b: SUCCESS
+[field_casecmp.pointer_dereference.25] line 46 dereference failure: pointer NULL in *a: SUCCESS
+[field_casecmp.pointer_dereference.26] line 46 dereference failure: pointer invalid in *a: SUCCESS
+[field_casecmp.pointer_dereference.27] line 46 dereference failure: deallocated dynamic object in *a: SUCCESS
+[field_casecmp.pointer_dereference.28] line 46 dereference failure: dead object in *a: SUCCESS
+[field_casecmp.pointer_dereference.29] line 46 dereference failure: pointer outside object bounds in *a: SUCCESS
+[field_casecmp.pointer_dereference.30] line 46 dereference failure: invalid integer address in *a: SUCCESS
+[field_casecmp.pointer_dereference.31] line 46 dereference failure: pointer NULL in *b: SUCCESS
+[field_casecmp.pointer_dereference.32] line 46 dereference failure: pointer invalid in *b: SUCCESS
+[field_casecmp.pointer_dereference.33] line 46 dereference failure: deallocated dynamic object in *b: SUCCESS
+[field_casecmp.pointer_dereference.34] line 46 dereference failure: dead object in *b: SUCCESS
+[field_casecmp.pointer_dereference.35] line 46 dereference failure: pointer outside object bounds in *b: SUCCESS
+[field_casecmp.pointer_dereference.36] line 46 dereference failure: invalid integer address in *b: SUCCESS
+
+../../../ircd/bouncer_rebind_auth.c function bounce_rebind_kc_conflict
+[bounce_rebind_kc_conflict.pointer_dereference.1] line 41 dereference failure: pointer NULL in *ghost_id: SUCCESS
+[bounce_rebind_kc_conflict.pointer_dereference.2] line 41 dereference failure: pointer invalid in *ghost_id: SUCCESS
+[bounce_rebind_kc_conflict.pointer_dereference.3] line 41 dereference failure: deallocated dynamic object in *ghost_id: SUCCESS
+[bounce_rebind_kc_conflict.pointer_dereference.4] line 41 dereference failure: dead object in *ghost_id: SUCCESS
+[bounce_rebind_kc_conflict.pointer_dereference.5] line 41 dereference failure: pointer outside object bounds in *ghost_id: SUCCESS
+[bounce_rebind_kc_conflict.pointer_dereference.6] line 41 dereference failure: invalid integer address in *ghost_id: SUCCESS
+[bounce_rebind_kc_conflict.pointer_dereference.7] line 41 dereference failure: pointer NULL in *incoming_id: SUCCESS
+[bounce_rebind_kc_conflict.pointer_dereference.8] line 41 dereference failure: pointer invalid in *incoming_id: SUCCESS
+[bounce_rebind_kc_conflict.pointer_dereference.9] line 41 dereference failure: deallocated dynamic object in *incoming_id: SUCCESS
+[bounce_rebind_kc_conflict.pointer_dereference.10] line 41 dereference failure: dead object in *incoming_id: SUCCESS
+[bounce_rebind_kc_conflict.pointer_dereference.11] line 41 dereference failure: pointer outside object bounds in *incoming_id: SUCCESS
+[bounce_rebind_kc_conflict.pointer_dereference.12] line 41 dereference failure: invalid integer address in *incoming_id: SUCCESS
+
+<builtin-library-strcmp> function strcmp
+[strcmp.pointer_dereference.1] line 30 dereference failure: pointer NULL in s1[(signed long int)i]: SUCCESS
+[strcmp.pointer_dereference.2] line 30 dereference failure: pointer invalid in s1[(signed long int)i]: SUCCESS
+[strcmp.pointer_dereference.3] line 30 dereference failure: deallocated dynamic object in s1[(signed long int)i]: SUCCESS
+[strcmp.pointer_dereference.4] line 30 dereference failure: dead object in s1[(signed long int)i]: SUCCESS
+[strcmp.pointer_dereference.5] line 30 dereference failure: pointer outside object bounds in s1[(signed long int)i]: SUCCESS
+[strcmp.pointer_dereference.6] line 30 dereference failure: invalid integer address in s1[(signed long int)i]: SUCCESS
+[strcmp.pointer_dereference.7] line 31 dereference failure: pointer NULL in s2[(signed long int)i]: SUCCESS
+[strcmp.pointer_dereference.8] line 31 dereference failure: pointer invalid in s2[(signed long int)i]: SUCCESS
+[strcmp.pointer_dereference.9] line 31 dereference failure: deallocated dynamic object in s2[(signed long int)i]: SUCCESS
+[strcmp.pointer_dereference.10] line 31 dereference failure: dead object in s2[(signed long int)i]: SUCCESS
+[strcmp.pointer_dereference.11] line 31 dereference failure: pointer outside object bounds in s2[(signed long int)i]: SUCCESS
+[strcmp.pointer_dereference.12] line 31 dereference failure: invalid integer address in s2[(signed long int)i]: SUCCESS
+
+bouncer_decisions_harness.c function any_str
+[any_str.overflow.1] line 30 arithmetic overflow on signed + in k + 1: SUCCESS
+[any_str.array_bounds.1] line 31 array 'bufs' lower bound in bufs[(signed long int)i]: SUCCESS
+[any_str.array_bounds.2] line 31 array 'bufs' upper bound in bufs[(signed long int)i]: SUCCESS
+[any_str.array_bounds.3] line 31 array 'bufs'[] lower bound in bufs[(signed long int)i][(signed long int)k]: SUCCESS
+[any_str.array_bounds.4] line 31 array 'bufs'[] upper bound in bufs[(signed long int)i][(signed long int)k]: SUCCESS
+[any_str.array_bounds.5] line 32 array 'bufs' lower bound in bufs[(signed long int)i]: SUCCESS
+[any_str.array_bounds.6] line 32 array 'bufs' upper bound in bufs[(signed long int)i]: SUCCESS
+[any_str.array_bounds.7] line 32 array 'bufs'[] lower bound in bufs[(signed long int)i][(signed long int)(5 - 1)]: SUCCESS
+
+bouncer_decisions_harness.c function harness_converge_agreement
+[harness_converge_agreement.assertion.1] line 49 assertion a_retires == 0 || a_retires == 1: SUCCESS
+[harness_converge_agreement.assertion.2] line 51 assertion !(a_retires && b_retires) && "C1a never both retire": SUCCESS
+[harness_converge_agreement.assertion.3] line 54 assertion !a_retires && "C1b live beats held": SUCCESS
+[harness_converge_agreement.assertion.4] line 57 assertion (a_retires ^ b_retires) && "C1c distinct sessions converge": SUCCESS
+
+bouncer_decisions_harness.c function harness_converge_empty_ids
+[harness_converge_empty_ids.assertion.1] line 70 assertion !a_retires && !b_retires: SUCCESS
+
+bouncer_decisions_harness.c function harness_deauth
+[harness_deauth.assertion.1] line 114 assertion bounce_deauth_classify(NULL, do_kill) == BOUNCE_DEAUTH_SKIP: SUCCESS
+[harness_deauth.assertion.2] line 120 assertion s.is_user && s.is_account && s.account_matches: SUCCESS
+[harness_deauth.assertion.3] line 122 assertion s.is_local && do_kill && "D1a only local sockets, only on kill": SUCCESS
+[harness_deauth.assertion.4] line 124 assertion s.is_local && s.is_hold && !s.is_alias: SUCCESS
+[harness_deauth.assertion.5] line 126 assertion !s.is_alias && "aliases follow their primary": SUCCESS
+[harness_deauth.assertion.6] line 129 assertion a != BOUNCE_DEAUTH_SKIP: SUCCESS
+
+bouncer_decisions_harness.c function harness_fields
+[harness_fields.assertion.1] line 140 assertion id >= BX_ALIAS_FIELD_UNKNOWN && id < BX_ALIAS_FIELD_COUNT: SUCCESS
+[harness_fields.assertion.2] line 142 assertion bounce_alias_field_name(id) != NULL: SUCCESS
+[harness_fields.assertion.3] line 144 assertion bounce_alias_field_id(bounce_alias_field_name((enum BounceAliasField)k)) == k: SUCCESS
+
+bouncer_decisions_harness.c function harness_kc_join
+[harness_kc_join.assertion.1] line 94 assertion bounce_rebind_kc_conflict(sid, lid) == bounce_rebind_kc_conflict(lid, sid): SUCCESS
+[harness_kc_join.assertion.2] line 95 assertion (j == BKJ_JOIN) == !conflict: SUCCESS
+[harness_kc_join.assertion.3] line 96 assertion unused && conflict: SUCCESS
+[harness_kc_join.assertion.4] line 97 assertion j == BKJ_REFUSE: SUCCESS
+
+bouncer_decisions_harness.c function harness_rebind_auth
+[harness_rebind_auth.assertion.1] line 78 assertion r != BRA_ACC_TS: SUCCESS
+[harness_rebind_auth.assertion.2] line 79 assertion (r == BRA_NONE) == (!o && !s): SUCCESS
+[harness_rebind_auth.assertion.3] line 80 assertion r == BRA_SESSID: SUCCESS
+[harness_rebind_auth.assertion.4] line 81 assertion bounce_rebind_auth_name(r) != NULL: SUCCESS
+
+bouncer_decisions_harness.c function is_empty
+[is_empty.pointer_dereference.1] line 36 dereference failure: pointer NULL in *s: SUCCESS
+[is_empty.pointer_dereference.2] line 36 dereference failure: pointer invalid in *s: SUCCESS
+[is_empty.pointer_dereference.3] line 36 dereference failure: deallocated dynamic object in *s: SUCCESS
+[is_empty.pointer_dereference.4] line 36 dereference failure: dead object in *s: SUCCESS
+[is_empty.pointer_dereference.5] line 36 dereference failure: pointer outside object bounds in *s: SUCCESS
+[is_empty.pointer_dereference.6] line 36 dereference failure: invalid integer address in *s: SUCCESS
+
+** 0 of 157 failed (1 iterations)
+VERIFICATION SUCCESSFUL
