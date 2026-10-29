@@ -30,6 +30,11 @@ export FUZZ_CLIENT_CONF="$HERE/fuzz.conf.in"
 export ASAN_OPTIONS="detect_leaks=0:abort_on_error=1:symbolize=1:allocator_may_return_null=1"
 export UBSAN_OPTIONS="print_stacktrace=1:halt_on_error=1"
 
+( while kill -0 $$ 2>/dev/null; do
+    find "$W/tmp" -maxdepth 1 -name 'nefuzz.*' -mmin +3 -exec rm -rf {} + 2>/dev/null || true
+    sleep 120
+  done ) &  # reaper for leaked crashed-worker temp dirs
+trap 'kill %1 2>/dev/null' EXIT
 LOG="$W/$VARIANT-$(date +%Y%m%d-%H%M%S).log"
 echo "logging to $LOG"
 cd "$W"
