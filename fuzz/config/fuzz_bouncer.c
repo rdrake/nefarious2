@@ -40,6 +40,31 @@ static const char bouncer_conf[] =
   "  \"CAP_draft_metadata_2\" = \"TRUE\";\n"
   "};\n";
 
+/* RocksDB hands out values that point into a larger block buffer, so an
+ * over-read past the end of one record is invisible to ASan.  Give the
+ * restore code an exact-size heap copy of every value instead (freed on
+ * the next call, as the RocksDB slice is invalidated by db_iter_next). */
+extern const void *__real_db_iter_value(const struct db_iter *it,
+                                        size_t *vlen);
+static void *value_copy;
+const void *__wrap_db_iter_value(const struct db_iter *it, size_t *vlen)
+{
+  const void *v = __real_db_iter_value(it, vlen);
+  free(value_copy);
+  value_copy = NULL;
+  if (!v)
+    return v;
+#ifdef FUZZ_UNMASK_KNOWN
+  value_copy = malloc(*vlen ? *vlen : 1);
+#else
+  /* FINDINGS.md F5: the v12 path reads the unterminated last field
+   * (bsr_kc_id) past the record; one NUL after the copy masks it. */
+  value_copy = calloc(1, *vlen + 1);
+#endif
+  memcpy(value_copy, v, *vlen);
+  return value_copy;
+}
+
 static void wipe_cf(struct db_env *env, struct db_cf *cf)
 {
   struct db_iter *it = db_iter_open(env, cf, NULL);

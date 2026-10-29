@@ -48,6 +48,7 @@
 #include <string.h>
 #include <sys/socket.h>
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 extern struct Connection me_con;
@@ -170,6 +171,8 @@ void fuzz_sandbox_trim(void)
 {
   DIR *d = opendir(sandbox);
   struct dirent *de;
+  while (waitpid(-1, NULL, WNOHANG) > 0)
+    ;                           /* stub IAuth children (see fork()) */
   if (!d)
     return;
   while ((de = readdir(d)) != NULL) {
@@ -255,6 +258,7 @@ void fuzz_ircd_boot(const char *conf_text)
   SetIPv6(&me);
   SetIRCv3Aware(&me);
   bounce_init();
-  signal(SIGCHLD, SIG_IGN);   /* reap the stub IAuth children */
+  /* Not SIGCHLD: Initialize also runs in the -fork=N parent, which waits
+   * for its jobs.  Stub IAuth children are reaped in fuzz_sandbox_trim(). */
   signal(SIGPIPE, SIG_IGN);
 }

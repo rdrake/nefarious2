@@ -8,6 +8,7 @@
 #include "bouncer_session.h"
 #include "fuzz_common.h"
 
+#include <stddef.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -136,6 +137,17 @@ int main(int argc, char **argv)
   emit2(&r12, sizeof(r12), &r12b, sizeof(r12b));
   /* v7 + v12 mix */
   emit2(&r7, sizeof(r7), &r12, sizeof(r12));
+  /* every string field unterminated, through the struct's tail padding */
+  r12b = r12;
+  memset(r12b.bsr_kc_id, 'A', sizeof(r12) - offsetof(struct BounceSessionRecord, bsr_kc_id));
+  EMIT(r12b);
+  r12b = r12;
+  memset(r12b.bsr_nick, 'n', sizeof(r12b.bsr_nick));
+  memset(r12b.bsr_channels[0].name, 'c', sizeof(r12b.bsr_channels[0].name));
+  r12b.bsr_channels[0].name[0] = '#';
+  memset(r12b.bsr_aliases[0].bsar_server, 'Z', sizeof(r12b.bsr_aliases[0].bsar_server));
+  memset(r12b.bsr_sessid, 's', sizeof(r12b.bsr_sessid));
+  EMIT(r12b);
   /* truncated / wrong-size records */
   emit2(&r12, sizeof(r12) - 1, NULL, 0);
   emit2(&r12, 4, NULL, 0);
