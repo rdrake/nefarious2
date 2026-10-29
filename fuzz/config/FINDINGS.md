@@ -24,6 +24,7 @@ are bouncer records (14 KB, mostly zeros); they are given below as
 
 | ID | Severity | Where | What | Reach |
 |----|----------|-------|------|-------|
+| F12 | High | `ircd/listener.c:395-397` | `add_listener` frees an existing listener that is still on `ListenerPollList` (use-after-free) | conf / REHASH / gitsync |
 | F7 | Medium | `ircd/crule.c:481`, `:542` | `crule_parse` frees an uninitialised child pointer after a syntax error in a `CRule` | conf / REHASH / gitsync |
 | F3 | Medium | `ircd/dnsbl.c:112` | infinite loop parsing a DNSBL `host` (index) list with any non-digit character | conf / REHASH / gitsync |
 | F8 | Medium | `ircd/ircd_lexer.l:354`, `ircd_parser.y:2072` | `include` has no cycle detection: k self-includes are parsed ~k^10 times | conf / REHASH / gitsync |
@@ -44,6 +45,74 @@ the event loop and drops every client and link).  Persisted bouncer records
 are read once at boot; they matter when the DB holds a record from an older
 or newer build, a torn write, or was edited.  None of these is reachable
 from an IRC client or a peer server directly.
+
+---
+
+## F12 — `add_listener` frees a listener that is still in use (use-after-free)
+
+**Severity:** High for this attack surface.  A use-after-free on the
+listener list during conf parsing, and across a REHASH on a listener that
+connected clients still point at (`cli_listener`), which leads to heap
+corruption when they exit (`release_listener()` decrements the freed
+struct).
+
+**Reproducer** (`repro/F12-listener-uaf.conf`, same port and vhost twice,
+the second one IPv6-only on an IPv4 vhost; the third block is only there
+to touch the freed entry during the parse):
+
+```
+General { name = "fuzz.example.net"; description = "fuzz"; numeric = 1; };
+Port { port = 6667; vhost = "192.0.2.1"; };
+Port { port = ipv6 6667; vhost = "192.0.2.1"; };
+Port { port = 6667; vhost = "192.0.2.1"; };
+```
+
+base64: `R2VuZXJhbCB7IG5hbWUgPSAiZnV6ei5leGFtcGxlLm5ldCI7IGRlc2NyaXB0aW9uID0gImZ1enoiOyBudW1lcmljID0gMTsgfTsKUG9ydCB7IHBvcnQgPSA2NjY3OyB2aG9zdCA9ICIxOTIuMC4yLjEiOyB9OwpQb3J0IHsgcG9ydCA9IGlwdjYgNjY2Nzsgdmhvc3QgPSAiMTkyLjAuMi4xIjsgfTsKUG9ydCB7IHBvcnQgPSA2NjY3OyB2aG9zdCA9ICIxOTIuMC4yLjEiOyB9Owo=`
+
+**Stack** (plain ASan):
+
+```
+ERROR: AddressSanitizer: heap-use-after-free ... READ of size 2
+    #0 find_listener     ircd/listener.c:314:32
+    #1 add_listener      ircd/listener.c:351:14
+    #2 yyparse           ircd/ircd_parser.y:1049:5
+    #3 read_configuration_file ircd/s_conf.c:1277:3
+freed by thread T0 here:
+    #1 free_listener     ircd/listener.c:92:3
+    #2 add_listener      ircd/listener.c:397:5
+    #3 yyparse           ircd/ircd_parser.y:1049:5
+previously allocated by thread T0 here:
+    #2 make_listener     ircd/listener.c:69:24
+    #3 add_listener      ircd/listener.c:355:16
+```
+
+Without the third block the next walk of `ListenerPollList`
+(`close_listeners()` at the end of the REHASH, `start_all_listeners()`,
+`STATS P`) hits the freed entry.
+
+**Root cause.** `add_listener()` (listener.c:329-401) reuses the listener
+returned by `find_listener()` for the same port and vhost, overwrites its
+flags with the new block's, then closes every family the new flags do not
+allow (`socket_del` + `close`, 371-391).  If no family is left
+(`okay == 0`), it calls `free_listener(listener)` (395-397) without
+checking `new_listener`: an existing listener is freed while it is still
+linked in `ListenerPollList` and possibly referenced by clients
+(`ref_count`).  Triggers: an IPv6-only `Port` on an IPv4 vhost (or the
+reverse) duplicating an earlier block, or, in production, a re-added
+listener whose `inetport()` fails at REHASH.  The fuzzer found it through a
+mutated duplicate `Port` block; the cross-REHASH case is the same code path
+(the first piece's listener is "existing" for the second piece).
+
+**Fix.** Only free a listener this call created:
+
+```c
+if (!okay) {
+  if (new_listener)
+    free_listener(listener);
+  else
+    FlagClr(&listener->flags, LISTEN_ACTIVE);   /* let close_listeners() reap it once unreferenced */
+}
+```
 
 ---
 
@@ -519,7 +588,7 @@ harness:
 
 ## Masks used to keep fuzzing past known findings
 
-The `fuzz` build masks F3, F5, F6, F7, F8, F11 and the F2 teardown so the
+The `fuzz` build masks F3, F5, F6, F7, F8, F11, F12 and the F2 teardown so the
 campaign does not stop on them; `-DFUZZ_UNMASK_KNOWN` (always on in the
 `asan` build) removes the masks:
 
@@ -529,6 +598,7 @@ campaign does not stop on them; `-DFUZZ_UNMASK_KNOWN` (always on in the
 | F5 | value copies get one trailing NUL |
 | F6 | `/` outside strings/comments becomes `+`; `y.tab.c` built without `-fsanitize=signed-integer-overflow` |
 | F11 | `chathistory_presence.c` built without `-fsanitize=shift` |
+| F12 | `--wrap=add_listener` keeps both families on a block that matches an existing listener |
 | F7 | conf campaign runs with `ASAN_OPTIONS=malloc_fill_byte=0` |
 | F8 | `--wrap=init_lexer_file` caps include depth at 2 |
 | F2 | teardown renames (and re-hashes) a nameless ghost |

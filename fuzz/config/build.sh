@@ -101,7 +101,7 @@ mkdir -p "$OUT"
 clang $CFLAGS $INC -Dmain=ircd_main -c ircd.c -o "$OUT/ircd_nomain.o"
 clang $CFLAGS $INC $FUZZ_DEFS -c "$HERE/fuzz_common.c" -o "$OUT/fuzz_common.o"
 
-WRAP="-Wl,--wrap=fbopen -Wl,--wrap=dnsbl_add_server -Wl,--wrap=init_lexer_file -Wl,--wrap=yyerror"
+WRAP="-Wl,--wrap=fbopen -Wl,--wrap=dnsbl_add_server -Wl,--wrap=init_lexer_file -Wl,--wrap=yyerror -Wl,--wrap=add_listener"
 for h in conf feature bouncer records; do
   objs=$OBJS_NOMAIN
   hwrap=
