@@ -21,7 +21,7 @@ start=$(date +%s)
 cbmc "$src" -I "$root/include" -I "$here" \
   --function "$fn" \
   --bounds-check --pointer-check --pointer-overflow-check \
-  --signed-overflow-check $conv \
+  --signed-overflow-check --undefined-shift-check $conv \
   --unwind "$unwind" --unwinding-assertions \
   --sat-solver cadical --trace "$@" > "$log" 2>&1
 rc=$?
