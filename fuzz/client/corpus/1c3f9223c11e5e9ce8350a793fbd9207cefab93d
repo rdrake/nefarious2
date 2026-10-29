@@ -1,0 +1,21 @@
++_NICK
+NICK :
+NICK #chaj+_NICK
+NICK :
+NICK #chaj
+NICKWHO #fuzz
+WHO * %=nuqhAPID
+METADAO #fuzz
+WHO * %=nuqhAPID
+METADATA * SET draUSERHOSTsh/METADAO #fuzzVMSG fuzzA :wake u# fuzzA
+x
+NICKWHO #fuzz
+WHO * %=nuqhAPID
+METADAO #fuzz
+WHO * %=nuqhAPID
+METADATA * SET .raUSERHOSTsh/METADAO #fuzzVMSG fuzzA :wake u# fuzzA
+x
+PRIVMSG #zz
+WHO * %=nuqhAPID
+METADATA * SET dfuzz :.fuzzA: s://171k
+eeeee #

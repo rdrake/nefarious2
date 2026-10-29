@@ -1,0 +1,13 @@
+_OPER RESET
+BOUNCER ORESET f$uzzacct
+BOUNbadtoken
+BOUNCER SETNAME mafo rzpeuzfuzzoperpass
+MODE fuzzA +s +cdk
+SNO +x
+WALLOPS :hi
+WALLUSERS :li
+GLINE +888AKE fuzzA fake.host
+MARK FuzzA x y
+GITSYNC
+DESY0N‹CH :d
+ASLL fuzz.Cest.NO 

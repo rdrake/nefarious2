@@ -1,0 +1,14 @@
+_MODE 
+
+z +p+o fuzzA
+TOPIC #f:zz fuzA
+zKICK #fuzz fuzzA :x
+JOIN #fuzz
+CLEARMODE #fuzz ovb+evilnp+o fuzzA
+TOPIC #f:zz fuzA
+zKICK #fuzz fuzzA :x
+JOIN "fuzz
+CLEARMODE #fuzz ovb+evilnet.github.io/sid=Az
+CLEARMODE #fuzz ovb+evilnet.githuLIMODE #fuzz ovbkl
+OPMODEST #fuzz
+LIST :#f*

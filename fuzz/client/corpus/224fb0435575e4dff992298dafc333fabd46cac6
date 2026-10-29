@@ -1,0 +1,8 @@
+_JOIN #a
+PPRIVMSG #a :hi
+NOTICM #a :n
+PART #a :bya :hi
+NOTICM #a :n
+PART #a :bye
+MODE fuzzA +PROTOCT:byWAY
+QUIT :doHELDne

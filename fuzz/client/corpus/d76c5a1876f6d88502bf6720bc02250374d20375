@@ -1,0 +1,15 @@
+_PRIVMSG fuzzB :hello
+PRIVMSG fuzzB,://10.#fuzz :multi
+PRIVMSG @#fuzz :ops
+PRIVMSG +#fuzz :voices
+PRIVMSG $*.net :mass
+PRIVMSG #*.net :mass
+PRIVMSG nobody :x
+PRIVMSG
+PRIVMSG #fuzRIVMSG fuzzB :hello
+PRIVMSG fuzzB,://10.#fuzz :multi
+PRIVMSG @#fuzz :ops
+PRIVMSG +#fuzz :voices
+PRIVMSG $*.net :mst.net#a
+ :hi
+JPRI

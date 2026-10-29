@@ -1,5 +1,0 @@
-SILENCE +*!*@ +*!*@*
-SILENCE Ozz +o fuzzA
-TOPIC #cT
-LIST >0,SETHOST1,T<0,C>1,TMETADvs://example.com/a.png
-METADATA *ON SI

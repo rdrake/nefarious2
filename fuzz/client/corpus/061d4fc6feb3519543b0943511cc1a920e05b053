@@ -1,0 +1,11 @@
+_PRIVMSG #fuzz :one
+PRIVMSG #fuzz :two
+PRIVMSG #fuzz :three
+PRIVMSG fuzzB :THISTORY BEFORE #fuzz timestamp=2030-01-01T00:00:00.000Z 5
+CHATHISTORY AFTER #fuzz timestamp=d000-01-01T00:00:00.000Z 5
+CHATHISTORY AROUND #fuzz timestamp=2026-10-29T00:00:00.000Z_PRIVMSG #LENCE +~a:x
+WVMSG #fuzz :two
+PRIVMSG 3A
+FHATHISTORY BETWEEN #fuzz timestamp=2000-01-01T00:00Z timestam #fuzz :three
+PRIVMSG p=2030-
+CHATHISTORY BEFORE #fuzz tif1

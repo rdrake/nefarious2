@@ -1,0 +1,8 @@
+_PRIVMSG fuzzA :asts
+_OPER fuzzoper fuzzoperpass
+MODE fuzzA +s +9cdk
+SNO +xfuzzoperpass
+MODE fuzzA +s +9cdk
+SNO +xi
+GLIN:b
+NIEC +

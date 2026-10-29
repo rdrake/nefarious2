@@ -1,0 +1,7 @@
+%oN f\szB :a
+@bat_PRIVMSG fuzzB :hello
+PRIVMSG fuzzB,fuzzB,#fuzz ch=ml2 PRIVMSG fuzzB :b
+BA:multi
+PRIVMSG @#fuzz :ops
+PRIVMSG +#fuzz T:voices
+PRCIV

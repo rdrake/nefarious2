@@ -1,0 +1,18 @@
+_OPER fuzzoper fuzzoperpass
+M›››››SHUN›››››››››››››››››››››››››››
+TOPIC #fu›z :new topic
+TOPIC #fuzz
+KICK #fuzz fuzzB :o}t
+JOIN #fuzz
+INVITE fuzz #fuzzHENTICS
+TOPIC #fuzz :new topic
+TOPIC #fuœz
+KŽIûÿÿNO +x
+WALÿE
+KICK #fubpush/idle :90PRIVMSG fuzzA :wa›A
+CHECK #fuzz
+CHECK fuzz.test.netA fake.host
+MARK fuzzA x y
+GITSYNC
+DESYNCH :d
+ASLL fuzz.test.net

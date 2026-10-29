@@ -1,0 +1,5 @@
+CAP LS 302
+CAP REQ :draft/account-registration
+REGISTER * uCAP LS 302
+CAP REQ :draft/m :secure local-port=6697 revatar :https://x/y.png
+METsAerDA

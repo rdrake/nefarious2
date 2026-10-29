@@ -1,0 +1,11 @@
+_OPER fuzzoper fuzzopevpass
+://192.168.ееееееееA + :hi
+WALLUSERS :hi
+GLINE +* fuzz.test.net abc168.ееееееееA + :hi
+ :q
+TSY┼┼┼┼┼┼┼NC
+DESYNCH fuzzopevpass
+://192.168.ееееееееA + :hi
+WALLUSERS :hi
+GLINE +* fuzz.test.net abc168 :d
+ASLL∙fuzz.test.net

@@ -1,0 +1,24 @@
+PRIVMSG fuzzA :x
+PRIAAAAAA
+PRIVMSG fuzzA :x
+ #fuzz :cont
+@batch=ml1 PRIVMSG #ong PRIVMSG AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAMSG #fuzz :
+BATCH -ml2
+BATCH +ml1 draft/multilinz fuzzB
+@batch=ml2 NOTICE fuzzB :a
+@batch=ml2 PRIVMSG fuzzB :b
+BATCH -ml2
+BATCH -ml2
+BATCH +ml3 draft/multiline
+BATCH +ml3 bogus #fuzz
+BATCH +ml4 draft/multiline #fuzz
+@batch=wrong PRIVMSG AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PR
+P :x
+PRIVMSG fuzzA :x
+ÐRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+
+PING :after flood

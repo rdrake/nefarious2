@@ -1,0 +1,9 @@
+_JOIN #a
+PRIVMSG #a :hi
+N
+MODE fuzzA cap-notify+PROTOCTLfuzzA
+WHOIS fuzzA
+WHO fuzzA
+A/AY :gone
+AWHELDAY
+QUIT :done

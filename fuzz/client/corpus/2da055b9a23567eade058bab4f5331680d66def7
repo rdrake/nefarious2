@@ -1,0 +1,8 @@
+ÿÿÿÿÿÿÿéÿÿÿÿÿÿÿ302ÿÿÿÿÿÿÿÿuzz
+CLEARMODE #TRACE* ÿÿÿÿOIN xfuzz
+CLEARMODE #fNCecho-messageBOUNCA :x
+JOIN xfuzz
+CCE* ÿÿÿÿOIN xfuzz
+CLEARMODE #fNCecho-messageBOUNCA :x
+JOIN xfuzz
+CLEARMODE #fuz * :r

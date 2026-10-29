@@ -1,0 +1,41 @@
+SILENCE f :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG MSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVM :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA A :x
+PRIVMSG fuzzARIVMSG fuzzA :x
+PRIVM :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG :15
+PRIVMSG fuzzA :wa›LENCE -*!*@*
+SILENCE fuzzA
+m baNID
+W}BPUSH RENTS
+BOUNCER SETTINGS
+BOUNCER SET hold 0
+BOUNCER SET autoreplay 0
+BOUNCER HOLD
+BOUNCER STATUS
+B,n109,n110,n111,n112,n1one;limit=5
+SEARCH from=fuzzB
+SEARCH :

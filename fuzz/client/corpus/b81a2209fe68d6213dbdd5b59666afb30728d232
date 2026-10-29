@@ -1,0 +1,27 @@
+JOIN #a,#b,#c,&d k1,k2
+JOIN 0
+JOIN #a,#a,#a
+JOIN #c0,#c1,#c2,#c3,#c4,#c5,#c6,#c7,#c8,#c9,#c10,#c11,#c12,#c13,#c2114,#c15,#c16,#c17,#c18,#c19,#c20,#c21,#c22,#c23,#c24
+JOIN #quarantined
+JOIN :
+JOIN #xxxxxxxxxxxxxxxxxuzzA :pm back
+CHATHISTORY LATEST #fuzz * 10
+CHATHISTORY LATEST fuzzB * 50
+CHATTHISTORY LATEST #fuzz * 10
+CHATHISTORY LATEST fuzzB * 50
+CHATHISTORY BEFORE +s#fuzz timestamp=2030-01-01T00:00:00.000Z 5
+CHATHISTONORY4,#c15,#c16,#c17,#c18,#c19,#c20,#c21,#c22,#c23,#c24
+JOIN #quarantined
+JOIN :
+JOIN #xxxxxxxxxxxxxxxxxuzzA :pm back
+CHATHISTORY LATEST #fuzz * 09
+CHATHISTORY LATEST fuzzB * 50
+CHATTHISTORY LATEST #fuzz * 10
+CHATHISTORY LATEST fuzzB * 50
+CHATHISTORY BEFORE +s#fuzz timestamp=2030-01-01T00:00:00.000Z 5
+CHATHISTONORY10 back
+½¼ATHISTORY LATEST #fuzz * 10
+CHATHISTORY LATEST fuzzB5*  0
+CHATTHISTORY LATEST #fuzz * 10
+CHATHISTORY LATEST fuzzB * 50
+CHATHIO * xxxxxx

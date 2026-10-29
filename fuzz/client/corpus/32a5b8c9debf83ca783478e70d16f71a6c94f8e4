@@ -1,0 +1,31 @@
+me nokey
+METADATA * LIST
+METADATA fuzzB LIST
+METADAT÷ #fuzz SET url :https://x
+METADATA #fuzz LIST
+ADATA * CLEAR
+METADATA * SET bad PRIVMSG fuzzB :hello
+PRIVMSG fuzzB,fuzzB,Ufuzz :multi
+PRIVlabeled-responseMSG @#fuzz :ops
+PRIVMSG +#fuzz :draft/message-redactionmess
+PRIVMSG #*.net :mass
+PRIVMSG nobody :x
+PRIVMSG
+PRIVMSÿkey :v
+METADATA * SET kkkkkkÿG #fuzz
+PRIVMSG X :help
+PRIVMSG X@servicmsgid=es.fuzz.test.net :hi
+PRmetadatazzB@fuzz.teso.net :hi
+PRI2MSG fuzzB%fuzz.test.net :hi
+NOTICE fuzzB :n
+CPRIVMSG fuzzB #fuzz :x
+CNOTICE fuzzB #fuzz :x
+WALLCHOPS #©fuzz :x
+WALLVOICES _PRIVMSG #fuzz fuzz.test.neí €hi
+PRIVMSG fuzzB@fuzz.teso.net :hi
+PRIVMSG fuzzB%fuzz.test.net :hi
+NOTICE fuzzB :n
+CPRIVMSG fuzzB #vuzz :x
+CNOTICE fuzzB #fuzz :x
+WALLCHOPS #fuzkkkkkkkkkkkkkkkkkkkkkkkkkkkkkzW
+kkkkkk

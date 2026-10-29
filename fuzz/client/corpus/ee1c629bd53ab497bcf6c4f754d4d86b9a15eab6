@@ -1,0 +1,8 @@
+CAP LS 302
+CAP REQ :draft/account-registration
+REGISTER * user@example.com :password123
+REGISTER newacct * hunter22
+VERIFY newacct 123456
+NICK r1
+USER r 0 * :r
+CAP END

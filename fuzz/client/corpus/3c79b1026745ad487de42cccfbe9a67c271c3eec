@@ -1,0 +1,49 @@
+PRIV,lobE +*!*@*
+SILENCE -*!*@*
+SILENCE f :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG MSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVM :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA A :x
+PRIVMSG fuzzARIVMSG fuzzA :x
+PRIVM :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA A :x
+PRIVMSG fuzzA  :x
+A * SET úâûãûs :óããèè://example.l L
+WATCH S
+WATCH C
+WATCH -fuzzB
+MONITOR + fuzzB,lobE +*!*@*
+SILENCE -*!*@*
+SILENCE f :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+PRIVMSG fuzzA :x
+
+PING :after flood

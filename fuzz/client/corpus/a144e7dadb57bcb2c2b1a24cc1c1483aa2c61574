@@ -1,0 +1,5 @@
+-MODE #fuzz +o_OPPERSISTENCE SET ON
+PRIVMSG #fuzz :before drop
+
+PRIVMSG fuzzA :while held
+PRIVMSG #fuzz :cha f0uÿÿdraÿÿÿÿÿÿÿÿÿÿÿÿÿÿft/acn while hcoun

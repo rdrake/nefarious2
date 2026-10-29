@@ -1,0 +1,18 @@
+_PRIVMSG fuzzB :hello
+PRIVMSG fuzzB,fuzzB,#fuzz :multi
+PRIVMSG @#fuzz :ops
+PRIVMSG +#fuzz :voices
+PRIVMSG $*[.net :mass
+PRIVMSG #*.net :mass
+PRIVMSG nobody :x
+PRIV~a:
+PRIVMSG #fuzz
+PRIVMSG X :help
+PRIVMSG X@services.fuzz.test.net :hi
+PRIVMSuzz :ACTION waves
+PRIVMSG fuzzB :VERSION
+TAGMACKSG fuzzB
+@+typing=active TAGMSG #fuzz
+@+draft/reply=abc;+draft/react=:) TAGMSG #fuzz
+CHANSERV help
+LOGIN a b

@@ -1,0 +1,8 @@
+CAP LS 923
+CAP LIST
+CAP REQ :sasl meLS 300
+CupdatST
+CAP REQ :sasl Q :sasl msseageST
+CAP REQ :sasl meLS 300
+CupdatST
+CAP REQ :sasl Q :sau

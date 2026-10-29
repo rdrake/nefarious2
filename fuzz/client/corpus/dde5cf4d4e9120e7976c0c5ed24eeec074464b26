@@ -1,0 +1,5 @@
+_OPER fuzzoper fuzzoperpass
+MO S :hi
+WALLUSERS :hi
+GLINE +*@1usag+1.2.3.0/24 600 :z
+SHUN +*@1.2.3.5 ARK fuzz»ßx ydraft/pre-away¼·ßÅ›÷ASLL fuzz.test.net
