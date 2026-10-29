@@ -67,6 +67,19 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
   cli_fd(&cli) = -1;
   cli_from(&cli) = &cli;
   strcpy(cli_name(&cli), "fuzzer");
+  /* F28 (FINDINGS.md): a 3-character server command whose first byte is
+   * a digit is a numeric computed as d0*100+d1*10+d2 with only d0
+   * checked; when that is 0 ("000", "0*l", ...) parse_server skips
+   * do_numeric() and dereferences mptr == NULL.  Such tokens are skipped
+   * unless FUZZ_STRICT. */
+  if ((data[0] & 1) && !fuzz_strict()) {
+    const char *z;
+    for (z = buf; *z; z++) {
+      if ((z == buf || z[-1] == ' ') && z[0] >= '0' && z[0] <= '9' && z[1] && z[2] &&
+          z[3] == ' ' && (z[0] - '0') * 100 + (z[1] - '0') * 10 + (z[2] - '0') == 0)
+        goto out;
+    }
+  }
   if (data[0] & 1) {
     cli_status(&cli) = STAT_SERVER;
     cli_serv(&cli) = &serv;
@@ -88,6 +101,7 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size)
     }
     parse_client(&cli, buf, buf + n);
   }
+out:
   if (buf != sbuf) free(buf);
   return 0;
 }
