@@ -14,5 +14,27 @@ void *memchr(const void *s, int c, size_t n)
       return (void *)(p + i);
   return 0;
 }
+
+size_t strnlen(const char *s, size_t maxlen)
+{
+  size_t i;
+  for (i = 0; i < maxlen && s[i]; i++)
+    ;
+  return i;
+}
+
+char *strstr(const char *h, const char *n)
+{
+  size_t i, j;
+  if (!n[0])
+    return (char *)h;
+  for (i = 0; h[i]; i++) {
+    for (j = 0; n[j] && h[i + j] == n[j]; j++)
+      ;
+    if (!n[j])
+      return (char *)(h + i);
+  }
+  return 0;
+}
 #endif
 #endif
