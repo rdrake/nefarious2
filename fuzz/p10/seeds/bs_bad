@@ -1,0 +1,29 @@
+AB BS C
+AB BS C a
+AB BS C a b c d e f g
+AB BS C a b c holding x
+AB BS A a b
+AB BS A a b ZZ
+AB BS D a b
+AB BS U a b
+AB BS U a b noeq
+AB BS O a b 1
+AB BS T a b
+AB BS Q a b c
+AB BX
+AB BX C
+AB BX C A B C D E
+AB BX X
+AB BX X A
+AB BX P A B
+AB BX N A
+AB BX U A
+AB BX E A
+AB BX M
+AB BX K
+AB BX V A
+AB BX Z unknown
+AB BX R x
+AB BX F x
+AB BX J x
+AB BT x

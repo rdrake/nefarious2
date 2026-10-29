@@ -1,0 +1,11 @@
+	AB N Bnc 2 1760000000 bnc bnc.example.net +ixr bnc AKAAAW ABAAL :Bnc real
+AB B #bnc 1760000000 +nt ABAAL:o
+AB BS C bnc 0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b Tok0123456789abcdef active 1760000000 :#bnc
+AB BX C ABAAL ABAAM bnc 0190a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b +ix :#bnc
+AB BX E ABAAM ABAALP AKAAA ABAAAAAAAAAAAB :echoed pm
+AB BX E ABAAL ABAAMO #bnc ABAAAAAAAAAAAC :echo notice
+AB BX M+b1 ABAAM ABAALP AKAAA ABAAAAAAAAAAAD :line1
+AB BX M b1 ABAAM :line2
+AB BX Mcb1 ABAAM :cc
+AB BX M-b1 ABAAM :https://paste/x
+AB BX M+b2 ABAAM ABAALP AKAAA ABAAAAAAAAAAAE @+draft/reply=x :x

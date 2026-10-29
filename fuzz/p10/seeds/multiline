@@ -1,0 +1,20 @@
+	AB N Nick1 2 1760000000 nick1 nick1.example.net +iw AKAAAL ABAAA :Nick1 real
+AB N Acct2 2 1760000000 acct2 acct2.example.net +ixr acct2 AKAAAM ABAAB :Acct2 real
+AB N Oper3 2 1760000000 oper3 oper3.example.net +iowg AKAAAN ABAAC :Oper3 real
+AB N Six4 2 1760000000 six4 six4.example.net +i _ ABAAD :Six4 real
+AB B #test 1759999900 +nt ABAAA:o,ABAAB:v,ABAAC
+AB B #fuzz 1759900001 +ntk key ABAAA:o,ABAAB
+AB B #bans 1760000000 +ntlim 10 ABAAC:ov,ABAAD :%*!*@bad.host ~*!*@good.host
+ABAAA ML +ab1 #fuzz :line one
+ABAAA ML ab1 #fuzz :line two
+ABAAA ML cab1 #fuzz :concat
+ABAAA ML -ab1 #fuzz :
+ABAAA ML +ab2 AKAAA :dm one
+ABAAA ML -ab2 AKAAA :
+@AaGIYMJIABAAAAAAAAAAAB,M+ab3 ABAAA ML #fuzz :new form
+@AaGIYMJIABAAAAAAAAAAAB,Mcab3 ABAAA ML #fuzz :concat new
+@AaGIYMJIABAAAAAAAAAAAB,M.ab3 ABAAA ML #fuzz :plain
+@AaGIYMJIABAAAAAAAAAAAB,M-ab3 ABAAA ML #fuzz :
+@AaGIYMJIABAAAAAAAAAAAB,M? ABAAA ML #fuzz :bad
+ABAAA ML ab9 #fuzz :orphan continuation
+ABAAA ML -ab9 #fuzz :
