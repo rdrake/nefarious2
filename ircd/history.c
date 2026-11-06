@@ -1948,6 +1948,7 @@ static int history_filter_row(struct HistoryRowFilter *filter,
   scan_max = filter->scan_max > 0 ? filter->scan_max : HISTORY_FILTER_SCAN_MAX;
   if (filter->scanned >= scan_max) {
     filter->truncated = 1;
+    filter->cut_ms = row_t;
     return -1;
   }
 

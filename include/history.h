@@ -66,6 +66,8 @@ struct HistoryRowFilter {
   int scan_max;    /**< raw rows examined before giving up; 0 = default */
   int scanned;     /**< out: raw rows examined (kept + skipped) */
   int truncated;   /**< out: scan_max hit -- page may be incomplete */
+  int64_t cut_ms;  /**< out: with truncated, the stamp (epoch ms) of the
+                    *   last row examined: the walk got no further */
 };
 
 /** Default raw-row scan cap for a filtered walk.  Boundary seeks keep

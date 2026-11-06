@@ -2400,6 +2400,7 @@ struct FedRequest {
   int response_sent;                  /**< Whether response was already sent */
   int fed_truncated;                  /**< Any storage server flagged its result truncated (CH E ... T) */
   int local_incomplete;               /**< The origin's own walk did not exhaust (scan cap / short) */
+  int64_t search_cut_ms;              /**< SEARCH: newest point any store's scan stopped at (0 = none) */
   int keep_oldest;                    /**< Merge trim direction: 1 keep oldest (AFTER/asc BETWEEN), 0 keep newest */
   struct FedCtxPair ctx_pairs[MAX_FED_CTX]; /**< Declared context children (CH C) */
   int ctx_pair_count;
@@ -5866,8 +5867,11 @@ int chathistory_auto_replay_fed(struct Client *sptr, time_t since_time, int limi
   return 0;
 }
 
-/** Raw rows one SEARCH may examine, over every channel it covers. */
+/** Raw rows one SEARCH may examine, over every channel it covers.  A
+ * test build may set it lower (-DSEARCH_SCAN_MAX=n) to reach the cut. */
+#ifndef SEARCH_SCAN_MAX
 #define SEARCH_SCAN_MAX 50000
+#endif
 
 struct SearchMatch {
   /** The presence hook to run first, when strict presence opened one. */
@@ -5971,18 +5975,31 @@ static void search_sel_unescape(char *v)
  * from @a before_unix, the match hook chained behind @a base's presence
  * hook (if any), @a base's type mask and veto, @a *budget raw rows; the
  * newest @a limit matches in @a *out, redaction placeholders dropped.
- * @a *truncated is set when the scan budget cut the window short. */
+ *
+ * @a *cut_ms (epoch ms, 0 = not cut) is set when the scan budget stopped
+ * the walk before it ran out of rows: everything at or after it was
+ * examined, nothing before it was.  It is one past the last row examined
+ * so that a next search with before=<cut> (exclusive) re-reads that
+ * row's millisecond, whose siblings may not all have been seen; rows
+ * returned here that are older than the cut are the caller's to drop
+ * (search_finish), so nothing comes back twice. */
 static int search_walk(const char *lookup_target, const char *before_unix,
                        int limit, struct SearchMatch *sm, int *budget,
                        const struct HistoryRowFilter *base,
-                       struct HistoryMessage **out, int *truncated)
+                       struct HistoryMessage **out, int64_t *cut_ms)
 {
   struct HistoryRowFilter filter;
   int count;
 
   *out = NULL;
-  if (*budget <= 0)
+  if (cut_ms)
+    *cut_ms = 0;
+  if (*budget <= 0) {
+    /* Nothing examined: the whole window is still ahead. */
+    if (cut_ms)
+      *cut_ms = (int64_t)history_parse_ms(before_unix);
     return 0;
+  }
   memset(&filter, 0, sizeof(filter));
   sm->presence_fn = base && base->fn ? base->fn : NULL;
   sm->presence_ctx = base && base->fn ? base->ctx : NULL;
@@ -5996,8 +6013,16 @@ static int search_walk(const char *lookup_target, const char *before_unix,
   count = history_query_before(lookup_target, HISTORY_REF_TIMESTAMP,
                                before_unix, limit, out, &filter);
   *budget -= filter.scanned;
-  if (truncated)
-    *truncated = filter.truncated;
+  if (filter.truncated && cut_ms) {
+    int64_t before_ms = (int64_t)history_parse_ms(before_unix);
+    int64_t c = filter.cut_ms + 1;
+    /* A full share spent inside the millisecond just below `before`
+     * would hand back `before` itself and a client paging on it would
+     * never advance; settle for that millisecond instead. */
+    if (before_ms && c >= before_ms)
+      c = filter.cut_ms;
+    *cut_ms = c > 0 ? c : 1;
+  }
   if (count < 0)
     return -1;
   return redact_filter_messages(out, count);
@@ -6006,15 +6031,18 @@ static int search_walk(const char *lookup_target, const char *before_unix,
 static int search_one_target(struct Client *sptr, const char *lookup_target,
                              const char *before_unix, int limit,
                              struct SearchMatch *sm, int *budget,
-                             struct HistoryMessage **out)
+                             struct HistoryMessage **out, int64_t *cut_ms)
 {
   struct PresenceQueryFilter *pf = NULL;
   struct HistoryRowFilter bare, *phook;
   int count;
 
   *out = NULL;
-  if (*budget <= 0)
+  *cut_ms = 0;
+  if (*budget <= 0) {
+    *cut_ms = (int64_t)history_parse_ms(before_unix);
     return 0;
+  }
 
   if (open_query_presence(sptr, lookup_target, 0, &pf) < 0)
     return 0;   /* fail closed: nothing visible here */
@@ -6028,7 +6056,7 @@ static int search_one_target(struct Client *sptr, const char *lookup_target,
   phook->veto_ctx = NULL;
 
   count = search_walk(lookup_target, before_unix, limit, sm, budget, phook,
-                      out, NULL);
+                      out, cut_ms);
   presence_query_filter_close(pf);
   if (count < 0)
     return -1;
@@ -6047,22 +6075,97 @@ static int search_row_cmp(const void *a, const void *b)
   return strcmp(ma->msgid, mb->msgid);
 }
 
+/** Finish a search answer: sort the rows of @a list by time, drop those
+ * older than @a cut_ms (0 = no cut), keep the newest @a limit and return
+ * them as an ascending list, freeing the rest.
+ *
+ * The drop is what makes a cut answer safe to page on.  When some walk
+ * stopped at @a cut_ms, the window below it was not searched for that
+ * target, so rows other targets (or other stores) found down there are
+ * left for the page that resumes at before=<cut>: they would otherwise
+ * set the client's cursor past rows nobody has looked at yet.
+ *
+ * Returns the number of rows kept in @a *kept. */
+static struct HistoryMessage *search_finish(struct HistoryMessage *list,
+                                            int limit, int64_t cut_ms,
+                                            int *kept)
+{
+  struct HistoryMessage **all, *m, *head = NULL;
+  int total = 0, n = 0, keep, k;
+
+  for (m = list; m; m = m->next)
+    total++;
+  *kept = 0;
+  if (total == 0)
+    return NULL;
+  all = (struct HistoryMessage **)MyMalloc(total * sizeof(*all));
+  for (k = 0, m = list; m; m = m->next) {
+    all[k++] = m;
+  }
+  for (k = 0; k < total; k++) {
+    all[k]->next = NULL;
+    if (cut_ms && (int64_t)history_parse_ms(all[k]->timestamp) < cut_ms) {
+      history_free_messages(all[k]);
+      continue;
+    }
+    all[n++] = all[k];
+  }
+  if (n > 1)
+    qsort(all, n, sizeof(*all), search_row_cmp);
+  keep = n < limit ? n : limit;
+  /* Ascending order; the newest `limit` are the tail of the sort. */
+  for (k = n - 1; k >= 0; k--) {
+    if (k < n - keep) {
+      history_free_messages(all[k]);
+      continue;
+    }
+    all[k]->next = head;
+    head = all[k];
+  }
+  MyFree(all);
+  *kept = keep;
+  return head;
+}
+
+/** Tag on the search batch opener when the scan budget ran out before
+ * the window did.  Its value is a server-time stamp: the search covered
+ * [cut, before) completely and nothing older; asking again with
+ * before=<value> carries on from there.  Sent only on a short answer --
+ * a full one is complete for its window and pages as usual, from its
+ * oldest row.  The spec has no marker for a cut scan; this is ours. */
+#define SEARCH_CUT_TAG "evilnet.github.io/search-cut"
+
 /** Send the search batch: @a head ascending, @a count rows.  Channel rows
  * go to their own channel; rows of the private conversation @a pm_other
- * (the other party's nick, or NULL) follow their direction. */
+ * (the other party's nick, or NULL) follow their direction.  @a cut_ms
+ * (epoch ms, 0 = none) puts SEARCH_CUT_TAG on the opener. */
 static void search_send(struct Client *sptr, struct HistoryMessage *head,
-                        const char *pm_other, const char *label)
+                        const char *pm_other, const char *label,
+                        int64_t cut_ms)
 {
   char batchid[32];
   char iso_time[32];
+  char tags[128];
   const char *bid = NULL;
   struct HistoryMessage *msg;
 
   if (CapRecipientHas(sptr, CAP_BATCH)) {
+    size_t tl = 0;
+
+    tags[0] = '\0';
+    if (cut_ms > 0 && CapRecipientHas(sptr, CAP_MSGTAGS)) {
+      char unix_ts[HISTORY_TIMESTAMP_LEN];
+      history_format_ms(unix_ts, sizeof(unix_ts), (uint64_t)cut_ms);
+      if (history_unix_to_iso(unix_ts, iso_time, sizeof(iso_time)) == 0)
+        tl = ircd_snprintf(0, tags, sizeof(tags), SEARCH_CUT_TAG "=%s", iso_time);
+    }
+    if (label && label[0])
+      ircd_snprintf(0, tags + tl, sizeof(tags) - tl, "%slabel=%s",
+                    tl ? ";" : "", label);
     generate_batch_id(batchid, sizeof(batchid), sptr);
     bid = batchid;
-    if (label)
-      sendrawto_one(sptr, "@label=%s :%s " MSG_BATCH_CMD " +%s search", label,
+    if (tags[0])
+      sendrawto_one(sptr, "@%s :%s " MSG_BATCH_CMD " +%s search", tags,
                     cli_name(&me), batchid);
     else
       sendrawto_one(sptr, ":%s " MSG_BATCH_CMD " +%s search", cli_name(&me), batchid);
@@ -6082,7 +6185,7 @@ static void search_send(struct Client *sptr, struct HistoryMessage *head,
 
   if (bid)
     sendrawto_one(sptr, ":%s " MSG_BATCH_CMD " -%s", cli_name(&me), batchid);
-  else if (label)
+  else if (label && label[0])
     sendrawto_one(sptr, "@label=%s :%s ACK", label, cli_name(&me));
 }
 
@@ -6092,15 +6195,16 @@ static void search_send(struct Client *sptr, struct HistoryMessage *head,
 /* ---------------------------------------------------------------- */
 
 /** Completion: merge the local and the responders' rows (dedup by msgid),
- * keep the newest limit, send the search batch.  A responder that timed
- * out or hit its scan cap is not signalled: the spec has no marker for a
- * cut scan, and the client narrows its window when a full limit comes
- * back, exactly as against a single server. */
+ * keep the newest limit, send the search batch.  A store whose scan
+ * budget ran out says where (CH E ... T<cut>); the newest such point,
+ * ours included, is the answer's cut (search_finish, SEARCH_CUT_TAG).  A
+ * responder that timed out, or an older one that sends a bare T, is not
+ * signalled: there is no point to resume from. */
 static void complete_search_fed(struct FedRequest *req)
 {
   struct Client *client;
-  struct HistoryMessage *merged, *m, **all;
-  int total = 0, k, keep;
+  struct HistoryMessage *merged;
+  int keep;
 
   if (!req || req->response_sent)
     return;
@@ -6111,31 +6215,11 @@ static void complete_search_fed(struct FedRequest *req)
   /* No trim in the merge (its limit is a hard cap, 0 keeps nothing):
    * the union is sorted and trimmed below. */
   merged = merge_messages(req->local_msgs, req->fed_msgs, INT_MAX, 0);
-  for (m = merged; m; m = m->next)
-    total++;
-  if (total == 0) {
-    search_send(client, NULL, NULL, req->label[0] ? req->label : NULL);
-    return;
-  }
   /* merge_messages assumes sorted inputs; responders' rows arrive in
-   * reply order, so sort the union by time and keep the newest limit. */
-  all = (struct HistoryMessage **)MyMalloc(total * sizeof(*all));
-  for (k = 0, m = merged; m; m = m->next)
-    all[k++] = m;
-  qsort(all, total, sizeof(*all), search_row_cmp);
-  keep = total < req->limit ? total : req->limit;
-  merged = NULL;
-  for (k = total - 1; k >= 0; k--) {
-    all[k]->next = NULL;
-    if (k < total - keep) {
-      history_free_messages(all[k]);
-      continue;
-    }
-    all[k]->next = merged;
-    merged = all[k];
-  }
-  MyFree(all);
-  search_send(client, merged, NULL, req->label[0] ? req->label : NULL);
+   * reply order, so search_finish sorts the union by time. */
+  merged = search_finish(merged, req->limit, req->search_cut_ms, &keep);
+  search_send(client, merged, NULL, req->label[0] ? req->label : NULL,
+              keep < req->limit ? req->search_cut_ms : 0);
   history_free_messages(merged);
 }
 
@@ -6150,7 +6234,7 @@ static struct FedRequest *start_fed_search(struct Client *sptr, const char *targ
                                            const char *after_unix, int limit,
                                            const struct SearchMatch *sm,
                                            struct HistoryMessage *local_rows,
-                                           int local_count)
+                                           int local_count, int64_t local_cut_ms)
 {
   struct FedRequest *req;
   char reqid[32], sel[BUFSIZE], esc[BUFSIZE];
@@ -6188,6 +6272,7 @@ static struct FedRequest *start_fed_search(struct Client *sptr, const char *targ
                 cli_yxx(cli_user(sptr)->server), cli_yxx(sptr));
   req->local_msgs = local_rows;
   req->local_count = local_count;
+  req->search_cut_ms = local_cut_ms;
   req->servers_pending = server_count;
   req->start_time = CurrentTime;
   req->limit = limit;
@@ -6595,7 +6680,8 @@ int ms_chathistory(struct Client *cptr, struct Client *sptr, int parc, char *par
        * window short. */
       struct SearchMatch ssm;
       struct HistoryMessage *rows = NULL, *r;
-      int budget = SEARCH_SCAN_MAX, truncated = 0, n = 0;
+      int budget = SEARCH_SCAN_MAX, n = 0;
+      int64_t cut_ms = 0;
       char selbuf[BUFSIZE];
       char before_buf[HISTORY_TIMESTAMP_LEN];
       memset(&ssm, 0, sizeof(ssm));
@@ -6634,8 +6720,8 @@ int ms_chathistory(struct Client *cptr, struct Client *sptr, int parc, char *par
         sendcmdto_one(&me, CMD_CHATHISTORY, sptr, "E %s 0", reqid);
         return 0;
       }
-      n = search_walk(target, before_buf, limit, &ssm, &budget, fed_hook, &rows, &truncated);
-      Debug((DEBUG_DEBUG, "CH Q S: %s -> %d row(s), truncated %d, budget left %d", target, n, truncated, budget));
+      n = search_walk(target, before_buf, limit, &ssm, &budget, fed_hook, &rows, &cut_ms);
+      Debug((DEBUG_DEBUG, "CH Q S: %s -> %d row(s), cut %lld, budget left %d", target, n, (long long)cut_ms, budget));
       presence_query_filter_close(fed_pf);
       fed_pf = NULL;
       if (n < 0) {
@@ -6644,9 +6730,13 @@ int ms_chathistory(struct Client *cptr, struct Client *sptr, int parc, char *par
       }
       for (r = rows; r; r = r->next)
         send_ch_response(sptr, reqid, r);
-      if (truncated)
-        sendcmdto_one(&me, CMD_CHATHISTORY, sptr, "E %s %d T", reqid, n);
-      else
+      /* T<sec.ms>: where the scan stopped.  An older origin reads the
+       * leading T alone, as before. */
+      if (cut_ms) {
+        char cutbuf[HISTORY_TIMESTAMP_LEN];
+        history_format_ms(cutbuf, sizeof(cutbuf), (uint64_t)cut_ms);
+        sendcmdto_one(&me, CMD_CHATHISTORY, sptr, "E %s %d T%s", reqid, n, cutbuf);
+      } else
         sendcmdto_one(&me, CMD_CHATHISTORY, sptr, "E %s %d", reqid, n);
       history_free_messages(rows);
       return 0;
@@ -7051,8 +7141,16 @@ int ms_chathistory(struct Client *cptr, struct Client *sptr, int parc, char *par
     /* Optional trailing T: that server's result hit its limit.  OR
      * across servers -- any truncated contributor means the aggregate
      * cannot claim completeness. */
-    if (parc > 4 && parv[4] && parv[4][0] == 'T')
+    if (parc > 4 && parv[4] && parv[4][0] == 'T') {
       req->fed_truncated = 1;
+      /* A SEARCH responder names the point its scan stopped at (T<sec.ms>);
+       * the answer is complete only from the newest such point on. */
+      if (req->completion_cb == complete_search_fed && parv[4][1]) {
+        int64_t c = (int64_t)history_parse_ms(parv[4] + 1);
+        if (c > req->search_cut_ms)
+          req->search_cut_ms = c;
+      }
+    }
 
     /* Decrement pending count -- once per responder: a duplicate CH E
      * from one server completed the request without the others' rows
@@ -7407,9 +7505,11 @@ int ms_chathistory(struct Client *cptr, struct Client *sptr, int parc, char *par
  * in front of the match so a member who was not there does not find it,
  * and the reply side runs the same redaction and presence filters as a
  * CHATHISTORY page.  There is no index: search is bounded by a scan
- * budget of SEARCH_SCAN_MAX raw rows per request, spent across the
- * channels searched when `in` is absent; a client wanting more asks
- * narrower windows.  Without `in`, the channels the requester is in are
+ * budget of SEARCH_SCAN_MAX raw rows per request, shared fairly across
+ * the channels searched when `in` is absent.  When the budget runs out
+ * before the window does, a short answer says where the scan stopped
+ * (SEARCH_CUT_TAG on the batch opener) and the client resumes with
+ * before=<that time>.  Without `in`, the channels the requester is in are
  * searched (private conversations need `in=<nick>`: their keyspace is
  * not enumerable per requester).  Local store only; a storage peer's
  * rows are not merged (2026-09-20).
@@ -7506,6 +7606,7 @@ int m_search(struct Client *cptr, struct Client *sptr, int parc, char *parv[])
 
   if (in[0]) {
     struct HistoryMessage *rows = NULL;
+    int64_t cut_ms = 0;
     int count;
 
     if (check_history_access(sptr, in, lookup_target, sizeof(lookup_target)) != 0) {
@@ -7516,7 +7617,7 @@ int m_search(struct Client *cptr, struct Client *sptr, int parc, char *parv[])
       pm_other = in;
 
     count = search_one_target(sptr, lookup_target, before_unix, limit, &sm,
-                              &budget, &rows);
+                              &budget, &rows, &cut_ms);
     if (count < 0) {
       send_fail(sptr, "SEARCH", "INTERNAL_ERROR", "in", "Failed to search history");
       return 0;
@@ -7529,60 +7630,66 @@ int m_search(struct Client *cptr, struct Client *sptr, int parc, char *parv[])
     if (IsChannelName(in)) {
       struct FedRequest *req = start_fed_search(sptr, lookup_target, in,
                                                 before_unix, after_unix,
-                                                limit, &sm, rows, count);
+                                                limit, &sm, rows, count,
+                                                cut_ms);
       if (req)
         return 0;   /* rows are the request's now; complete_search_fed sends */
     }
-    search_send(sptr, rows, pm_other, cli_label(sptr));
+    rows = search_finish(rows, limit, cut_ms, &count);
+    search_send(sptr, rows, pm_other, cli_label(sptr),
+                count < limit ? cut_ms : 0);
     history_free_messages(rows);
     return 0;
   }
 
-  /* No `in`: every channel the requester is in, newest `limit` overall. */
+  /* No `in`: every channel the requester is in, newest `limit` overall.
+   *
+   * The budget is shared fairly: each channel may spend what is left
+   * divided by the channels still to go, and what one leaves unspent
+   * rolls on to the next.  First come, first served let a busy channel
+   * early in the list spend it all, and every later one answered empty
+   * without being looked at.  A channel whose share runs out first gives
+   * its cut point; the answer keeps only rows at or after the newest cut
+   * of any channel and names it (SEARCH_CUT_TAG), so the next page,
+   * before=<cut>, starts where the least-searched channel stopped and
+   * no channel's rows are skipped. */
   {
     struct Membership *member;
-    struct HistoryMessage **all = NULL;
     struct HistoryMessage *head = NULL, **tail = &head;
-    int total = 0, cap = 0, keep, k;
+    int64_t cut_ms = 0;
+    int left = 0, kept;
+
+    for (member = cli_user(sptr)->channel; member; member = member->next_channel)
+      if (!IsMemberAlias(member))
+        left++;
 
     for (member = cli_user(sptr)->channel; member; member = member->next_channel) {
-      struct HistoryMessage *rows = NULL, *m;
-      int count;
+      struct HistoryMessage *rows = NULL;
+      int64_t ch_cut = 0;
+      int share, unspent;
 
       if (IsMemberAlias(member))
         continue;   /* the primary's membership covers it */
+      share = budget / left--;
       if (check_history_access(sptr, member->channel->chname, lookup_target,
                                sizeof(lookup_target)) != 0)
         continue;
-      count = search_one_target(sptr, lookup_target, before_unix, limit, &sm,
-                                &budget, &rows);
-      if (count <= 0) {
-        history_free_messages(rows);
-        continue;
+      unspent = share;
+      if (search_one_target(sptr, lookup_target, before_unix, limit, &sm,
+                            &unspent, &rows, &ch_cut) < 0) {
+        history_free_messages(rows);   /* a store error here leaves the others */
+        rows = NULL;
       }
-      if (total + count > cap) {
-        cap = (total + count) * 2;
-        all = (struct HistoryMessage **)MyRealloc(all, cap * sizeof(*all));
-      }
-      for (m = rows; m; m = m->next)
-        all[total++] = m;
+      budget -= share - (unspent > 0 ? unspent : 0);
+      if (ch_cut > cut_ms)
+        cut_ms = ch_cut;
+      *tail = rows;
+      while (*tail)
+        tail = &(*tail)->next;
     }
 
-    if (total > 1)
-      qsort(all, total, sizeof(*all), search_row_cmp);
-    keep = total < limit ? total : limit;
-    /* Ascending order; the newest `limit` are the tail of the sort. */
-    for (k = 0; k < total; k++) {
-      all[k]->next = NULL;
-      if (k < total - keep) {
-        history_free_messages(all[k]);
-        continue;
-      }
-      *tail = all[k];
-      tail = &all[k]->next;
-    }
-    MyFree(all);
-    search_send(sptr, head, NULL, cli_label(sptr));
+    head = search_finish(head, limit, cut_ms, &kept);
+    search_send(sptr, head, NULL, cli_label(sptr), kept < limit ? cut_ms : 0);
     history_free_messages(head);
   }
   return 0;
