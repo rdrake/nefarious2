@@ -2055,6 +2055,36 @@ int ms_metadata(struct Client *cptr, struct Client *sptr, int parc, char *parv[]
   return 0;
 }
 
+/** Does the nick- or channel-form change @a target / @a key already hold
+ * here?  1 when the current entry has this value and visibility (or, for an
+ * unset, there is none), 0 when the change would alter it, -1 for the
+ * account and session forms and an unknown target (not judged).  Read
+ * BEFORE applying: the mesh copy's legacy re-emit fires only on a change,
+ * so a copy that comes back round through a second gateway stops there. */
+int metadata_relayed_is_current(const char *target, const char *key,
+                                int visibility, const char *value)
+{
+  struct MetadataEntry *e = NULL;
+
+  if (!target || !key || target[0] == '*' || target[0] == '=' || target[0] == '!')
+    return -1;
+  if (IsChannelName(target)) {
+    struct Channel *ch = FindChannel(target);
+    if (!ch)
+      return -1;
+    e = metadata_get_channel(ch, key);
+  } else {
+    struct Client *c = FindUser(target);
+    if (!c)
+      return -1;
+    e = metadata_get_client(c, key);
+  }
+  if (!value)
+    return e ? 0 : 1;
+  return (e && e->value && 0 == strcmp(e->value, value)
+          && e->visibility == visibility) ? 1 : 0;
+}
+
 /* Apply a metadata change that reached us from elsewhere (P10 MD or the
  * CR M 'E' mesh copy) exactly as ms_metadata does: the account form
  * ("*account") and the nick/channel form, each under the Tier C F2-b
