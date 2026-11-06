@@ -81,6 +81,8 @@
  */
 #include "config.h"
 
+#include "bouncer_session.h"
+#include "capab.h"
 #include "channel.h"
 #include "client.h"
 #include "hash.h"
@@ -88,9 +90,11 @@
 #include "ircd_features.h"
 #include "ircd_log.h"
 #include "ircd_reply.h"
+#include "ircd_snprintf.h"
 #include "ircd_string.h"
 #include "list.h"
 #include "match.h"
+#include "metadata.h"
 #include "msg.h"
 #include "numeric.h"
 #include "numnicks.h"
@@ -235,7 +239,7 @@ static void do_whois(struct Client* sptr, struct Client *acptr, int parc)
   if (user)
   {
     if (user->away)
-       send_reply(sptr, RPL_AWAY, name, user->away);
+       send_reply(sptr, RPL_AWAY, name, away_text_for(sptr, user->away));
 
     if (SeeOper(sptr,acptr)) {
        if (IsAdmin(acptr))
@@ -246,6 +250,17 @@ static void do_whois(struct Client* sptr, struct Client *acptr, int parc)
 
     if (IsAccount(acptr))
       send_reply(sptr, RPL_WHOISACCOUNT, name, user->account);
+
+    /* IRCv3 draft/metadata-2: send metadata in WHOIS */
+    if (CapActive(sptr, CAP_DRAFT_METADATA2)) {
+      struct MetadataEntry *md = metadata_list_client(acptr);
+      while (md) {
+        if (can_view_metadata(sptr, acptr, md))
+          send_reply(sptr, RPL_WHOISKEYVALUE, name, md->key,
+                     get_visibility_str(md), md->value);
+        md = md->next;
+      }
+    }
 
     if (IsHiddenHost(acptr) && (IsAnOper(sptr) || acptr == sptr))
       send_reply(sptr, RPL_WHOISACTUALLY, name, user->username,
@@ -280,17 +295,59 @@ static void do_whois(struct Client* sptr, struct Client *acptr, int parc)
         send_reply(sptr, RPL_WHOISSSLFP, name, cli_sslclifp(acptr));
     }
 
+    /* Oper-only: flag WebSocket-connected users and expose the Origin.
+     * Gated on cli_wsorigin (non-empty iff the client is WS, set locally
+     * at handshake or via MARK on remote servers) — NOT IsWebSocket,
+     * which is a local-only behavioral flag not set on remote users.
+     * IsAnOper gate matches the surrounding oper-visible whois lines. */
+    if (IsAnOper(sptr) && !EmptyString(cli_wsorigin(acptr)))
+      send_reply(sptr, RPL_WHOISWEBSOCKET, name, cli_wsorigin(acptr));
+
     if (!EmptyString(user->swhois))
       send_reply(sptr, RPL_WHOISSPECIAL, name, user->swhois);
 
     if (cli_webirc(acptr) && !EmptyString(cli_webirc(acptr)))
       send_reply(sptr, RPL_WHOISWEBIRC, name, cli_webirc(acptr));
 
+    /* Bouncer session info - visible to opers and the user themselves */
+    if (IsAnOper(sptr) || acptr == sptr) {
+      struct BouncerSession *session = bounce_get_session(acptr);
+      if (session) {
+        int conn_count = bounce_connection_count(session);
+        char bouncer_buf[128];
+
+        if (session->hs_state == BOUNCE_ACTIVE) {
+          if (conn_count > 1)
+            ircd_snprintf(0, bouncer_buf, sizeof(bouncer_buf),
+                          "has a bouncer session with %d connections", conn_count);
+          else
+            ircd_snprintf(0, bouncer_buf, sizeof(bouncer_buf),
+                          "has a bouncer session");
+        } else {
+          ircd_snprintf(0, bouncer_buf, sizeof(bouncer_buf),
+                        "has a bouncer session (holding)");
+        }
+        send_reply(sptr, RPL_WHOISSPECIAL, name, bouncer_buf);
+      }
+    }
+
     if (MyConnect(acptr) && (IsAnOper(sptr) || (!IsNoIdle(acptr) &&
           (!feature_bool(FEAT_HIS_WHOIS_IDLETIME) || sptr == acptr ||
-             parc >= 3))))
-       send_reply(sptr, RPL_WHOISIDLE, name, CurrentTime - user->last,
-                  cli_firsttime(acptr));
+             parc >= 3)))) {
+      /* A bouncer session is one user on several connections: idle is
+       * measured from the most recent activity on any of them (aliases
+       * on other servers via the replicated activity), not just the
+       * primary's own clock. */
+      time_t last = user->last;
+      struct BouncerSession *isess = bounce_get_session(acptr);
+      if (isess) {
+        time_t sl = bounce_session_last_active(isess);
+        if (sl > last)
+          last = sl;
+      }
+      send_reply(sptr, RPL_WHOISIDLE, name, CurrentTime - last,
+                 cli_firsttime(acptr));
+    }
 
     if (IsOper(acptr) && IsWhoisNotice(acptr) && (sptr != acptr))
       sendcmdto_one(&me, CMD_NOTICE, acptr,
@@ -462,6 +519,8 @@ int m_whois(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
     parv[1] = parv[2];
   }
 
+  int lb = labeled_batch_start(sptr);
+
   for (tmp = parv[1]; (nick = ircd_strtok(&p, tmp, ",")); tmp = 0)
   {
     int wilds;
@@ -501,6 +560,9 @@ int m_whois(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
   } /* of tokenised parm[1] */
   send_reply(sptr, RPL_ENDOFWHOIS, parv[1]);
 
+  if (lb)
+    labeled_batch_end(sptr);
+
   return 0;
 }
 
@@ -523,6 +585,10 @@ int ms_whois(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
   int             found = 0;
   int		  total = 0;
 
+  /* do_whois() replies to and describes the asker as a user. */
+  if (!IsUser(sptr))
+    return protocol_violation(sptr, "WHOIS from non-user %s", cli_name(sptr));
+
   if (parc < 2)
   {
     send_reply(sptr, ERR_NONICKNAMEGIVEN);
@@ -536,6 +602,8 @@ int ms_whois(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
       return 0;
     parv[1] = parv[2];
   }
+
+  int lb = labeled_batch_start(sptr);
 
   total = 0;
 
@@ -567,6 +635,9 @@ int ms_whois(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
       p[-1] = ',';
   } /* of tokenised parm[1] */
   send_reply(sptr, RPL_ENDOFWHOIS, parv[1]);
+
+  if (lb)
+    labeled_batch_end(sptr);
 
   return 0;
 }

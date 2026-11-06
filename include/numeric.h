@@ -522,6 +522,11 @@ extern const struct Numeric* get_error_numeric(int err);
 #define ERR_UPASS_SAME_APASS 567        /* Undernet extension */
 #define ERR_NOOMOTD          568
 
+/* Bouncer numerics - Nefarious extension */
+#define RPL_BOUNCERSESSION   780	/* Nefarious bouncer */
+#define RPL_BOUNCETOKEN      781	/* Nefarious bouncer */
+#define RPL_BOUNCERSETTINGS  782	/* Nefarious bouncer */
+
 #define RPL_LOGON            600        /* Dalnet extension */
 #define RPL_LOGOFF           601        /* Dalnet extension */
 #define RPL_WATCHOFF         602        /* Dalnet extension */
@@ -561,6 +566,7 @@ extern const struct Numeric* get_error_numeric(int err);
 
 #define RPL_STARTTLS         670        /* Nefarious extension */
 #define RPL_WHOISSSL         671        /* Nefarious extension (SSL WHOIS) */
+#define RPL_WHOISWEBSOCKET   672        /* Nefarious extension (WebSocket WHOIS, oper-only) */
 
 #define ERR_STARTTLS         691	/* Nefarious extension */
 
@@ -568,8 +574,26 @@ extern const struct Numeric* get_error_numeric(int err);
 #define RPL_HELPTXT          705	/* RatBox */
 #define RPL_ENDOFHELP        706	/* RatBox */
 
+/* IRCv3 - MONITOR extension (730-734) */
+#define RPL_MONONLINE        730	/* IRCv3 - MONITOR: target is online */
+#define RPL_MONOFFLINE       731	/* IRCv3 - MONITOR: target is offline */
+#define RPL_MONLIST          732	/* IRCv3 - MONITOR: list entry */
+#define RPL_ENDOFMONLIST     733	/* IRCv3 - MONITOR: end of list */
+#define ERR_MONLISTFULL      734	/* IRCv3 - MONITOR: list is full */
+
+/* IRCv3 - Metadata extension (760-774) */
+#define RPL_WHOISKEYVALUE    760	/* IRCv3 - Metadata (WHOIS integration) */
+#define RPL_KEYVALUE         761	/* IRCv3 - Metadata key-value pair */
+#define RPL_METADATAEND      762	/* IRCv3 - End of metadata list */
+#define RPL_KEYNOTSET        766	/* IRCv3 - Metadata key not set */
+#define RPL_METADATASUBOK    770	/* IRCv3 - Metadata subscription OK */
+#define RPL_METADATAUNSUBOK  771	/* IRCv3 - Metadata unsubscription OK */
+#define RPL_METADATASUBS     772	/* IRCv3 - Metadata subscribed keys */
+#define RPL_METADATASYNCLATER 774	/* IRCv3 - Metadata sync deferred */
+
 #define RPL_LOGGEDIN         900	/* IRCv3 - SASL extension */
 #define RPL_LOGGEDOUT        901	/* IRCv3 - SASL extension */
+#define ERR_NICKLOCKED       902	/* IRCv3 - SASL extension */
 
 #define RPL_SASLSUCCESS      903	/* IRCv3 - SASL extension */
 #define ERR_SASLFAIL         904	/* IRCv3 - SASL extension */

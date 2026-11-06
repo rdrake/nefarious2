@@ -23,6 +23,8 @@
 #include "config.h"
 
 #include "msgq.h"
+#include "capab.h"
+#include "client.h"
 #include "ircd.h"
 #include "ircd_alloc.h"
 #include "ircd_defs.h"
@@ -30,6 +32,7 @@
 #include "ircd_log.h"
 #include "ircd_reply.h"
 #include "ircd_snprintf.h"
+#include "ircd_string.h"
 #include "numeric.h"
 #include "send.h"
 #include "s_debug.h"
@@ -42,7 +45,7 @@
 #include <sys/uio.h>	/* struct iovec */
 
 #define MB_BASE_SHIFT	5 /**< Log2 of smallest message body to allocate. */
-#define MB_MAX_SHIFT	9 /**< Log2 of largest message body to allocate. */
+#define MB_MAX_SHIFT	14 /**< Log2 of largest message body to allocate (16384 for IRCv3 tagged msgs). */
 
 /** Buffer for a single message. */
 struct MsgBuf {
@@ -263,7 +266,7 @@ msgq_alloc(struct MsgBuf *in_mb, int length)
     if ((length - 1) >> power == 0)
       break;
   assert((1 << power) >= length);
-  assert((1 << power) <= 512);
+  assert((1 << power) <= (1 << MB_MAX_SHIFT));
   length = 1 << power; /* reset the length */
 
   /* If the message needs a buffer of exactly the existing size, just use it */
@@ -327,45 +330,70 @@ msgq_clear_freembs(void)
 struct MsgBuf *
 msgq_vmake(struct Client *dest, const char *format, va_list vl)
 {
+  /* Static scratch buffer for formatting — single-threaded server, so safe.
+   * Sized for IRCv3 tagged messages (up to 8191 tag bytes + 512 command).
+   * The formatted content is then copied into a pool MsgBuf allocated at
+   * max(BUFSIZE, needed) to preserve slack for msgq_append() callers. */
+  static char fmt_scratch[FULL_MSG_SIZE];
   struct MsgBuf *mb;
+  int len, alloc_size;
+  int s2s = dest && (IsServer(dest) || IsMe(dest));
 
   assert(0 != format);
 
-  if (!(mb = msgq_alloc(0, BUFSIZE))) {
+  /* Format into scratch buffer first to determine actual size */
+  len = ircd_vsnprintf(dest, fmt_scratch, sizeof(fmt_scratch) - 1, format, vl);
+
+  /* IRC RFC 1459: messages must fit in 512 bytes including \r\n.
+   * Tagged messages (starting with @) can use up to FULL_MSG_SIZE.
+   * A non-tagged message to a client is truncated to BUFSIZE-2 (510)
+   * before \r\n.  A line for another server (or &me, which stands in
+   * for one on the sending side) only gets the scratch-buffer safety
+   * cap here: its body cut is ircd_line_body_clamp()'s, below. */
+  if (fmt_scratch[0] == '@' || s2s) {
+    if (len > (int)sizeof(fmt_scratch) - 3)
+      len = (int)sizeof(fmt_scratch) - 3;
+  } else {
+    if (len > BUFSIZE - 2)
+      len = BUFSIZE - 2;
+  }
+
+  /* S2S wire hygiene (audit 0.1): every line bound for another server
+   * keeps its body within the receiving server's cap -- 512 for a
+   * tagged line (recv_classify.c's msg_cap = BUFSIZE), 510 for an
+   * untagged one (what a legacy peer needs, same as before) -- and is
+   * cut at a UTF-8 boundary, so neither a legacy peer nor a downstream
+   * re-send gets a split multi-byte sequence.  This is the only body
+   * cut on these lines: an earlier byte-exact 510 cut would leave this
+   * one nothing to do. */
+  if (s2s) {
+    size_t body_max = (fmt_scratch[0] == '@') ? BUFSIZE : BUFSIZE - 2;
+    len = (int)ircd_line_body_clamp(fmt_scratch, (size_t)len, body_max);
+  }
+
+  /* Allocate at least BUFSIZE to preserve slack for msgq_append() */
+  alloc_size = len + 3;
+  if (alloc_size < BUFSIZE)
+    alloc_size = BUFSIZE;
+
+  if (!(mb = msgq_alloc(0, alloc_size))) {
     if (feature_bool(FEAT_HAS_FERGUSON_FLUSHER)) {
-      /*
-       * from "Married With Children" episode were Al bought a REAL toilet
-       * on the black market because he was tired of the wimpy water
-       * conserving toilets they make these days --Bleep
-       */
-      /*
-       * Apparently this doesn't work, the server _has_ to
-       * dump a few clients to handle the load. A fully loaded
-       * server cannot handle a net break without dumping some
-       * clients. If we flush the connections here under a full
-       * load we may end up starving the kernel for mbufs and
-       * crash the machine
-       */
-      /*
-       * attempt to recover from buffer starvation before
-       * bailing this may help servers running out of memory
-       */
       flush_connections(0);
-      mb = msgq_alloc(0, BUFSIZE);
+      mb = msgq_alloc(0, alloc_size);
     }
     if (!mb) { /* OK, try clearing the buffer free list */
       msgq_clear_freembs();
-      mb = msgq_alloc(0, BUFSIZE);
+      mb = msgq_alloc(0, alloc_size);
     }
     if (!mb) { /* OK, try killing a client */
       kill_highest_sendq(0); /* Don't kill any server connections */
       msgq_clear_freembs();  /* Release whatever was just freelisted */
-      mb = msgq_alloc(0, BUFSIZE);
+      mb = msgq_alloc(0, alloc_size);
     }
     if (!mb) { /* hmmm... */
       kill_highest_sendq(1); /* Try killing a server connection now */
       msgq_clear_freembs();  /* Clear freelist again */
-      mb = msgq_alloc(0, BUFSIZE);
+      mb = msgq_alloc(0, alloc_size);
     }
     if (!mb) /* AIEEEE! */
       server_panic("Unable to allocate buffers!");
@@ -374,11 +402,9 @@ msgq_vmake(struct Client *dest, const char *format, va_list vl)
   mb->next = MQData.msglist; /* initialize the msgbuf */
   mb->prev_p = &MQData.msglist;
 
-  /* fill the buffer */
-  mb->length = ircd_vsnprintf(dest, mb->msg, bufsize(mb) - 1, format, vl);
-
-  if (mb->length > bufsize(mb) - 2)
-    mb->length = bufsize(mb) - 2;
+  /* Copy formatted content into the MsgBuf */
+  memcpy(mb->msg, fmt_scratch, len);
+  mb->length = len;
 
   mb->msg[mb->length++] = '\r'; /* add \r\n to buffer */
   mb->msg[mb->length++] = '\n';
@@ -514,7 +540,7 @@ msgq_add(struct MsgQ *mq, struct MsgBuf *mb, int prio)
     struct MsgBuf *tmp;
 
     MQData.sizes.msgs++; /* update histogram counts */
-    MQData.sizes.sizes[mb->length - 1]++;
+    MQData.sizes.sizes[mb->length < BUFSIZE ? mb->length - 1 : BUFSIZE - 1]++;
 
     tmp = msgq_alloc(mb, mb->length); /* allocate a close-fitting buffer */
 
@@ -630,4 +656,225 @@ msgq_histogram(struct Client *cptr, const struct StatDesc *sd, char *param)
 	       tmp.sizes[i +  9], tmp.sizes[i + 10], tmp.sizes[i + 11],
 	       tmp.sizes[i + 12], tmp.sizes[i + 13], tmp.sizes[i + 14],
 	       tmp.sizes[i + 15]);
+}
+
+/** Expose a MsgBuf's raw message data and length.
+ * Follows the ->real pointer if set to get the actual buffer.
+ * @param[in] mb Message buffer to inspect.
+ * @param[out] data Set to pointer to the message data.
+ * @param[out] len Set to the message length.
+ */
+void
+msgq_buf_data(struct MsgBuf *mb, const char **data, unsigned int *len)
+{
+  struct MsgBuf *real;
+
+  assert(0 != mb);
+  assert(0 != data);
+  assert(0 != len);
+
+  real = mb->real ? mb->real : mb;
+  *data = real->msg;
+  *len = real->length;
+}
+
+/** Strip all IRCv3 tags from a message buffer.
+ * If the message starts with '@', find the first space (end of tag prefix)
+ * and create a new MsgBuf with only the body (after the space).
+ * @param[in] mb Message buffer to strip tags from.
+ * @return New MsgBuf without tags (ref=1), or NULL if no tags present.
+ */
+struct MsgBuf *
+msgq_strip_tags(struct MsgBuf *mb)
+{
+  struct MsgBuf *real;
+  const char *space;
+  unsigned int body_len;
+
+  assert(0 != mb);
+
+  real = mb->real ? mb->real : mb;
+  if (real->length < 2 || real->msg[0] != '@')
+    return NULL;
+
+  space = memchr(real->msg, ' ', real->length);
+  if (!space)
+    return NULL;
+  space++; /* skip the space after tags */
+
+  body_len = real->length - (unsigned int)(space - real->msg);
+  /* body includes \r\n which msgq_make will add again, so strip it */
+  if (body_len >= 2)
+    body_len -= 2;
+  if (body_len == 0)
+    return NULL;
+
+  return msgq_make(0, "%.*s", (int)body_len, space);
+}
+
+/** Tag-name to CAP mapping entry for msgq_filter_tags(). */
+struct TagCapMapping {
+  const char *prefix;     /**< Tag name prefix to match (including '=') */
+  unsigned int prefix_len;/**< Length of prefix string */
+  int cap;                /**< CAP_* enum value, or -1 for "always include" */
+  int is_client_tag;      /**< Non-zero if tag starts with '+' (client-only) */
+};
+
+/** Static mapping of known tag names to their required capabilities. */
+static const struct TagCapMapping tag_cap_map[] = {
+  { "time=",    5, CAP_SERVERTIME, 0 },
+  { "account=", 8, CAP_ACCOUNTTAG, 0 },
+  { "batch=",   6, CAP_BATCH,      0 },
+  { "label=",   6, CAP_LABELEDRESP,0 },
+  { "msgid=",   6, -1,             0 },  /* always include */
+  { "bot",      3, -1,             0 },  /* always include */
+  { NULL, 0, 0, 0 }
+};
+
+/** Check whether a tag should be included for a given CapSet.
+ * @param[in] tag Start of tag name (after '@' or ';').
+ * @param[in] tag_end End of this tag (';' or ' ').
+ * @param[in] active Recipient's active capabilities.
+ * @return Non-zero if the tag should be included.
+ */
+static int
+tag_wanted(const char *tag, const char *tag_end, struct CapSet *active)
+{
+  unsigned int tag_len = (unsigned int)(tag_end - tag);
+  const struct TagCapMapping *m;
+
+  /* Client-only tags (starting with '+') require message-tags CAP */
+  if (tag[0] == '+')
+    return CapHas(active, CAP_MSGTAGS) ? 1 : 0;
+
+  /* Check known tag mappings */
+  for (m = tag_cap_map; m->prefix; m++) {
+    if (tag_len >= m->prefix_len &&
+        memcmp(tag, m->prefix, m->prefix_len) == 0) {
+      if (m->cap < 0)
+        return 1; /* always include */
+      return CapHas(active, m->cap) ? 1 : 0;
+    }
+  }
+
+  /* Unknown server tags — include conservatively */
+  return 1;
+}
+
+/** Filter IRCv3 tags in a message buffer to only those matching a CapSet.
+ * Parses the @tag1=val;tag2=val prefix, checks each tag against
+ * the tag-name-to-CAP mapping, and rebuilds with only wanted tags.
+ * @param[in] mb Message buffer to filter.
+ * @param[in] active CapSet of active capabilities for the recipient.
+ * @return New MsgBuf with filtered tags (ref=1), or NULL if no tags present.
+ */
+struct MsgBuf *
+msgq_filter_tags(struct MsgBuf *mb, struct CapSet *active)
+{
+  struct MsgBuf *real;
+  const char *space;
+  const char *tag_start;
+  const char *tag_end;
+  const char *body;
+  unsigned int body_len;
+  char filtered[512]; /* rebuilt tag prefix */
+  int fpos = 0;
+  int has_tags = 0;
+
+  assert(0 != mb);
+  assert(0 != active);
+
+  real = mb->real ? mb->real : mb;
+  if (real->length < 2 || real->msg[0] != '@')
+    return NULL;
+
+  space = memchr(real->msg, ' ', real->length);
+  if (!space)
+    return NULL;
+
+  /* Parse tags between msg[1] and space */
+  tag_start = real->msg + 1;
+  while (tag_start < space) {
+    /* Find end of this tag (next ';' or the space) */
+    tag_end = tag_start;
+    while (tag_end < space && *tag_end != ';')
+      tag_end++;
+
+    if (tag_end > tag_start && tag_wanted(tag_start, tag_end, active)) {
+      /* Add separator if not first tag */
+      if (has_tags && fpos < (int)sizeof(filtered) - 1)
+        filtered[fpos++] = ';';
+      else if (!has_tags && fpos < (int)sizeof(filtered) - 1)
+        filtered[fpos++] = '@';
+
+      /* Copy the tag */
+      {
+        int tlen = (int)(tag_end - tag_start);
+        if (fpos + tlen < (int)sizeof(filtered) - 1) {
+          memcpy(filtered + fpos, tag_start, tlen);
+          fpos += tlen;
+        }
+      }
+      has_tags = 1;
+    }
+
+    /* Advance past ';' */
+    tag_start = tag_end;
+    if (tag_start < space && *tag_start == ';')
+      tag_start++;
+  }
+
+  body = space + 1; /* skip the space after tag prefix */
+  body_len = real->length - (unsigned int)(body - real->msg);
+  /* body includes \r\n which msgq_make adds, so strip it */
+  if (body_len >= 2)
+    body_len -= 2;
+
+  if (!has_tags) {
+    /* No tags survived filtering — return body only */
+    if (body_len == 0)
+      return NULL;
+    return msgq_make(0, "%.*s", (int)body_len, body);
+  }
+
+  /* Add space after tags */
+  if (fpos < (int)sizeof(filtered) - 1)
+    filtered[fpos++] = ' ';
+  filtered[fpos] = '\0';
+
+  if (body_len == 0)
+    return NULL;
+
+  return msgq_make(0, "%s%.*s", filtered, (int)body_len, body);
+}
+
+/** Create a new MsgBuf by prepending a tag string to a base (no-tags) MsgBuf.
+ *
+ * Used when a connection needs tags that weren't in the mb_cache
+ * because no other channel member had the same capability set. The tag
+ * string should already be formatted (e.g., "@time=...;account=... ")
+ * with a trailing space.
+ *
+ * @param[in] tags Tag string to prepend (must include trailing space).
+ * @param[in] base Base MsgBuf without tags (the body to prepend to).
+ * @return New MsgBuf with tags + body (ref=1), or NULL on error.
+ */
+struct MsgBuf *
+msgq_prepend_tags(const char *tags, struct MsgBuf *base)
+{
+  struct MsgBuf *real;
+  unsigned int body_len;
+
+  assert(0 != tags);
+  assert(0 != base);
+
+  real = base->real ? base->real : base;
+  body_len = real->length;
+  /* body includes \r\n which msgq_make will add again, so strip it */
+  if (body_len >= 2)
+    body_len -= 2;
+  if (body_len == 0)
+    return NULL;
+
+  return msgq_make(0, "%s%.*s", tags, (int)body_len, real->msg);
 }

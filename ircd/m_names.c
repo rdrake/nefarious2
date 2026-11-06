@@ -81,6 +81,7 @@
  */
 #include "config.h"
 
+#include "bouncer_session.h"
 #include "channel.h"
 #include "client.h"
 #include "hash.h"
@@ -167,38 +168,48 @@ void do_names(struct Client* sptr, struct Channel* chptr, int filter)
     if ((!IsDelayedJoin(member) || (member->user == sptr)) && (filter & NAMES_DEL))
         continue;
 
+    if (IsMemberAlias(member))
+        continue;
+
     if (needs_space)
       buf[idx++] = ' ';
     needs_space=1;
     if (IsZombie(member)) {
-      if ((IsNamesX(sptr) || CapActive(sptr, CAP_NAMESX)) || !done_prefix) {
+      if ((IsNamesX(sptr) || CapRecipientHas(sptr, CAP_NAMESX)) || !done_prefix) {
         buf[idx++] = '!';
         done_prefix = 1;
       }
     }
     if (IsChanOp(member)) {
-      if ((IsNamesX(sptr) || CapActive(sptr, CAP_NAMESX)) || !done_prefix) {
+      if ((IsNamesX(sptr) || CapRecipientHas(sptr, CAP_NAMESX)) || !done_prefix) {
         buf[idx++] = '@';
         done_prefix = 1;
       }
     }
     if (IsHalfOp(member)) {
-      if ((IsNamesX(sptr) || CapActive(sptr, CAP_NAMESX)) || !done_prefix) {
+      if ((IsNamesX(sptr) || CapRecipientHas(sptr, CAP_NAMESX)) || !done_prefix) {
         buf[idx++] = '%';
         done_prefix = 1;
       }
     }
     if (HasVoice(member)) {
-      if ((IsNamesX(sptr) || CapActive(sptr, CAP_NAMESX)) || !done_prefix) {
+      if ((IsNamesX(sptr) || CapRecipientHas(sptr, CAP_NAMESX)) || !done_prefix) {
         buf[idx++] = '+';
         done_prefix = 1;
       }
     }
+    /* Bouncer-hold marker (`~`) intentionally NOT emitted: it is not
+     * advertised in ISUPPORT PREFIX, conflicts with the conventional
+     * channel-owner prefix on other IRCds (Unreal/Inspircd `q` mode),
+     * doesn't propagate to legacy peers (causing cross-server display
+     * desync), and several clients parse unknown leading symbols as
+     * part of the nick.  The CHFL_HOLDING membership flag itself is
+     * still used internally for revival cleanup and persistence. */
     strcpy(buf + idx, cli_name(c2ptr));
     idx += strlen(cli_name(c2ptr));
 
     if ((feature_bool(FEAT_UHNAMES) && IsUHNames(sptr)) ||
-        CapActive(sptr, CAP_UHNAMES)) {
+        CapRecipientHas(sptr, CAP_UHNAMES)) {
       strcpy(buf + idx, "!");
       idx += 1;
       strcpy(buf + idx, cli_user(c2ptr)->username);
@@ -250,8 +261,11 @@ int m_names(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
   } else if (parc > 2 && hunt_server_cmd(sptr, CMD_NAMES, cptr, 1, "%s %C", 2, parc, parv))
     return 0;
 
+  int lb = labeled_batch_start(sptr);
+
   if (EmptyString(para)) {
     send_reply(sptr, RPL_ENDOFNAMES, "*");
+    if (lb) labeled_batch_end(sptr);
     return 0;
   }
 
@@ -358,5 +372,6 @@ int m_names(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
         send_reply(sptr, RPL_ENDOFNAMES, para);
   } while ((para = s) != NULL);
 
+  if (lb) labeled_batch_end(sptr);
   return 1;
 }

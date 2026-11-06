@@ -93,6 +93,7 @@
 #include "msg.h"
 #include "numeric.h"
 #include "numnicks.h"
+#include "match.h"
 #include "s_conf.h"
 #include "s_debug.h"
 #include "s_user.h"
@@ -109,6 +110,7 @@ m_mode(struct Client *cptr, struct Client *sptr, int parc, char *parv[])
   struct ModeBuf mbuf;
   struct Membership *member;
   int hoflags = 0;
+  int lb;
 
   if (parc < 2)
     return need_more_params(sptr, "MODE");
@@ -125,8 +127,18 @@ m_mode(struct Client *cptr, struct Client *sptr, int parc, char *parv[])
     }
     else if (sptr != acptr)
     {
-      send_reply(sptr, ERR_USERSDONTMATCH);
-      return 0;
+      /* Aliases share their primary's session identity.  An alias
+       * sending MODE for the primary's nick (which is the alias's
+       * effective post-attach nick) is acting on its own user state.
+       * set_user_mode has the matching carve-out at the parc < 3 and
+       * parc >= 3 paths — but this earlier gate in m_mode also has to
+       * let the alias through.  Pre-fix, MODE from an alias for the
+       * primary's nick got ERR_USERSDONTMATCH here before ever
+       * reaching set_user_mode. */
+      if (!(cli_user(sptr) && cli_user(sptr)->alias_primary == acptr)) {
+        send_reply(sptr, ERR_USERSDONTMATCH);
+        return 0;
+      }
     }
 
     if (!IsAnOper(sptr) && IsRestrictUMode(sptr))
@@ -143,11 +155,13 @@ m_mode(struct Client *cptr, struct Client *sptr, int parc, char *parv[])
     char modebuf[MODEBUFLEN];
     char parabuf[MODEBUFLEN];
 
+    lb = labeled_batch_start(sptr);
     *modebuf = *parabuf = '\0';
     modebuf[1] = '\0';
     channel_modes(sptr, modebuf, parabuf, sizeof(parabuf), chptr, member);
     send_reply(sptr, RPL_CHANNELMODEIS, chptr->chname, modebuf, parabuf);
     send_reply(sptr, RPL_CREATIONTIME, chptr->chname, chptr->creationtime);
+    if (lb) labeled_batch_end(sptr);
     return 0;
   }
 
@@ -200,9 +214,60 @@ ms_mode(struct Client *cptr, struct Client *sptr, int parc, char *parv[])
     {
       return 0;
     }
-    else if ((sptr != acptr) && !IsServer(sptr))
+
+    /* Alias→primary mode sync: when the alias's mode changes (e.g. from
+     * OPER on the leaf), apply it to the primary on the hub.
+     * For +o, do a proper oper-up via do_oper() so the primary gets
+     * the right class, handler, snomask, privileges, etc.
+     * For other modes, fall through to set_user_mode(). */
+    if (IsBouncerAlias(sptr) && cli_user(sptr)
+        && cli_user(sptr)->alias_primary == acptr) {
+      /* Check if +o is being set */
+      int setting_oper = 0;
+      int mi;
+      char *mm;
+      int mwhat = MODE_ADD;
+      for (mi = 2; mi < parc; mi++) {
+        for (mm = parv[mi]; *mm; mm++) {
+          if (*mm == '+') mwhat = MODE_ADD;
+          else if (*mm == '-') mwhat = MODE_DEL;
+          else if (*mm == 'o' && mwhat == MODE_ADD) setting_oper = 1;
+        }
+      }
+
+      if (setting_oper && !IsOper(acptr)) {
+        /* Find a matching Operator block on this server.
+         * The leaf already validated name+password; we just need
+         * a host-matching ConfItem for the class/privileges. */
+        struct ConfItem *aconf;
+        for (aconf = GlobalConfList; aconf; aconf = aconf->next) {
+          if (!(aconf->status & CONF_OPERATOR))
+            continue;
+          if (aconf->username
+              && match(aconf->username, cli_user(acptr)->username))
+            continue;
+          if (aconf->addrbits < 0) {
+            if (match(aconf->host, cli_user(acptr)->realhost))
+              continue;
+          } else if (!ipmask_check(&cli_ip(acptr), &aconf->address.addr,
+                                    aconf->addrbits))
+            continue;
+          break;
+        }
+        if (aconf) {
+          do_oper(cli_from(acptr), acptr, aconf, OPER_FLAG_SILENT);
+          return 0;  /* do_oper handles MODE propagation */
+        }
+      }
+
+      /* Fallback for non-oper modes or no matching Operator block */
+      return set_user_mode(cptr, cptr, parc, parv,
+                           ALLOWMODES_ANY | ALLOWMODES_ALIAS_SYNC);
+    }
+
+    if ((sptr != acptr) && !IsServer(sptr))
     {
-      sendwallto_group_butone(&me, WALL_WALLOPS, 0, 
+      sendwallto_group_butone(&me, WALL_WALLOPS, 0,
                               "MODE for User %s from %s!%s", parv[1],
                               cli_name(cptr), cli_name(sptr));
       return 0;

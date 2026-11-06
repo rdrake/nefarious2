@@ -1,0 +1,605 @@
+/*
+ * IRC - Internet Relay Chat, include/metadata.h
+ * Copyright (C) 2024 Nefarious Development Team
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 2, or (at your option)
+ * any later version.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, write to the Free Software
+ * Foundation, Inc., 675 Mass Ave, Cambridge, MA 02139, USA.
+ */
+/** @file
+ * @brief Metadata storage declarations (IRCv3 draft/metadata-2).
+ *
+ * Implements IRCv3 draft/metadata-2 extension for user/channel key-value storage.
+ *
+ * Specification: https://ircv3.net/specs/extensions/metadata
+ * Capability: draft/metadata-2
+ */
+#ifndef INCLUDED_metadata_h
+#define INCLUDED_metadata_h
+
+#ifndef INCLUDED_metadata_lww_h
+#include "metadata_lww.h"
+#endif
+
+struct Client;
+struct Channel;
+
+/** Maximum length of a metadata key name */
+#define METADATA_KEY_LEN 64
+
+/** Maximum length of a metadata value */
+#define METADATA_VALUE_LEN 1024
+
+/** Visibility levels for metadata */
+#define METADATA_VIS_PUBLIC  0  /* Anyone can see */
+#define METADATA_VIS_PRIVATE 1  /* Only owner can see */
+#define METADATA_VIS_ERROR   2  /* Error response (no such target) */
+
+/** Metadata entry structure */
+struct MetadataEntry {
+  char key[METADATA_KEY_LEN];           /**< Key name */
+  char *value;                          /**< Value (dynamically allocated) */
+  int visibility;                       /**< Visibility level */
+  struct MetadataEntry *next;           /**< Next entry in list */
+};
+
+/** Metadata subscription for a client */
+struct MetadataSub {
+  char key[METADATA_KEY_LEN];           /**< Key being subscribed to */
+  struct MetadataSub *next;             /**< Next subscription in list */
+};
+
+/** Shutdown the metadata subsystem */
+extern void metadata_shutdown(void);
+
+/** Initialize LMDB for metadata persistence.
+ * @param[in] dbpath Path to the database directory.
+ * @return 0 on success, -1 on error.
+ */
+extern int metadata_lmdb_init(const char *dbpath);
+
+/** Shutdown LMDB metadata storage. */
+extern void metadata_lmdb_shutdown(void);
+
+/** Check if LMDB metadata storage is available.
+ * @return 1 if available, 0 if not.
+ */
+extern int metadata_lmdb_is_available(void);
+
+/** Get account metadata from LMDB, decoding the visibility prefix and
+ * stripping it from the returned value.
+ * @param[in] account Account name.
+ * @param[in] key Metadata key.
+ * @param[out] value Buffer for the STRIPPED value.
+ * @param[in] value_len Size of the value buffer.
+ * @param[out] visibility Decoded visibility (METADATA_VIS_PUBLIC/PRIVATE),
+ *             or NULL if the caller doesn't need it.
+ * @return 0 on success, 1 if not found or expired, -1 on error.
+ */
+extern int metadata_account_get_vis(const char *account, const char *key,
+                                    char *value, size_t value_len, int *visibility);
+
+/** Get account metadata from LMDB. Equivalent to
+ * metadata_account_get_vis(account, key, value, METADATA_VALUE_LEN, NULL) —
+ * the visibility prefix is decoded and stripped; the caller only sees the
+ * raw value.
+ * @param[in] account Account name.
+ * @param[in] key Metadata key.
+ * @param[out] value Buffer for value (at least METADATA_VALUE_LEN).
+ * @return 0 on success, 1 if not found, -1 on error.
+ */
+extern int metadata_account_get(const char *account, const char *key, char *value);
+
+/** Set account metadata in LMDB.
+ * Store-row encoding (see metadata_account_set_ts in metadata.c): non-exempt
+ * permanent rows (metadata_account_set_permanent) always carry a P:/ *:
+ * prefix; non-exempt TTL rows (metadata_account_set) carry the prefix only
+ * when @a visibility is METADATA_VIS_PRIVATE (bare = public); server-managed
+ * keys (metadata_key_is_server_managed) are always stored bare regardless of
+ * @a visibility.
+ * @param[in] account Account name.
+ * @param[in] key Metadata key.
+ * @param[in] value Value to set (NULL to delete; @a visibility is ignored).
+ * @param[in] visibility METADATA_VIS_PUBLIC or METADATA_VIS_PRIVATE.
+ * @return 0 on success, -1 on error.
+ */
+extern int metadata_account_set(const char *account, const char *key, const char *value, int visibility);
+extern int metadata_account_set_permanent(const char *account, const char *key, const char *value, int visibility);
+
+/** List all metadata for an account from LMDB. Each entry's value is the
+ * STRIPPED form and entry->visibility carries the decoded/rule visibility
+ * (see metadata_account_get_vis).
+ * @param[in] account Account name.
+ * @return Head of metadata list (caller must free).
+ */
+extern struct MetadataEntry *metadata_account_list(const char *account);
+
+/*
+ * Read Marker API (IRCv3 draft/read-marker)
+ *
+ * Read markers are stored in the metadata LMDB environment (available on
+ * all servers, not just storing servers). Uses a dedicated "readmarkers" DBI.
+ */
+
+/** Get the read marker timestamp for an account and target.
+ * @param[in] account Account name.
+ * @param[in] target Channel name or nick.
+ * @param[out] timestamp Buffer for timestamp (at least 32 bytes).
+ * @return 0 on success, 1 if not found, -1 on error.
+ */
+extern int metadata_readmarker_get(const char *account, const char *target, char *timestamp);
+
+/** Set the read marker timestamp for an account and target.
+ * Only updates if the new timestamp is greater than the stored one.
+ * @param[in] account Account name.
+ * @param[in] target Channel name or nick.
+ * @param[in] timestamp Unix timestamp (seconds.milliseconds as string).
+ * @return 0 on success (updated), 1 if not updated (older timestamp), -1 on error.
+ */
+extern int metadata_readmarker_set(const char *account, const char *target, const char *timestamp);
+
+/** Visit every read marker stored for an account: its target name and
+ * timestamp string, in key (target-name) order -- it does not sort or
+ * bound by timestamp itself; a caller wanting the newest N decides that.
+ * @param[in] account Account name.
+ * @param[in] cb Called once per marker; a nonzero return stops the walk.
+ * @param[in] arg Opaque pointer passed through to @a cb.
+ * @return the number of markers visited, or -1 on error.
+ */
+extern int metadata_readmarker_foreach(const char *account,
+                       int (*cb)(const char *target, const char *ts, void *arg),
+                       void *arg);
+
+/** Clear all metadata for an account in LMDB.
+ * @param[in] account Account name.
+ * @return 0 on success, -1 on error.
+ */
+extern int metadata_account_clear(const char *account);
+
+/** Purge expired metadata entries from LMDB.
+ * Called periodically to enforce METADATA_CACHE_TTL.
+ * @return Number of entries purged, or -1 on error.
+ */
+extern int metadata_account_purge_expired(void);
+
+/** Load metadata from LMDB for a logged-in user.
+ * Called when a user logs into an account.
+ * @param[in] cptr Client that just logged in.
+ * @param[in] account Account name.
+ */
+extern void metadata_load_account(struct Client *cptr, const char *account);
+
+/** Get metadata for a client.
+ * @param[in] cptr Client to get metadata from.
+ * @param[in] key Key name.
+ * @return Metadata entry or NULL if not found.
+ */
+extern struct MetadataEntry *metadata_get_client(struct Client *cptr, const char *key);
+
+/** Set metadata for a client.
+ * @param[in] cptr Client to set metadata on.
+ * @param[in] key Key name.
+ * @param[in] value Value to set (NULL to delete).
+ * @param[in] visibility Visibility level (METADATA_VIS_PUBLIC or METADATA_VIS_PRIVATE).
+ * @return 0 on success, -1 on error.
+ */
+extern int metadata_set_client(struct Client *cptr, const char *key, const char *value, int visibility);
+
+/** Insert or update a client's in-memory metadata entry only — no store
+ * write, no doc mirror.  The read-path counterpart to metadata_set_client:
+ * use this to cache a value a read already fetched from the store (GET
+ * fallback promotion, lazy fill) so the read never re-enters the write
+ * chokepoint.
+ * @param[in] cptr Client whose in-memory cache gets the entry.
+ * @param[in] key Key name.
+ * @param[in] value Value to cache (non-NULL).
+ * @param[in] visibility Visibility level, decoded from the store row.
+ * @return The new-or-updated entry, or NULL on bad args / allocation failure.
+ */
+extern struct MetadataEntry *metadata_memory_put(struct Client *cptr, const char *key,
+                                                  const char *value, int visibility);
+
+/** Insert or update a channel's in-memory metadata entry only — no store
+ * write, no doc mirror.  The channel counterpart to metadata_memory_put:
+ * use this to cache a value a read already fetched from the store (GET
+ * fallback promotion) so the read never re-enters metadata_set_channel,
+ * which is now the +R persist chokepoint (B1).
+ * @param[in] chptr Channel whose in-memory cache gets the entry.
+ * @param[in] key Key name.
+ * @param[in] value Value to cache (non-NULL).
+ * @param[in] visibility Visibility level, decoded from the store row.
+ * @return The new-or-updated entry, or NULL on bad args / allocation failure.
+ */
+extern struct MetadataEntry *metadata_channel_memory_put(struct Channel *chptr, const char *key,
+                                                          const char *value, int visibility);
+
+/** Remove a channel's in-memory metadata entry only — no store write, no
+ * doc mirror.  The channel counterpart to metadata_memory_del.
+ * @param[in] chptr Channel whose in-memory cache loses the entry.
+ * @param[in] key Key name to remove.
+ * @return 1 if an entry was removed, 0 if none matched / bad args.
+ */
+extern int metadata_channel_memory_del(struct Channel *chptr, const char *key);
+/** List all metadata for a client.
+ * @param[in] cptr Client to list metadata for.
+ * @return Head of metadata list (read-only).
+ */
+extern struct MetadataEntry *metadata_list_client(struct Client *cptr);
+
+/** Emit the draft/metadata-2 self-metadata BATCH to @a to.
+ *
+ * Caller-side cap/account gating is folded in: if @a to does not
+ * have CAP_DRAFT_METADATA2 active, this is a no-op.  Used by
+ * register_user (normal path) and the bouncer-revive / alias-setup
+ * fast paths so each emit point doesn't have to repeat the BATCH
+ * open / METADATA loop / batch end sequence.
+ *
+ * @param[in] to Client receiving the burst (must be local).
+ */
+extern void metadata_burst_self_to_client(struct Client *to);
+
+/** Clear all metadata for a client.
+ * @param[in] cptr Client to clear.
+ */
+extern void metadata_clear_client(struct Client *cptr);
+
+/** Get metadata for a channel.
+ * @param[in] chptr Channel to get metadata from.
+ * @param[in] key Key name.
+ * @return Metadata entry or NULL if not found.
+ */
+extern struct MetadataEntry *metadata_get_channel(struct Channel *chptr, const char *key);
+
+/** Set metadata for a channel. THE persist chokepoint for +R (registered)
+ * channel metadata (B1): memory half always runs (metadata_channel_memory_put/
+ * _del); for a MODE_REGISTERED channel the change is also persisted via
+ * metadata_account_set_permanent(chptr->chname, ...) through the single
+ * store chokepoint, metadata_account_set_ts (on crdt-mesh the CRDT doc
+ * mirror also rides that chokepoint).
+ * Not +R: memory only. See metadata.c for the full contract.
+ * @param[in] chptr Channel to set metadata on.
+ * @param[in] key Key name.
+ * @param[in] value Value to set (NULL to delete).
+ * @param[in] visibility Visibility level (METADATA_VIS_PUBLIC or METADATA_VIS_PRIVATE).
+ * @return 0 on success, -1 on error.
+ */
+extern int metadata_set_channel(struct Channel *chptr, const char *key, const char *value, int visibility);
+
+/** Hydrate a channel's in-memory metadata (chptr->metadata) from the
+ * persistent store — the LOAD half of the B3 ±R transition hook.  Inserts
+ * every stored "#chan\0key" row not already present in memory via
+ * metadata_channel_memory_put (memory-only, NO notify — hydration, not a
+ * change event); rows already in memory are left untouched.  Frees the
+ * transient list it fetches.  At burst/restart memory is empty, so this
+ * materializes the full persisted set (the restart-hydration path).
+ * @param[in] chptr Channel to hydrate.
+ */
+extern void metadata_channel_load(struct Channel *chptr);
+
+/** List all metadata for a channel.
+ * @param[in] chptr Channel to list metadata for.
+ * @return Head of metadata list (read-only).
+ */
+extern struct MetadataEntry *metadata_list_channel(struct Channel *chptr);
+
+/** Clear all metadata for a channel.
+ * @param[in] chptr Channel to clear.
+ */
+extern void metadata_clear_channel(struct Channel *chptr);
+
+/** Count metadata entries for a client.
+ * Server-managed entries (draft/persistence/...) are excluded from
+ * the count so they do not consume the user-facing key budget.
+ * @param[in] cptr Client to count.
+ * @return Number of user-managed metadata entries.
+ */
+extern int metadata_count_client(struct Client *cptr);
+
+/** Count metadata entries for a channel.
+ * Server-managed entries are excluded from the count.
+ * @param[in] chptr Channel to count.
+ * @return Number of user-managed metadata entries.
+ */
+extern int metadata_count_channel(struct Channel *chptr);
+
+/** Count persisted metadata keys for an account, excluding
+ * server-managed keys.  Used to enforce FEAT_METADATA_MAX_KEYS against
+ * LMDB-persisted rows for offline accounts (the oper "*account" SET
+ * path), where there is no in-memory MetadataEntry list to walk.
+ * Bounded: stops counting at FEAT_METADATA_MAX_KEYS + 1 so a
+ * pathological account cannot make the scan unbounded.
+ * @param[in] account Account name.
+ * @return Number of keys (possibly capped at max_keys + 1), or 0 on
+ *         storage unavailable/error.
+ */
+extern int metadata_account_count_keys(const char *account);
+
+/** Test whether a metadata key is server-managed.
+ * Server-managed keys live under the reserved prefix (draft/persistence/...).
+ * They are written exclusively by server-side logic, never
+ * by direct METADATA SET from a client, and do not count against the
+ * per-target key-count limit.
+ * @param[in] key Metadata key name.
+ * @return Non-zero if the key is server-managed.
+ */
+extern int metadata_key_is_server_managed(const char *key);
+
+/** Check if a viewer can see a metadata entry.
+ * @param[in] viewer Client viewing the metadata.
+ * @param[in] owner Client owning the metadata (NULL for channel metadata).
+ * @param[in] entry Metadata entry to check.
+ * @return Non-zero if visible.
+ */
+extern int can_view_metadata(struct Client *viewer, struct Client *owner,
+                             struct MetadataEntry *entry);
+
+/** Get visibility string for metadata entry.
+ * @param[in] entry Metadata entry.
+ * @return "*" for public, "private" for private.
+ */
+extern const char *get_visibility_str(struct MetadataEntry *entry);
+
+/** Free a metadata entry.
+ * @param[in] entry Entry to free.
+ */
+extern void metadata_free_entry(struct MetadataEntry *entry);
+
+/** Free all metadata for a client (called on disconnect).
+ * @param[in] cptr Client being freed.
+ */
+extern void metadata_free_client(struct Client *cptr);
+
+/** Free all metadata for a channel (called on channel destruction).
+ * @param[in] chptr Channel being freed.
+ */
+extern void metadata_free_channel(struct Channel *chptr);
+
+/* Subscription functions */
+
+/** Add a subscription for a client.
+ * @param[in] cptr Client subscribing.
+ * @param[in] key Key to subscribe to.
+ * @return 0 on success, -1 if limit reached.
+ */
+extern int metadata_sub_add(struct Client *cptr, const char *key);
+
+/** Remove a subscription for a client.
+ * @param[in] cptr Client unsubscribing.
+ * @param[in] key Key to unsubscribe from.
+ * @return 0 on success, -1 if not subscribed.
+ */
+extern int metadata_sub_del(struct Client *cptr, const char *key);
+
+/** Check if a client is subscribed to a key.
+ * @param[in] cptr Client to check.
+ * @param[in] key Key to check.
+ * @return 1 if subscribed, 0 if not.
+ */
+extern int metadata_sub_check(struct Client *cptr, const char *key);
+
+/** List subscriptions for a client.
+ * @param[in] cptr Client to list.
+ * @return Head of subscription list.
+ */
+extern struct MetadataSub *metadata_sub_list(struct Client *cptr);
+
+/** Count subscriptions for a client.
+ * @param[in] cptr Client to count.
+ * @return Number of subscriptions.
+ */
+extern int metadata_sub_count(struct Client *cptr);
+
+/** Free all subscriptions for a client.
+ * @param[in] cptr Client being freed.
+ */
+extern void metadata_sub_free(struct Client *cptr);
+
+/** Send metadata subscription notifications when a client joins a channel.
+ * @param[in] joiner Client that just joined.
+ * @param[in] chptr Channel being joined.
+ */
+extern void metadata_send_join_notifications(struct Client *joiner, struct Channel *chptr);
+
+/** Notify local draft/metadata-2 subscribers of a metadata change on @a target.
+ * Walks LocalClientArray and sends `:me METADATA <target> <key> * [:value]` to
+ * each qualifying local client that has CAP_DRAFT_METADATA2 and is subscribed
+ * to @a key.  Recipient scoping depends on @a visibility:
+ *   - METADATA_VIS_PUBLIC: current behavior — the target user/channel itself,
+ *     or any local client sharing a channel with the target user (channel
+ *     targets: any member).
+ *   - METADATA_VIS_PRIVATE: ONLY the target's own subscribed sessions — for
+ *     an account-anchored target this means every LOCAL session authed to the
+ *     SAME account (bouncer aliases + any other concurrent login), not just
+ *     the specific nick @a target resolves to (aliases are removed from the
+ *     nick hash — see the bouncer-architecture skill).  An unauthenticated
+ *     target reduces to exact client identity (no multi-session concept).
+ *     Channel targets have no session "owner" (matches can_view_metadata():
+ *     a channel's private entries have owner==NULL) so nothing is sent.
+ * LOCAL delivery only — no S2S emission.  value==NULL/empty is an unset
+ * notification (wire form unchanged regardless of visibility — a value-less
+ * unset carries no value, so scoping is the only thing visibility affects).
+ * @param[in] target Nick or channel name the change applies to.
+ * @param[in] key Metadata key that changed.
+ * @param[in] value New value, or NULL/empty for an unset.
+ * @param[in] visibility METADATA_VIS_PUBLIC or METADATA_VIS_PRIVATE.
+ */
+extern void metadata_notify_subscribers(const char *target, const char *key,
+                                        const char *value, int visibility);
+
+/** Change one key of @a cptr's in-memory metadata and its mode-sync flag
+ * (metadata_mode_sync[]) only: no store row, no notification, nothing
+ * sent.  For a server that learns a user's mode-synced key from another
+ * fork server's M line: that user's own server is the one writer of the
+ * account's row (set_user_mode), and the stamped row it sends is what
+ * this server stores.
+ * @param[in] cptr Client whose memory changes.
+ * @param[in] key Key name.
+ * @param[in] value Value to set, or NULL to delete.
+ * @param[in] visibility METADATA_VIS_PUBLIC or METADATA_VIS_PRIVATE.
+ */
+/** Give one of our connections the account's stored modes (push-2 final
+ * fix wave, I-1): for each mode-synced key (metadata_mode_sync[]:
+ * umode.*, chathistory.*, draft/persistence/hold) the account has a row
+ * for, the flag follows the row -- a live row by its value, a tombstone
+ * as off; a key with no row leaves the flag as it is.  The +p rule
+ * (PRIV_HIDE_CHANNELS / DERESTRICT_HIDECHANS) applies.  Not for a device
+ * (bouncer alias) or a remote copy.
+ * @param[in] cptr Our connection, a user with an account.
+ * @param[in] live 0 at registration, before the N (flags and list set
+ *            silently: the N carries them); 1 for a login after
+ *            registration (each change through umode_sync_apply: echo,
+ *            counts, M line, session mirror).
+ */
+extern void metadata_mode_sync_restore(struct Client *cptr, int live);
+
+extern void metadata_client_memory_set(struct Client *cptr, const char *key,
+                                       const char *value, int visibility);
+
+/* ========== W4: stamped account store (cross-fork-server sync) ========== */
+
+/** Mint a fresh HLC stamp for a local account-store write.
+ * Thin wrapper over hlc_global_event() (crdt_hlc.h) in the struct
+ * md_stamp shape the metadata_lww.h codec and store use.
+ */
+extern struct md_stamp metadata_stamp_now(void);
+
+/** Write (or tombstone) one stamped account-metadata row: the value row
+ * and its clock row (metadata_clock column family) in one write batch.
+ * metadata_account_set_ts (the backing of metadata_account_set /
+ * metadata_account_set_permanent) is stamp-now plus this writer, so
+ * every existing writer is stamped and every delete leaves a tombstone.
+ * @param[in] account Account name.
+ * @param[in] key Metadata key.
+ * @param[in] value Value to set, or NULL to tombstone (delete the value
+ *             row; the clock row is still written, with tombstone=1).
+ * @param[in] vis METADATA_VIS_PUBLIC or METADATA_VIS_PRIVATE (meaningless
+ *             for a tombstone, but still recorded).
+ * @param[in] st Stamp to record in the clock row.
+ * @return 0 on success, -1 on error.
+ */
+extern int metadata_account_put_versioned(const char *account, const char *key,
+                                          const char *value, int vis,
+                                          const struct md_stamp *st);
+
+/** Read one account-metadata row's current version: the clock row plus
+ * (for a live row) the decoded value.  A live row with no clock entry
+ * (written before this feature existed) reads with stamp 0.0.0.
+ * @param[in] account Account name.
+ * @param[in] key Metadata key.
+ * @param[out] out Version info (stamp/tombstone/vis/value/vlen); on a
+ *             live row, @a out->value points into @a valbuf.
+ * @param[out] valbuf Buffer the live value is decoded into.
+ * @param[in] vlen Size of @a valbuf.
+ * @return 0 (found — live row or tombstone), 1 (absent), -1 (error).
+ */
+extern int metadata_account_get_version(const char *account, const char *key,
+                                        struct md_version *out,
+                                        char *valbuf, size_t vlen);
+
+/** Merge an incoming stamped version against the stored one by the pure
+ * LWW rule (metadata_lww.h's md_lww_take).  On take: folds the incoming
+ * stamp into this server's global HLC (hlc_global_receive, so our clock
+ * never reads behind a peer's) and persists the incoming row under its
+ * OWN stamp (metadata_account_put_versioned) — never a freshly minted
+ * one, so every peer that merges the same row agrees on its stamp.
+ * @param[in] account Account name.
+ * @param[in] key Metadata key.
+ * @param[in] in Incoming version to merge.
+ * @return 1 (taken), 0 (kept the local version), -1 (error).
+ */
+extern int metadata_account_merge(const char *account, const char *key,
+                                  const struct md_version *in);
+
+/** Visit every live row and every tombstone stored for @a account.
+ * Unlike metadata_account_list, a key of any length is visited — a
+ * 64+ byte draft/persistence/... key is never skipped or truncated.
+ * @param[in] account Account name.
+ * @param[in] cb Called once per row; a nonzero return stops the walk.
+ * @param[in] arg Opaque pointer passed through to @a cb.
+ * @return the number of rows visited, or -1 on error.
+ */
+extern int metadata_account_foreach_version(const char *account,
+                       int (*cb)(const char *key, const struct md_version *v, void *arg),
+                       void *arg);
+
+/** Apply an account-store change to every IsUser client logged into
+ * @a account, local or remote: updates the in-memory MetadataEntry list
+ * (metadata_apply_client_memory's per-client half) and the mode-sync
+ * flag table (metadata_mode_sync[]) for each.  A mode-synced key touches
+ * only this server's own connections: each non-device connection whose
+ * mode differs is changed as a self MODE (umode_sync_apply: echo, counts,
+ * M line, session mirror); remote copies change by their servers' M
+ * lines.  No store write.  Keys of METADATA_KEY_LEN or longer are skipped (they
+ * cannot fit the in-memory key buffer).  Notifies local
+ * draft/metadata-2 subscribers once for a PRIVATE key (any one session
+ * of the account resolves every session, per metadata_notify_subscribers'
+ * own account-wide PRIVATE scoping), or once per distinct non-alias nick
+ * for a PUBLIC one.
+ * @param[in] account Account name.
+ * @param[in] key Metadata key.
+ * @param[in] value New value, or NULL for an unset.
+ * @param[in] vis METADATA_VIS_PUBLIC or METADATA_VIS_PRIVATE.
+ */
+extern void metadata_account_apply_memory(const char *account, const char *key,
+                                          const char *value, int vis);
+
+/* X3 dependency removed - Nefarious is now authoritative for metadata */
+
+/* MDQ removed entirely (protocol + responder) - Nefarious answers GET
+ * from local LMDB only */
+
+struct StatDesc;
+
+/** Report METADATA statistics for /STATS.
+ * @param[in] to Client requesting stats.
+ * @param[in] sd Stats descriptor.
+ * @param[in] param Extra parameter (unused).
+ */
+extern void metadata_report_stats(struct Client *to, const struct StatDesc *sd, char *param);
+
+/** Report defrag results for the metadata database.
+ * @param[in] to Client to send results to.
+ */
+extern void metadata_report_defrag(struct Client *to);
+
+/** Force sync/flush the metadata database to disk.
+ * @return 0 on success, -1 on error.
+ */
+extern int metadata_sync(void);
+
+/** Report detailed GC info for the metadata database.
+ * @param[in] to Client to send results to.
+ */
+extern void metadata_report_gc(struct Client *to);
+
+/** Report detailed MDBX environment info for the metadata database.
+ * @param[in] to Client to send results to.
+ */
+extern void metadata_report_store_info(struct Client *to);
+
+/* ========== Bouncer Persistence Accessors ========== */
+
+struct db_env;
+struct db_cf;
+
+/** Get the storage environment handle (for bouncer session persistence).
+ * @return db_env pointer, or NULL if storage not initialized.
+ */
+extern struct db_env *metadata_get_env(void);
+
+/** Get the bouncer_sessions CF handle.
+ * @return db_cf pointer for the bouncer_sessions column family.
+ */
+extern struct db_cf *metadata_get_bouncer_cf(void);
+
+#endif /* INCLUDED_metadata_h */

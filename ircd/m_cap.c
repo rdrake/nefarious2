@@ -26,6 +26,9 @@
 
 #include "config.h"
 
+#include "bouncer_session.h"
+#include "capab.h"
+#include "authtoken.h"
 #include "client.h"
 #include "ircd.h"
 #include "ircd_chattr.h"
@@ -34,16 +37,290 @@
 #include "ircd_reply.h"
 #include "ircd_snprintf.h"
 #include "ircd_string.h"
+#include "metadata.h"
 #include "msg.h"
 #include "numeric.h"
+#include "numnicks.h"
+#include "querycmds.h"
 #include "send.h"
 #include "s_auth.h"
 #include "s_user.h"
+#include "sasl_auth.h"
 
 #include <stdlib.h>
 #include <string.h>
 
-typedef int (*bqcmp)(const void *, const void *);
+/* ---------------------------------------------------------------------------
+ * CAP notify batching for rehash
+ *
+ * During rehash, multiple feature flags may change, each triggering
+ * send_cap_notify(). Instead of sending individual CAP NEW/DEL messages,
+ * we buffer them and send aggregated messages at the end.
+ * ---------------------------------------------------------------------------*/
+
+/** Maximum number of CAP changes to buffer */
+#define CAP_BATCH_MAX 64
+
+/** Maximum length of aggregated CAP string */
+#define CAP_BATCH_BUFSIZE 1024
+
+/** Pending CAP change entry */
+struct cap_batch_entry {
+  char capname[64];    /**< CAP name (e.g., "draft/multiline") */
+  char value[256];     /**< Optional value (e.g., "max-bytes=4096") */
+  int available;       /**< 1 for NEW, 0 for DEL */
+};
+
+/** CAP notify batch state */
+static struct {
+  int active;                                 /**< Batching in progress */
+  int count;                                  /**< Number of pending entries */
+  struct cap_batch_entry entries[CAP_BATCH_MAX];
+} cap_batch = { 0, 0, {{0}} };
+
+/** Does this client want CAP NEW/DEL notifications?
+ *
+ * Explicit negotiation is not the only way to opt in: the cap-notify spec
+ * states that support is *implied* by CAP LS 302, so a 302 client need not
+ * (and generally does not) list cap-notify in its CAP REQ.  Gating solely on
+ * CapActive(CAP_CAPNOTIFY) silently withheld CAP NEW/DEL from exactly the
+ * modern clients most able to act on them.
+ *
+ * @param[in] cptr Local client to test.
+ * @return Non-zero if the client should receive CAP NEW/DEL.
+ */
+static int
+cap_notify_wanted(struct Client *cptr)
+{
+  return CapActive(cptr, CAP_CAPNOTIFY) || cli_capab_version(cptr) >= 302;
+}
+
+/** Begin batching CAP notify calls.
+ * Called at start of rehash/config reload.
+ */
+void cap_notify_begin_batch(void)
+{
+  cap_batch.active = 1;
+  cap_batch.count = 0;
+}
+
+/** Add a CAP change to the batch buffer.
+ * @return 1 if buffered, 0 if buffer full (should send immediately)
+ */
+static int cap_batch_add(const char *capname, int available, const char *value)
+{
+  struct cap_batch_entry *entry;
+  int i;
+
+  if (!cap_batch.active || cap_batch.count >= CAP_BATCH_MAX)
+    return 0;
+
+  /* Check if we already have an entry for this cap - update it */
+  for (i = 0; i < cap_batch.count; i++) {
+    if (!strcmp(cap_batch.entries[i].capname, capname)) {
+      cap_batch.entries[i].available = available;
+      if (value && *value)
+        ircd_strncpy(cap_batch.entries[i].value, value, sizeof(cap_batch.entries[i].value) - 1);
+      else
+        cap_batch.entries[i].value[0] = '\0';
+      return 1;
+    }
+  }
+
+  /* Add new entry */
+  entry = &cap_batch.entries[cap_batch.count++];
+  ircd_strncpy(entry->capname, capname, sizeof(entry->capname) - 1);
+  entry->capname[sizeof(entry->capname) - 1] = '\0';
+  entry->available = available;
+  if (value && *value)
+    ircd_strncpy(entry->value, value, sizeof(entry->value) - 1);
+  else
+    entry->value[0] = '\0';
+
+  return 1;
+}
+
+/** Flush batched CAP notifications.
+ * Sends aggregated CAP NEW and CAP DEL messages to all clients with cap-notify.
+ * Called at end of rehash/config reload.
+ */
+void cap_notify_flush(void)
+{
+  struct Client *cptr;
+  char new_buf[CAP_BATCH_BUFSIZE];
+  char del_buf[CAP_BATCH_BUFSIZE];
+  int new_len = 0, del_len = 0;
+  int i;
+
+  if (!cap_batch.active) {
+    cap_batch.count = 0;
+    return;
+  }
+
+  cap_batch.active = 0;
+
+  if (cap_batch.count == 0)
+    return;
+
+  /* Build aggregated NEW and DEL strings */
+  new_buf[0] = '\0';
+  del_buf[0] = '\0';
+
+  for (i = 0; i < cap_batch.count; i++) {
+    struct cap_batch_entry *entry = &cap_batch.entries[i];
+
+    if (entry->available) {
+      /* CAP NEW - include value if present */
+      if (new_len > 0 && new_len < (int)sizeof(new_buf) - 1) {
+        new_buf[new_len++] = ' ';
+        new_buf[new_len] = '\0';
+      }
+      if (entry->value[0]) {
+        new_len += ircd_snprintf(0, new_buf + new_len, sizeof(new_buf) - new_len,
+                                  "%s=%s", entry->capname, entry->value);
+      } else {
+        new_len += ircd_snprintf(0, new_buf + new_len, sizeof(new_buf) - new_len,
+                                  "%s", entry->capname);
+      }
+    } else {
+      /* CAP DEL - just cap name */
+      if (del_len > 0 && del_len < (int)sizeof(del_buf) - 1) {
+        del_buf[del_len++] = ' ';
+        del_buf[del_len] = '\0';
+      }
+      del_len += ircd_snprintf(0, del_buf + del_len, sizeof(del_buf) - del_len,
+                                "%s", entry->capname);
+    }
+  }
+
+  /* Send to all clients with cap-notify */
+  for (cptr = GlobalClientList; cptr; cptr = cli_next(cptr)) {
+    if (!MyConnect(cptr) || IsServer(cptr) || !IsUser(cptr))
+      continue;
+    if (!cap_notify_wanted(cptr))
+      continue;
+
+    if (new_buf[0])
+      sendrawto_one(cptr, "CAP %s NEW :%s", cli_name(cptr), new_buf);
+    if (del_buf[0])
+      sendrawto_one(cptr, "CAP %s DEL :%s", cli_name(cptr), del_buf);
+  }
+
+  /* Log the aggregated changes */
+  if (new_buf[0])
+    log_write(LS_SYSTEM, L_INFO, 0, "CAP notify: NEW %s", new_buf);
+  if (del_buf[0])
+    log_write(LS_SYSTEM, L_INFO, 0, "CAP notify: DEL %s", del_buf);
+
+  cap_batch.count = 0;
+}
+
+/** Get effective SASL mechanisms (dynamic or default fallback).
+ * @return Mechanism string, or NULL if none available.
+ */
+static const char *
+get_effective_sasl_mechanisms(void)
+{
+  /* Local Keycloak mechanisms take priority.
+   * This intentionally overrides any P10 SASL M broadcast from X3
+   * (which calls set_sasl_mechanisms() and would conflict). */
+  const char *local_mechs = sasl_local_mechanisms();
+  if (local_mechs)
+    return local_mechs;
+
+  const char *mechs = get_sasl_mechanisms();
+  if (mechs)
+    return mechs;
+
+  /* Fall back to configured default mechanisms (for legacy X3) */
+  const char *default_mechs = feature_str(FEAT_SASL_DEFAULT_MECHANISMS);
+  if (default_mechs && *default_mechs)
+    return default_mechs;
+
+  return NULL;
+}
+
+/** Check if the SASL server is available.
+ * @return 1 if SASL server is connected and mechanisms available, 0 otherwise.
+ */
+static int
+sasl_server_available(void)
+{
+  const char *sasl_server;
+
+  /* Local Keycloak SASL — only if Keycloak is actually reachable.
+   * Per IRCv3 spec: "Servers MUST NOT advertise the sasl capability
+   * if the authentication layer is unavailable." */
+  if (sasl_local_available())
+    return 1;
+
+  /* IAUTH can provide SASL independently of P10 services (supports fallback
+   * when services disconnects). But we still require mechanisms - if IAUTH
+   * announces SASL capability without providing mechanisms, don't advertise.
+   * Note: IAUTH runs locally and supports dynamic mechanisms, so we check
+   * IAUTH's own mechanism list directly - SASL_DEFAULT_MECHANISMS is only
+   * for legacy X3 that can't advertise mechanisms dynamically. */
+  if (auth_iauth_handles_sasl())
+    return (auth_iauth_sasl_mechs() != NULL);
+
+  /* No mechanisms = no SASL, regardless of server connectivity */
+  if (!get_effective_sasl_mechanisms())
+    return 0;
+
+  sasl_server = feature_str(FEAT_SASL_SERVER);
+
+  /* If set to "*", SASL is broadcast to all servers - check if any exist */
+  if (!strcmp(sasl_server, "*"))
+    return (UserStats.servers > 0);
+
+  /* Otherwise, check if the specific SASL server is connected */
+  return (find_match_server((char *)sasl_server) != NULL);
+}
+
+/**
+ * Send CAP NEW or CAP DEL notification to all clients with cap-notify.
+ * Per IRCv3 spec, servers MUST send CAP NEW when a capability becomes
+ * available and CAP DEL when it becomes unavailable.
+ *
+ * If batching is active (during rehash), changes are buffered and sent
+ * as aggregated messages when cap_notify_flush() is called.
+ *
+ * @param[in] capname Name of the capability (e.g., "sasl").
+ * @param[in] available 1 if capability is now available, 0 if removed.
+ * @param[in] value Optional value for CAP NEW (e.g., mechanism list). NULL for no value.
+ */
+void send_cap_notify(const char *capname, int available, const char *value)
+{
+  struct Client *cptr;
+
+  /* If batching is active, buffer instead of sending immediately */
+  if (cap_batch.active) {
+    if (cap_batch_add(capname, available, value))
+      return;
+    /* Buffer full - fall through to send immediately */
+  }
+
+  /* Iterate all local clients with cap-notify enabled */
+  for (cptr = GlobalClientList; cptr; cptr = cli_next(cptr)) {
+    if (!MyConnect(cptr) || IsServer(cptr) || !IsUser(cptr))
+      continue;
+    if (!cap_notify_wanted(cptr))
+      continue;
+
+    if (available) {
+      /* CAP NEW with optional value */
+      if (value && *value)
+        sendrawto_one(cptr, "CAP %s NEW :%s=%s",
+                      cli_name(cptr), capname, value);
+      else
+        sendrawto_one(cptr, "CAP %s NEW :%s", cli_name(cptr), capname);
+    } else {
+      /* CAP DEL */
+      sendrawto_one(cptr, "CAP %s DEL :%s", cli_name(cptr), capname);
+    }
+  }
+}
+
 
 static struct capabilities {
   enum Capab cap;
@@ -52,9 +329,12 @@ static struct capabilities {
   char *name;
   int namelen;
   int feat;
+  char *value;           /**< CAP 302 value (e.g., "PLAIN,EXTERNAL" for sasl) */
 } capab_list[] = {
 #define _CAP(cap, flags, name, feat) \
-    { CAP_ ## cap, #cap, (flags), (name), sizeof(name) - 1, feat }
+    { CAP_ ## cap, #cap, (flags), (name), sizeof(name) - 1, feat, 0 }
+#define _CAP_V(cap, flags, name, feat, val) \
+    { CAP_ ## cap, #cap, (flags), (name), sizeof(name) - 1, feat, val }
   _CAP(NONE, CAPFL_HIDDEN|CAPFL_PROHIBIT, "none", 0),
   _CAP(NAMESX, 0, "multi-prefix", FEAT_CAP_multi_prefix),
   _CAP(UHNAMES, 0, "userhost-in-names", FEAT_CAP_userhost_in_names),
@@ -62,24 +342,119 @@ static struct capabilities {
   _CAP(AWAYNOTIFY, 0, "away-notify", FEAT_CAP_away_notify),
   _CAP(ACCNOTIFY, 0, "account-notify", FEAT_CAP_account_notify),
   _CAP(SASL, 0, "sasl", FEAT_CAP_sasl),
+  _CAP(CAPNOTIFY, 0, "cap-notify", FEAT_CAP_cap_notify),
+  _CAP(SERVERTIME, 0, "server-time", FEAT_CAP_server_time),
+  _CAP(ECHOMSG, 0, "echo-message", FEAT_CAP_echo_message),
+  _CAP(ACCOUNTTAG, 0, "account-tag", FEAT_CAP_account_tag),
+  _CAP(CHGHOST, 0, "chghost", FEAT_CAP_chghost),
+  _CAP(INVITENOTIFY, 0, "invite-notify", FEAT_CAP_invite_notify),
+  _CAP(LABELEDRESP, 0, "labeled-response", FEAT_CAP_labeled_response),
+  _CAP(BATCH, 0, "batch", FEAT_CAP_batch),
+  _CAP(SETNAME, 0, "setname", FEAT_CAP_setname),
+  _CAP(STANDARDREPLIES, 0, "standard-replies", FEAT_CAP_standard_replies),
+  _CAP(MSGTAGS, 0, "message-tags", FEAT_CAP_message_tags),
+  _CAP(NOIMPLICITNAMES, 0, "no-implicit-names", FEAT_CAP_no_implicit_names),
+  _CAP(NOIMPLICITNAMES_LEGACY, 0, "draft/no-implicit-names", FEAT_CAP_no_implicit_names),
+  _CAP(DRAFT_EXTISUPPORT, 0, "draft/extended-isupport", FEAT_CAP_draft_extended_isupport),
+  _CAP(DRAFT_PREAWAY, 0, "draft/pre-away", FEAT_CAP_draft_pre_away),
+  _CAP(DRAFT_MULTILINE, 0, "draft/multiline", FEAT_CAP_draft_multiline),
+  _CAP(DRAFT_CHATHISTORY, 0, "draft/chathistory", FEAT_CAP_draft_chathistory),
+  _CAP(SOJU_SEARCH, 0, "soju.im/search", FEAT_CAP_soju_search),
+  _CAP(DRAFT_EVENTPLAYBACK, 0, "draft/event-playback", FEAT_CAP_draft_event_playback),
+  _CAP(DRAFT_REDACT, 0, "draft/message-redaction", FEAT_CAP_draft_message_redaction),
+  _CAP_V(DRAFT_ACCOUNTREG, 0, "draft/account-registration", FEAT_CAP_draft_account_registration, "before-connect,custom-account-name,min-password-length=5,max-password-length=300"),
+  _CAP(DRAFT_READMARKER, 0, "draft/read-marker", FEAT_CAP_draft_read_marker),
+  _CAP(DRAFT_CHANRENAME, 0, "draft/channel-rename", FEAT_CAP_draft_channel_rename),
+  _CAP(EVILNET_RELOCATE, 0, "evilnet/channel-relocate", FEAT_CAP_evilnet_channel_relocate),
+  _CAP_V(DRAFT_METADATA2, 0, "draft/metadata-2", FEAT_CAP_draft_metadata_2, "before-connect,max-subs=50,max-keys=20,max-value-bytes=300"),
+  _CAP(DRAFT_WEBPUSH, 0, "draft/webpush", FEAT_CAP_draft_webpush),
+  _CAP(DRAFT_AUTHTOKEN, 0, "draft/authtoken", FEAT_CAP_draft_authtoken),
+  _CAP(DRAFT_BOUNCER, 0, "draft/bouncer", FEAT_CAP_draft_bouncer),
+  _CAP(DRAFT_PERSISTENCE, 0, "draft/persistence", FEAT_CAP_draft_persistence),
+  _CAP(DRAFT_OPERTAG, 0, "draft/oper-tag", FEAT_CAP_oper_tag),
 #ifdef USE_SSL
   _CAP(TLS, 0, "tls", FEAT_CAP_tls),
+  _CAP(STS, CAPFL_PROHIBIT, "sts", FEAT_CAP_sts),
 #endif
 /*  CAPLIST */
 #undef _CAP
+#undef _CAP_V
 };
 
 #define CAPAB_LIST_LEN (sizeof(capab_list) / sizeof(struct capabilities))
 
-static int
-capab_sort(const struct capabilities *cap1, const struct capabilities *cap2)
+/** Backing store for capability values overridden at runtime.
+ *
+ * capab_list[].value is a plain char* that normally points at the string
+ * literal supplied by _CAP_V(), so an override needs storage that outlives
+ * the cap_set_value() call.  That storage deliberately does NOT live inside
+ * the capab_list entry: find_cap() qsort()s capab_list, and a pointer into
+ * the entry itself would not survive the shuffle.  Slots are keyed by
+ * capability and reused, so a rehash storm cannot exhaust them.
+ */
+#define CAP_VALUE_SLOTS 4
+#define CAP_VALUE_LEN   256
+
+static struct {
+  enum Capab cap;
+  char value[CAP_VALUE_LEN];
+} cap_value_store[CAP_VALUE_SLOTS];
+static int cap_value_count = 0;
+
+/** Overwrite a capability's advertised CAP 302 value at runtime.
+ *
+ * The value is copied, so the caller may pass a temporary.  An empty or
+ * NULL value clears the advertisement (the capability is then listed
+ * without an "=value" suffix).  Used by draft/account-registration to
+ * follow FEAT_REGISTER_VERIFY_EMAIL.
+ *
+ * @param[in] cap Capability to update.
+ * @param[in] value New value string, or NULL/"" to advertise no value.
+ */
+void cap_set_value(enum Capab cap, const char *value)
 {
+  size_t i;
+  int slot = -1;
+
+  for (i = 0; i < (size_t)cap_value_count; i++)
+    if (cap_value_store[i].cap == cap) {
+      slot = (int)i;
+      break;
+    }
+
+  if (slot < 0) {
+    if (cap_value_count >= CAP_VALUE_SLOTS)
+      return;                   /* out of slots; keep the compiled-in value */
+    slot = cap_value_count++;
+    cap_value_store[slot].cap = cap;
+  }
+
+  /* strlcpy semantics: the third argument is the buffer size. */
+  ircd_strncpy(cap_value_store[slot].value, value ? value : "",
+               sizeof(cap_value_store[slot].value));
+
+  for (i = 0; i < CAPAB_LIST_LEN; i++)
+    if (capab_list[i].cap == cap) {
+      capab_list[i].value = cap_value_store[slot].value[0] ?
+                            cap_value_store[slot].value : NULL;
+      return;
+    }
+}
+
+/* qsort/bsearch comparators take const void *: calling one through a
+ * pointer of another type is undefined (clang -fsanitize=function). */
+static int
+capab_sort(const void *a, const void *b)
+{
+  const struct capabilities *cap1 = a, *cap2 = b;
   return ircd_strcmp(cap1->name, cap2->name);
 }
 
 static int
-capab_search(const char *key, const struct capabilities *cap)
+capab_search(const void *key_, const void *cap_)
 {
+  const char *key = key_;
+  const struct capabilities *cap = cap_;
   const char *rb = cap->name;
   while (ToLower(*key) == ToLower(*rb)) /* walk equivalent part of strings */
     if (!*key++) /* hit the end, all right... */
@@ -105,7 +480,7 @@ find_cap(const char **caplist_p, int *neg_p)
 
   if (!inited) { /* First, let's sort the array... */
     qsort(capab_list, CAPAB_LIST_LEN, sizeof(struct capabilities),
-          (bqcmp)capab_sort);
+          capab_sort);
     inited++; /* remember that we've done this step... */
   }
 
@@ -124,7 +499,7 @@ find_cap(const char **caplist_p, int *neg_p)
     if (!(cap = (struct capabilities *)bsearch(caplist, capab_list,
                  CAPAB_LIST_LEN,
                  sizeof(struct capabilities),
-                 (bqcmp)capab_search))) {
+                 capab_search))) {
       /* Couldn't find the capability; advance to first whitespace character */
       while (*caplist && !IsSpace(*caplist))
         caplist++;
@@ -144,9 +519,29 @@ find_cap(const char **caplist_p, int *neg_p)
   return cap; /* and return the capability (if any) */
 }
 
+/** Look up a capability by name from the capability list.
+ * Initializes the sorted capability table on first call.
+ * @param[in,out] caplist_p Pointer into capability name list string.
+ *                          Advanced past the found cap (or past unknown caps).
+ * @param[out] neg_p Set to 1 if prefixed with '-', 0 otherwise.
+ * @param[out] cap_out Set to the capability enum value if found.
+ * @param[out] flags_out Set to the capability flags if found.
+ * @return 1 if a capability was found, 0 if not (end of list or unknown cap).
+ */
+int cap_lookup(const char **caplist_p, int *neg_p, int *cap_out, unsigned long *flags_out)
+{
+  struct capabilities *cap = find_cap(caplist_p, neg_p);
+  if (cap) {
+    *cap_out = cap->cap;
+    *flags_out = cap->flags;
+    return 1;
+  }
+  return 0;
+}
+
 /** Send a CAP \a subcmd list of capability changes to \a sptr.
  * If more than one line is necessary, each line before the last has
- * an added "*" parameter before that line's capability list.
+ * an added "*" parameter before that line's capability list (CAP 302).
  * @param[in] sptr Client receiving capability list.
  * @param[in] set Capabilities to show as set (with ack and sticky modifiers).
  * @param[in] rem Capabalities to show as removed (with no other modifier).
@@ -156,9 +551,11 @@ static int
 send_caplist(struct Client *sptr, const struct CapSet *set,
              const struct CapSet *rem, const char *subcmd)
 {
-  char capbuf[BUFSIZE] = "", pfx[16];
+  char capbuf[BUFSIZE] = "", pfx[16], valbuf[128];
   struct MsgBuf *mb;
-  int i, loc, len, flags, pfx_len;
+  int i, loc, len, flags, pfx_len, val_len;
+  int cap_version = cli_capab_version(sptr);
+  int is_ls = (ircd_strcmp(subcmd, "LS") == 0);
 
   /* set up the buffer for the final LS message... */
   mb = msgq_make(sptr, "%:#C " MSG_CAP " %s %s :", &me,
@@ -177,6 +574,22 @@ send_caplist(struct Client *sptr, const struct CapSet *set,
             || (capab_list[i].feat && (!feature_bool(capab_list[i].feat)))))
       continue;
 
+    /* Don't advertise SASL if the SASL server is not available */
+    if (capab_list[i].cap == CAP_SASL && is_ls && !sasl_server_available())
+      continue;
+
+    /* draft/authtoken is only worth negotiating (registration-burst
+     * SERVICELIST, TOKEN NEW/DEL) when a service exists; the TOKEN
+     * command itself never needs the cap. */
+    if (capab_list[i].cap == CAP_DRAFT_AUTHTOKEN && is_ls && !authtoken_service_count())
+      continue;
+
+#ifdef USE_SSL
+    /* STS requires CAP 302+ for values to be meaningful */
+    if (capab_list[i].cap == CAP_STS && is_ls && cap_version < 302)
+      continue;
+#endif
+
     /* Build the prefix (space separator and any modifiers needed). */
     pfx_len = 0;
     if (loc)
@@ -191,15 +604,74 @@ send_caplist(struct Client *sptr, const struct CapSet *set,
     }
     pfx[pfx_len] = '\0';
 
-    len = capab_list[i].namelen + pfx_len; /* how much we'd add... */
+    /* Build value string for CAP 302+ */
+    valbuf[0] = '\0';
+    val_len = 0;
+    if (is_ls && cap_version >= 302) {
+      /* For SASL, use effective mechanism list (dynamic or default fallback) */
+      if (capab_list[i].cap == CAP_SASL) {
+        const char *mechs = get_effective_sasl_mechanisms();
+        if (mechs)
+          val_len = ircd_snprintf(0, valbuf, sizeof(valbuf), "=%s", mechs);
+      } else if (capab_list[i].cap == CAP_DRAFT_MULTILINE) {
+        /* Build dynamic multiline value from features */
+        val_len = ircd_snprintf(0, valbuf, sizeof(valbuf), "=max-bytes=%d,max-lines=%d",
+                                feature_int(FEAT_MULTILINE_MAX_BYTES),
+                                feature_int(FEAT_MULTILINE_MAX_LINES));
+      } else if (capab_list[i].cap == CAP_DRAFT_WEBPUSH) {
+        /* Show VAPID key if available from services */
+        const char *vapid = get_vapid_pubkey();
+        if (vapid)
+          val_len = ircd_snprintf(0, valbuf, sizeof(valbuf), "=vapid=%s", vapid);
+      } else if (capab_list[i].cap == CAP_DRAFT_CHATHISTORY) {
+        /* NON-SPEC VALUE, kept deliberately (audit 2026-09-06 #29, checked
+         * against goguma's source): goguma reads this as its page size --
+         * `max = caps.chatHistory; if (max == 0) max = 1000` -- and stops
+         * paging a target's backlog when a page comes back SHORTER than
+         * max.  A bare cap therefore means max = 1000 against our clamp of
+         * CHATHISTORY_MAX rows: every full page looks short and goguma
+         * fetches ONE page per target.  Bare integer; the limit is also
+         * ISUPPORT CHATHISTORY=<n>.  Document any change in
+         * FEATURE_FLAGS_CONFIG.md. */
+        val_len = ircd_snprintf(0, valbuf, sizeof(valbuf), "=%d",
+                                feature_int(FEAT_CHATHISTORY_MAX));
+#ifdef USE_SSL
+      } else if (capab_list[i].cap == CAP_STS) {
+        /* STS value depends on whether connection is secure or not */
+        if (IsSSL(sptr)) {
+          /* Secure connection: advertise duration (and optional preload) */
+          int duration = feature_int(FEAT_STS_DURATION);
+          if (feature_bool(FEAT_STS_PRELOAD)) {
+            val_len = ircd_snprintf(0, valbuf, sizeof(valbuf), "=duration=%d,preload", duration);
+          } else {
+            val_len = ircd_snprintf(0, valbuf, sizeof(valbuf), "=duration=%d", duration);
+          }
+        } else {
+          /* Insecure connection: advertise secure port to upgrade to */
+          int port = feature_int(FEAT_STS_PORT);
+          val_len = ircd_snprintf(0, valbuf, sizeof(valbuf), "=port=%d", port);
+        }
+#endif
+      } else if (capab_list[i].value) {
+        val_len = ircd_snprintf(0, valbuf, sizeof(valbuf), "=%s", capab_list[i].value);
+      }
+    }
+
+    len = capab_list[i].namelen + pfx_len + val_len; /* how much we'd add... */
     if (msgq_bufleft(mb) < loc + len + 2) { /* would add too much; must flush */
-      sendcmdto_one(&me, CMD_CAP, sptr, "%s %s :%s",
-                    BadPtr(cli_name(sptr)) ? "*" : cli_name(sptr),  subcmd, capbuf);
+      /* For CAP 302+, use * continuation marker */
+      if (cap_version >= 302) {
+        sendcmdto_one(&me, CMD_CAP, sptr, "%s %s * :%s",
+                      BadPtr(cli_name(sptr)) ? "*" : cli_name(sptr), subcmd, capbuf);
+      } else {
+        sendcmdto_one(&me, CMD_CAP, sptr, "%s %s :%s",
+                      BadPtr(cli_name(sptr)) ? "*" : cli_name(sptr), subcmd, capbuf);
+      }
       capbuf[(loc = 0)] = '\0'; /* re-terminate the buffer... */
     }
 
-    loc += ircd_snprintf(0, capbuf + loc, sizeof(capbuf) - loc, "%s%s",
-                         pfx, capab_list[i].name);
+    loc += ircd_snprintf(0, capbuf + loc, sizeof(capbuf) - loc, "%s%s%s",
+                         pfx, capab_list[i].name, valbuf);
   }
 
   msgq_append(0, mb, "%s", capbuf); /* append capabilities to the final cmd */
@@ -214,6 +686,14 @@ cap_ls(struct Client *sptr, const char *caplist)
 {
   if (IsUnknown(sptr) && cli_auth(sptr)) /* registration hasn't completed; suspend it... */
     auth_cap_start(cli_auth(sptr));
+
+  /* Parse CAP version from CAP LS 302 */
+  if (caplist && *caplist) {
+    int version = atoi(caplist);
+    if (version > 0)
+      cli_capab_version(sptr) = version;
+  }
+
   return send_caplist(sptr, 0, 0, "LS"); /* send list of capabilities */
 }
 
@@ -224,7 +704,7 @@ cap_req(struct Client *sptr, const char *caplist)
   struct capabilities *cap;
   struct CapSet set, rem;
   struct CapSet cs = *cli_capab(sptr); /* capability set */
-  struct CapSet as = *cli_active(sptr); /* active set */
+  struct CapSet as = *cli_active_own(sptr); /* active set (per-connection, not union) */
   int neg;
 
   if (IsUnknown(sptr) && cli_auth(sptr)) /* registration hasn't completed; suspend it... */
@@ -259,7 +739,9 @@ cap_req(struct Client *sptr, const char *caplist)
   /* Notify client of accepted changes and copy over results. */
   send_caplist(sptr, &set, &rem, "ACK");
   *cli_capab(sptr) = cs;
-  *cli_active(sptr) = as;
+  *cli_active_own(sptr) = as;
+  bounce_recompute_session_caps(sptr);
+  bounce_emit_alias_caps(sptr);
 
   return 0;
 }
@@ -283,14 +765,21 @@ cap_ack(struct Client *sptr, const char *caplist)
     if (neg) { /* set or clear the active capability... */
       if (cap->flags & CAPFL_STICKY)
         continue; /* but don't clear sticky capabilities */
-      CapClr(cli_active(sptr), cap->cap);
+      CapClr(cli_active_own(sptr), cap->cap);
+
+      /* Clean up metadata subscriptions when metadata-2 is disabled */
+      if (cap->cap == CAP_DRAFT_METADATA2) {
+        metadata_sub_free(sptr);
+      }
     } else {
       if (cap->flags & CAPFL_PROHIBIT)
         continue; /* and don't set prohibited ones */
-      CapSet(cli_active(sptr), cap->cap);
+      CapSet(cli_active_own(sptr), cap->cap);
     }
   }
 
+  bounce_recompute_session_caps(sptr);
+  bounce_emit_alias_caps(sptr);
   return 0;
 }
 
@@ -312,9 +801,16 @@ cap_clear(struct Client *sptr, const char *caplist)
     CapSet(&cleared, cap->cap);
     CapClr(cli_capab(sptr), cap->cap);
     if (!(cap->flags & CAPFL_PROTO))
-      CapClr(cli_active(sptr), cap->cap);
+      CapClr(cli_active_own(sptr), cap->cap);
+
+    /* Clean up metadata subscriptions when metadata-2 is cleared */
+    if (cap->cap == CAP_DRAFT_METADATA2) {
+      metadata_sub_free(sptr);
+    }
   }
   send_caplist(sptr, 0, &cleared, "ACK");
+  bounce_recompute_session_caps(sptr);
+  bounce_emit_alias_caps(sptr);
 
   return 0;
 }
@@ -349,9 +845,9 @@ static struct subcmd {
 };
 
 static int
-subcmd_search(const char *cmd, const struct subcmd *elem)
+subcmd_search(const void *cmd, const void *elem)
 {
-  return ircd_strcmp(cmd, elem->cmd);
+  return ircd_strcmp(cmd, ((const struct subcmd *)elem)->cmd);
 }
 
 /** Handle a capability request or response from a client.
@@ -377,7 +873,7 @@ m_cap(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
   if (!(cmd = (struct subcmd *)bsearch(subcmd, cmdlist,
       sizeof(cmdlist) / sizeof(struct subcmd),
       sizeof(struct subcmd),
-      (bqcmp)subcmd_search)))
+      subcmd_search)))
     return send_reply(sptr, ERR_UNKNOWNCAPCMD, subcmd);
 
   /* then execute it... */

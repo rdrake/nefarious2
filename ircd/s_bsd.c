@@ -24,6 +24,8 @@
 #include "config.h"
 
 #include "s_bsd.h"
+#include "bouncer_session.h"
+#include "capab.h"
 #include "client.h"
 #include "IPcheck.h"
 #include "channel.h"
@@ -40,11 +42,13 @@
 #include "ircd.h"
 #include "list.h"
 #include "listener.h"
+#include "recv_classify.h"
 #include "msg.h"
 #include "msgq.h"
 #include "numeric.h"
 #include "numnicks.h"
 #include "packet.h"
+#include "replay.h"
 #include "parse.h"
 #include "querycmds.h"
 #include "res.h"
@@ -55,6 +59,7 @@
 #include "s_user.h"
 #include "send.h"
 #include "struct.h"
+#include "websocket.h"
 #include "sys.h"
 #include "uping.h"
 #include "version.h"
@@ -70,8 +75,13 @@
 #include <sys/ioctl.h>
 #include <sys/socket.h>
 #include <sys/time.h>
+#include <sys/uio.h>
 #include <sys/utsname.h>
 #include <unistd.h>
+
+#ifndef IOV_MAX
+#define IOV_MAX 1024
+#endif /* IOV_MAX */
 
 /** Array of my own clients, indexed by file descriptor. */
 struct Client*            LocalClientArray[MAXCONNECTIONS];
@@ -103,7 +113,7 @@ const char* const SOCKET_ERROR_MSG    = "error creating socket for %s: %s";
 const char* const TOS_ERROR_MSG	      = "error setting TOS for %s: %s";
 
 
-static void client_sock_callback(struct Event* ev);
+void client_sock_callback(struct Event* ev);
 static void client_timer_callback(struct Event* ev);
 
 
@@ -244,6 +254,12 @@ static int connect_inet(struct ConfItem* aconf, struct Client* cptr)
   if (!os_set_tos(cli_fd(cptr), feature_int(FEAT_TOS_SERVER), family)) {
     report_error(TOS_ERROR_MSG, cli_name(cptr), errno);
   }
+  /*
+   * Disable Nagle's algorithm for low-latency server-to-server links.
+   */
+  if (feature_bool(FEAT_TCP_NODELAY_S2S)) {
+    os_set_tcp_nodelay(cli_fd(cptr));
+  }
   if ((result = os_connect_nonb(cli_fd(cptr), &aconf->address)) == IO_FAILURE) {
     cli_error(cptr) = errno;
     report_error(CONNECT_ERROR_MSG, cli_name(cptr), errno);
@@ -282,7 +298,93 @@ static IOResult client_sendv(struct Client *cptr, struct MsgQ *buf, unsigned int
   else
     return os_sendv_nonb(cli_fd(cptr), buf, count_in, count_out);
 }
+
+/** Set the event interest of a socket whose TLS handshake is still in
+ * progress to what OpenSSL needs next: readable always (the peer's next
+ * flight, an alert, or a close can arrive at any point), writable only
+ * while SSL_accept holds handshake bytes the kernel would not take.
+ *
+ * The write side is the one that matters.  Client listeners give their
+ * accepted sockets a CLIENT_TCP_WINDOW send buffer (2 KB, which the
+ * kernel doubles), and a server flight with a real certificate chain is
+ * larger than that, so SSL_accept regularly writes the first 4 KB, gets
+ * EAGAIN, and returns SSL_ERROR_WANT_WRITE.  Nothing else arms writable
+ * interest for it: the auth notices are queued behind the handshake, and
+ * once the idle-socket spin was fixed their interest is dropped whenever
+ * SSL_accept waits to read.  The handshake then sat until an unrelated
+ * event (a late DNS notice, or the peer poking the socket) or the connect
+ * timeout -- which the client saw as an EOF mid-handshake.
+ *
+ * Called after every SSL_accept that reports the handshake still pending.
+ * Anything queued meanwhile gets the writable interest back through
+ * update_write once the handshake completes. */
+static void ssl_handshake_events(struct Client *cptr)
+{
+  socket_events(&(cli_socket(cptr)),
+                SOCK_ACTION_SET | SOCK_EVENT_READABLE
+                | (ssl_want_write(cptr) ? SOCK_EVENT_WRITABLE : 0));
+}
 #endif /* USE_SSL */
+
+/** Complete a WebSocket frame left pending on the wire.
+ * Writes the remainder of con_ws_txrem from where the last attempt
+ * stopped.  OpenSSL is retried from the stash, which is the very buffer
+ * the frame was first offered from (ws_send_raw writes from its heap
+ * copy), as the retry-same-buffer rule requires.
+ * @param[in] cptr WebSocket client with a pending frame.
+ * @param[in,out] wrote_out Incremented by the bytes written here when
+ * the frame completes; when it does not, the bytes are accounted to
+ * sendB here and *wrote_out is reset to 0.
+ * @return 1 when the frame is complete (the stash is freed), 0 when it
+ * is still pending (FLAG_BLOCKED set) or the socket died
+ * (FLAG_DEADSOCKET set).
+ */
+int ws_flush_txrem(struct Client *cptr, unsigned int *wrote_out)
+{
+  struct Connection *wcon = cli_connect(cptr);
+  unsigned int remlen = (unsigned)(con_ws_txrem_len(wcon) - con_ws_txrem_pos(wcon));
+  unsigned int wrote = 0;
+  IOResult r = IO_BLOCKED;
+
+  assert(0 != con_ws_txrem(wcon));
+#ifdef USE_SSL
+  if (cli_socket(cptr).ssl) {
+    int sr;
+
+    ssl_clear_errors("before SSL_write");
+    sr = SSL_write(cli_socket(cptr).ssl,
+                   con_ws_txrem(wcon) + con_ws_txrem_pos(wcon), remlen);
+    if (sr > 0) { wrote = (unsigned)sr; r = IO_SUCCESS; }
+    else {
+      int se = SSL_get_error(cli_socket(cptr).ssl, sr);
+      r = (se == SSL_ERROR_WANT_WRITE || se == SSL_ERROR_WANT_READ)
+            ? IO_BLOCKED : IO_FAILURE;
+    }
+  } else
+#endif
+    r = os_send_nonb(cli_fd(cptr), con_ws_txrem(wcon) + con_ws_txrem_pos(wcon),
+                     remlen, &wrote);
+  if (wrote) {
+    *wrote_out += wrote;
+    con_ws_txrem_pos(wcon) += (int)wrote;
+  }
+  if (con_ws_txrem_pos(wcon) >= con_ws_txrem_len(wcon)) {
+    MyFree(con_ws_txrem(wcon));
+    con_ws_txrem(wcon) = NULL;
+    con_ws_txrem_len(wcon) = con_ws_txrem_pos(wcon) = 0;
+    return 1;
+  }
+  cli_sendB(cptr) += *wrote_out;
+  cli_sendB(&me)  += *wrote_out;
+  *wrote_out = 0;
+  if (r == IO_FAILURE) {
+    cli_error(cptr) = errno;
+    SetFlag(cptr, FLAG_DEADSOCKET);
+    return 0;
+  }
+  SetFlag(cptr, FLAG_BLOCKED);
+  return 0;
+}
 
 /** Attempt to send a sequence of bytes to the connection.
  * As a side effect, updates \a cptr's FLAG_BLOCKED setting
@@ -297,6 +399,216 @@ unsigned int deliver_it(struct Client *cptr, struct MsgQ *buf)
   unsigned int bytes_written = 0;
   unsigned int bytes_count = 0;
   assert(0 != cptr);
+
+  /*
+   * For WebSocket clients awaiting handshake or protocol sniffing,
+   * don't send any IRC data yet. Data will be queued and delivered
+   * after handshake/sniff completes.
+   */
+  if (IsWSNeedHandshake(cptr) || IsWSSniff(cptr)) {
+    SetFlag(cptr, FLAG_BLOCKED);
+    /* Nothing can go out until the sniff/handshake decides, so drop
+     * write interest: the auth notices queued at accept had armed it,
+     * and an idle socket is always writable, so leaving it armed made
+     * epoll return instantly for the life of the connection -- one
+     * silent TCP connection pinned a core for CONNECTTIMEOUT seconds.
+     * The paths that resolve the state (sniff -> plain IRC, handshake
+     * complete) call send_queued, which re-arms via update_write if the
+     * socket then really blocks. */
+    socket_events(&(cli_socket(cptr)), SOCK_ACTION_DEL | SOCK_EVENT_WRITABLE);
+    return 0;
+  }
+
+  /*
+   * For WebSocket clients, we need to wrap each IRC line in a WebSocket frame.
+   * We extract data from the MsgQ, frame it, and send the framed version.
+   */
+  if (IsWebSocket(cptr)) {
+    static char ws_frame[FULL_MSG_SIZE + 16];
+    static char concat_buf[FULL_MSG_SIZE * 4];
+    struct iovec iov[IOV_MAX];
+    int iovcnt;
+    int i, buf_len = 0;
+    IOResult result = IO_SUCCESS;
+    int text_mode = IsWSText(cptr) ? 1 : 0;
+    unsigned int total_ws_written = 0;
+    unsigned int consumed = 0;  /* input bytes whose frames were FULLY written */
+    struct Connection *wcon = cli_connect(cptr);
+
+    /* A previous flush left a frame pending on the wire: a plaintext
+     * short write, or an out-of-band frame (keepalive PING, PONG) that
+     * went want-write inside OpenSSL.  Its bytes precede everything still
+     * queued, so the REST of that exact frame must go out before any new
+     * frame -- resending from the frame start would corrupt the stream,
+     * and a different frame is OpenSSL's "bad write retry". */
+    if (con_ws_txrem(wcon) && !ws_flush_txrem(cptr, &total_ws_written))
+      return 0;  /* still pending (or dead); nothing new consumed */
+
+    /* Get data from message queue as iovecs */
+    iovcnt = msgq_mapiov(buf, iov, IOV_MAX, &bytes_count);
+
+    /* Concatenate iovecs into single buffer */
+    for (i = 0; i < iovcnt && buf_len < (int)sizeof(concat_buf) - 1; i++) {
+      int copy_len = iov[i].iov_len;
+      if (buf_len + copy_len >= (int)sizeof(concat_buf))
+        copy_len = sizeof(concat_buf) - buf_len - 1;
+      memcpy(concat_buf + buf_len, iov[i].iov_base, copy_len);
+      buf_len += copy_len;
+    }
+    concat_buf[buf_len] = '\0';
+
+    /* IRCv3 WebSocket spec: each IRC message = one WebSocket frame.
+     * Split the concatenated sendQ on \r\n boundaries and send each
+     * IRC message as its own WebSocket frame.
+     */
+    {
+      char *pos = concat_buf;
+      char *end = concat_buf + buf_len;
+
+      while (pos < end) {
+        char *crlf = strstr(pos, "\r\n");
+        int line_len;
+        int in_len;
+        int frame_len;
+
+        if (!crlf) {
+          /* Incomplete tail: an artifact of the concat_buf cap when the
+           * mapped batch exceeded it.  Do NOT frame a truncated line --
+           * leave it queued (consumed stops before it) and the next
+           * flush re-frames it whole.  Every sender terminates lines
+           * with \r\n, so a permanent crlf-less tail cannot occur. */
+          break;
+        }
+        line_len = crlf - pos;  /* exclude \r\n */
+        in_len = line_len + 2;  /* this line's share of queue bytes */
+
+        if (line_len > 0) {
+          char irc_line[FULL_MSG_SIZE + 4];
+          if (line_len >= (int)sizeof(irc_line))
+            line_len = sizeof(irc_line) - 1;
+          memcpy(irc_line, pos, line_len);
+          irc_line[line_len] = '\0';
+
+          /* For text mode, validate UTF-8 and sanitize if needed.
+           * RFC 6455: Servers MUST NOT relay non-UTF-8 content to clients
+           * using text messages. We replace invalid bytes with U+FFFD.
+           */
+          if (text_mode && !string_is_valid_utf8(irc_line)) {
+            /* string_sanitize_utf8() returns -1 for "nothing modified",
+             * which happens whenever the offending bytes sit past its
+             * BUFSIZE working window: the line is then unchanged and its
+             * original length still stands.  Assigning that -1 into
+             * line_len would hand websocket_encode_frame() a data_len of
+             * -1, i.e. memcpy(..., SIZE_MAX).  The inbound path at the
+             * bottom of this file already guards it; do the same here. */
+            int sanitized_len = string_sanitize_utf8(irc_line);
+            if (sanitized_len >= 0)
+              line_len = sanitized_len;
+          }
+
+          /* Encode as WebSocket frame using client's negotiated/detected mode */
+          frame_len = websocket_encode_frame(irc_line, line_len,
+                                             (unsigned char *)ws_frame, text_mode);
+
+          Debug((DEBUG_DEBUG, "WebSocket deliver: line_len=%d, frame_len=%d, msg='%.50s'",
+                 line_len, frame_len, irc_line));
+
+          if (frame_len <= 0) {
+            /* Un-encodable line: consume and SKIP it.  (PR #102 wrote a
+             * bare break against the old return-bytes_count accounting,
+             * where the batch was deleted wholesale; under per-line
+             * consumed accounting a break would leave this line at the
+             * queue head and stall the connection's output forever.) */
+            consumed += (unsigned)in_len;
+            pos = crlf + 2;
+            continue;
+          }
+
+#ifdef USE_SSL
+          if (cli_socket(cptr).ssl) {
+            int send_result;
+
+            ssl_clear_errors("before SSL_write");
+            send_result = SSL_write(cli_socket(cptr).ssl, ws_frame, frame_len);
+            if (send_result > 0) {
+              result = IO_SUCCESS;
+              total_ws_written += send_result;
+              consumed += (unsigned)in_len;
+            } else {
+              int ssl_err = SSL_get_error(cli_socket(cptr).ssl, send_result);
+              if (ssl_err == SSL_ERROR_WANT_WRITE || ssl_err == SSL_ERROR_WANT_READ)
+                result = IO_BLOCKED;
+              else
+                result = IO_FAILURE;
+              break;  /* Stop sending on error */
+            }
+          } else
+#endif
+          {
+            unsigned int frame_written;
+            result = os_send_nonb(cli_fd(cptr), ws_frame, frame_len, &frame_written);
+            if (result == IO_SUCCESS) {
+              total_ws_written += frame_written;
+              if (frame_written < (unsigned)frame_len) {
+                /* Short write: part of this frame is on the wire.  Stash
+                 * the remainder to be completed FIRST next flush, and
+                 * count the line consumed (its bytes precede everything
+                 * still queued). */
+                int rem = frame_len - (int)frame_written;
+                con_ws_txrem(wcon) = (char *)MyMalloc(rem);
+                memcpy(con_ws_txrem(wcon), ws_frame + frame_written, rem);
+                con_ws_txrem_len(wcon) = rem;
+                con_ws_txrem_pos(wcon) = 0;
+                consumed += (unsigned)in_len;
+                result = IO_BLOCKED;
+                break;
+              }
+              consumed += (unsigned)in_len;
+            } else {
+              break;  /* Error — stop sending */
+            }
+          }
+        } else {
+          consumed += (unsigned)in_len;  /* bare CRLF: swallow */
+        }
+
+        /* Advance past this message (including \r\n) */
+        pos = crlf + 2;
+      }
+    }
+
+    switch (result) {
+    case IO_SUCCESS:
+      ClrFlag(cptr, FLAG_BLOCKED);
+      cli_sendB(cptr) += total_ws_written;
+      cli_sendB(&me)  += total_ws_written;
+      /* Consumed = bytes of lines whose frames were fully written.  Not
+       * bytes_count: a concat_buf-capped tail was never framed and must
+       * stay queued (the old return silently DROPPED it). */
+      bytes_written = consumed;
+      break;
+    case IO_BLOCKED:
+      SetFlag(cptr, FLAG_BLOCKED);
+      cli_sendB(cptr) += total_ws_written;
+      cli_sendB(&me)  += total_ws_written;
+      /* Consume exactly the fully-sent lines so the BLOCKED line sits at
+       * the queue head for the retry.  The retry then re-frames the SAME
+       * bytes into the same static buffer, satisfying OpenSSL's
+       * retry-same-buffer rule.  (The old return of 0 re-framed from the
+       * batch start: after a mid-batch WANT_WRITE the next SSL_write
+       * presented a DIFFERENT frame -> SSL_ERROR_SSL "bad write retry"
+       * -> the mid-session "Internal OpenSSL error" kill -- and every
+       * already-sent frame went out again as a duplicate.) */
+      bytes_written = consumed;
+      break;
+    case IO_FAILURE:
+      cli_error(cptr) = errno;
+      SetFlag(cptr, FLAG_DEADSOCKET);
+      bytes_written = 0;
+      break;
+    }
+    return bytes_written;
+  }
 
 #ifdef USE_SSL
   switch (client_sendv(cptr, buf, &bytes_count, &bytes_written)) {
@@ -369,11 +681,28 @@ static int completed_connection(struct Client* cptr)
       sendto_opmask_butone(0, SNO_OLDSNO, "Connection failed to %s: Unable to select SSL ciphers",
                            cli_name(cptr));
       return 0;
-    } else if (r == 0)
+    } else if (r == 0) {
+      /* TCP is up and the TLS handshake waits on the peer.  Leave the
+       * connect-pending state: its interest is write-only, and an
+       * established socket is always writable, so the loop re-entered
+       * here on every iteration until the peer's flight arrived -- a peer
+       * that accepts and then stalls pinned a core until the connect
+       * timeout.  Wait instead on what OpenSSL asks for (the accept
+       * side's ssl_handshake_events); the read and write handlers bring
+       * the handshake back here while the flag is set. */
+      SetSSLNeedConnect(cptr);
+      if (s_state(&(cli_socket(cptr))) == SS_CONNECTING)
+        socket_state(&(cli_socket(cptr)), SS_CONNECTED);
+      ssl_handshake_events(cptr);
       return 1;
+    }
+    ClearSSLNeedConnect(cptr);
     sslfp = ssl_get_fingerprint(cli_socket(cptr).ssl);
-    if (sslfp)
+    if (sslfp) {
       ircd_strncpy(cli_sslclifp(cptr), sslfp, BUFSIZE+1);
+      if (feature_bool(FEAT_CERT_EXPIRY_TRACKING))
+        cli_sslcliexp(cptr) = ssl_get_cert_expiry(cli_socket(cptr).ssl);
+    }
     SetSSL(cptr);
 #endif
   }
@@ -405,14 +734,58 @@ static int completed_connection(struct Client* cptr)
   cli_lasttime(cptr) = CurrentTime;
   ClearPingSent(cptr);
 
-  sendrawto_one(cptr, MSG_SERVER " %s 1 %Tu %Tu J%s %s%s +%s6%s :%s",
+  /* Flag string: h=hub, 6=ipv6, o=oplevels, v=IRCv3-aware S2S extensions,
+   * F=BX F (reconcile-end) handshake supported, H=bouncer hold mark (,H)
+   * stamped and relayed (only while P10_MESSAGE_TAGS is on: the mark
+   * rides the compact tags).
+   * Legacy peers ignore unknown flag chars. */
+  sendrawto_one(cptr, MSG_SERVER " %s 1 %Tu %Tu J%s %s%s +%s6%svF%s :%s",
                 cli_name(&me), cli_serv(&me)->timestamp, newts,
 		MAJOR_PROTOCOL, NumServCap(&me),
 		feature_bool(FEAT_HUB) ? "h" : "",
                 feature_bool(FEAT_OPLEVELS) ? "o" : "",
+                feature_bool(FEAT_P10_MESSAGE_TAGS) ? "H" : "",
                 cli_info(&me));
+  if (feature_bool(FEAT_P10_MESSAGE_TAGS))
+    SetHoldMarkSent(cptr);
 
   return (IsDead(cptr)) ? 0 : 1;
+}
+
+/** Why @a cptr's socket died, as dead_link() recorded it, or @a dflt.
+ * (These read cli_info -- the realname -- when nothing was recorded, so a
+ * socket error could quit a user with their own realname.) */
+static const char *dead_reason(struct Client *cptr, const char *dflt)
+{
+  return (cptr && cli_connect(cptr) && cli_exit_reason(cptr)[0])
+         ? cli_exit_reason(cptr) : dflt;
+}
+
+/** Exit a client whose socket died -- or let the bouncer keep its
+ * session, when it is a session primary: the decision
+ * client_sock_callback() makes for an EOF or a read error.  A write error
+ * or a sendQ overflow is a dropped connection too (user decision
+ * 2026-10-21): a live device of the session takes over, as after a QUIT,
+ * else the session holds (bounce_promote_or_hold()).  The parse loops and
+ * check_pings() exited it outright, and a session with no other
+ * connection ended with it.
+ * @param[in] cptr Local client marked dead.
+ * @param[in] dflt Exit message when dead_link() recorded none.
+ * @return CPTR_KILLED when the client is gone, 0 when it is held.
+ */
+int exit_dead_client(struct Client *cptr, const char *dflt)
+{
+  const char *msg = dead_reason(cptr, dflt);
+
+  if (IsUser(cptr) && !IsBouncerAlias(cptr)) {
+    if (IsBouncerHold(cptr))
+      return 0;
+    /* Held: 0.  A device here took over (1), or nothing to keep: the
+     * client exits; after a promote its channels are already left. */
+    if (bounce_promote_or_hold(cptr, msg) == 0)
+      return 0;
+  }
+  return exit_client(cptr, cptr, &me, (char *)msg);
 }
 
 /** Close the physical connection.  Side effects: MyConnect(cptr)
@@ -422,6 +795,20 @@ static int completed_connection(struct Client* cptr)
 void close_connection(struct Client *cptr)
 {
   struct ConfItem* aconf;
+
+  /* iauth knows a user connection by its descriptor (start_auth() sends
+   * the C on a user port) and is owed "<fd> D" when that socket closes:
+   * here, whichever path closes it -- exit_client(), a bouncer hold (the
+   * client stays, a held ghost), BX X's close of a device of ours.  It
+   * goes before the descriptor is touched: socket_del_keepfd() below
+   * makes cli_fd -1, and once close() returns the number belongs to the
+   * next accept(), whose C must come after this D (iauthd-ts and
+   * iauthd.pl exit on a C for a number they still hold).  A client with no
+   * descriptor sends nothing: a held ghost's exit, whose hold already
+   * told iauth.  A revive closes no socket (bounce_revive() moves the
+   * descriptor onto the ghost, whose own close owes the D later). */
+  if ((IsUser(cptr) || IsUserPort(cptr)) && cli_fd(cptr) >= 0)
+    auth_send_exit(cptr);
 
   if (IsServer(cptr)) {
     ServerStats->is_sv++;
@@ -457,11 +844,67 @@ void close_connection(struct Client *cptr)
     ServerStats->is_ni++;
 
   if (-1 < cli_fd(cptr)) {
-    flush_connections(cptr);
-    LocalClientArray[cli_fd(cptr)] = 0;
-    close(cli_fd(cptr));
-    socket_del(&(cli_socket(cptr))); /* queue a socket delete */
-    cli_fd(cptr) = -1;
+    /* The fd is closed here, once, and nothing touches its number after
+     * that.  Everything that writes to it -- the queued lines, the TLS
+     * close_notify, the FIN -- goes first.  The number is free the moment
+     * close() returns, and the next open() in any thread (a RocksDB flush,
+     * a log file) gets it: a write after the close lands in that file (on
+     * the bed a 24-byte close_notify corrupted an SST being flushed), a
+     * second close() closes that file under its owner. */
+    int fd = cli_fd(cptr);
+
+    /* A WebSocket's one Close frame goes after the queued lines -- the
+     * ERROR exit_client() queued last among them -- since nothing may
+     * follow a Close (RFC 6455 §5.5.1). */
+    if (IsWebSocket(cptr))
+      websocket_close_flush(cptr);
+    else
+      flush_connections(cptr);
+    LocalClientArray[fd] = 0;
+
+    /* Drain any data sitting in the recv buffer before close.  Linux's
+     * close() sends RST (not FIN) when there's unread data in the kernel
+     * recv buffer at close time, even if shutdown(SHUT_RDWR) was called
+     * first — RST then discards data still in flight in both directions,
+     * including the KILL message and ERROR :Closing Link we just queued.
+     * Symptom: TCP RST instead of clean FIN; client sees "Disconnected
+     * (transport error)" with no visible KILL or ERROR rendered. */
+    {
+      char drainbuf[1024];
+      while (recv(fd, drainbuf, sizeof(drainbuf), MSG_DONTWAIT) > 0)
+        ;
+    }
+
+#ifdef USE_SSL
+    /* The TLS close_notify, after the last line and before the FIN, while
+     * the fd is still ours (non-blocking, best effort).  The SSL object
+     * goes with it: its BIO caches the fd number, and an SSL left for the
+     * socket's ET_DESTROY wrote its close_notify there after the close --
+     * into whatever had reused the number. */
+    ssl_free(&(cli_socket(cptr)));
+#endif /* USE_SSL */
+
+    /* shutdown(SHUT_RDWR) sends the FIN and silently ACKs any data still
+     * arriving, so the close() below does not turn it into an RST that
+     * would discard what the peer has not read yet. */
+    shutdown(fd, SHUT_RDWR);
+
+    /* Unregister from the engine while fd is still open (epoll_ctl DEL on
+     * a valid fd), and leave the socket no fd: socket_del_keepfd() sets
+     * s_fd -- which is cli_fd -- to -1 before the ET_DESTROY, synchronous
+     * here or deferred to the end of the running callback, so the
+     * ET_DESTROY never closes it a second time.  Then the one close.
+     * A socket already off the engine (GEN_DESTROY: a revive took it and
+     * the engine would not take it for the ghost, bounce_revive() -2)
+     * only gives up the fd. */
+    if (cli_socket(cptr).s_header.gh_flags & GEN_DESTROY) {
+      /* Reached only by a connection that never registered: bounce_revive()
+       * -2, whose caller puts it back to unregistered before it exits. */
+      assert(!IsRegistered(cptr));
+      s_fd(&(cli_socket(cptr))) = -1;
+    } else
+      socket_del_keepfd(&(cli_socket(cptr)));
+    close(fd);
   }
   SetFlag(cptr, FLAG_DEADSOCKET);
 
@@ -503,6 +946,27 @@ int net_close_unregistered_connections(struct Client* source)
     }
   }
   return count;
+}
+
+/** Give up on a client add_connection() made but never registered:
+ * release its IPcheck charge and free the Client and its Connection.  The
+ * client is on no list yet, so free_client() deallocates it at once; its
+ * fd must already be closed (cli_fd -1) and its socket, if it had one,
+ * deleted.
+ * @param[in] new_client Client to discard.
+ * @param[in] refund Give the attempt back as well as the live count: the
+ *   failure was not the client's doing.  Otherwise the attempt stays, as
+ *   it does when the same client fails in the read path a moment later.
+ */
+static void add_connection_drop(struct Client* new_client, int refund)
+{
+  if (IsIPChecked(new_client)) {
+    if (refund)
+      IPcheck_connect_fail(new_client, 1);
+    else
+      IPcheck_disconnect(new_client);
+  }
+  free_client(new_client);
 }
 
 /** Creates a client which has just connected to us on the given fd.
@@ -564,6 +1028,12 @@ void add_connection(struct Listener* listener, int fd) {
    * source route, and the normal routing takes over.
    */
   os_disable_options(fd);
+  /*
+   * Disable Nagle's algorithm for low-latency client connections.
+   */
+  if (feature_bool(FEAT_TCP_NODELAY_C2S)) {
+    os_set_tcp_nodelay(fd);
+  }
 
   if (listener_server(listener))
   {
@@ -611,8 +1081,6 @@ void add_connection(struct Listener* listener, int fd) {
 /* Begin Zline */
   if (!feature_bool(FEAT_DISABLE_ZLINES) && (azline = zline_lookup(new_client, 0))) {
     ircd_snprintf(0, zreason, sizeof(zreason), "ERROR :Z-lined (%s)", azline->zl_reason);
-    if (IsIPChecked(new_client))
-      IPcheck_connect_fail(new_client, 1);
 #ifdef USE_SSL
     ssl_murder(ssl, fd, zreason);
 #else
@@ -620,6 +1088,7 @@ void add_connection(struct Listener* listener, int fd) {
     close(fd);
 #endif
     cli_fd(new_client) = -1;
+    add_connection_drop(new_client, 1);
     return;
   }
 /* End Zline */
@@ -627,8 +1096,6 @@ void add_connection(struct Listener* listener, int fd) {
 /* Begin Gline */
   if (!feature_bool(FEAT_DISABLE_GLINES) && (agline = gline_lookup(new_client, 0))) {
     ircd_snprintf(0, greason, sizeof(greason), "ERROR :G-lined (%s)", agline->gl_reason);
-    if (IsIPChecked(new_client))
-      IPcheck_connect_fail(new_client, 1);
 #ifdef USE_SSL
     ssl_murder(ssl, fd, greason);
 #else
@@ -636,13 +1103,18 @@ void add_connection(struct Listener* listener, int fd) {
     close(fd);
 #endif
     cli_fd(new_client) = -1;
+    add_connection_drop(new_client, 1);
     return;
   }
 /* End Gline */
 
   cli_fd(new_client) = fd;
+  /* Readable from the start: nothing is delivered before this function
+   * returns, and the TLS handshake below is driven by read events (plus
+   * write interest while OpenSSL asks for it -- ssl_handshake_events). */
   if (!socket_add(&(cli_socket(new_client)), client_sock_callback,
-		  (void*) cli_connect(new_client), SS_CONNECTED, 0, fd)) {
+		  (void*) cli_connect(new_client), SS_CONNECTED,
+		  SOCK_EVENT_READABLE, fd)) {
     ++ServerStats->is_ref;
 #ifdef USE_SSL
     ssl_murder(ssl, fd, register_message);
@@ -651,6 +1123,7 @@ void add_connection(struct Listener* listener, int fd) {
     close(fd);
 #endif /* USE_SSL */
     cli_fd(new_client) = -1;
+    add_connection_drop(new_client, 1);
     return;
   }
 
@@ -659,12 +1132,28 @@ void add_connection(struct Listener* listener, int fd) {
     cli_socket(new_client).ssl = ssl;
     SetSSLNeedAccept(new_client);
     if (!ssl_accept(new_client)) {
-      socket_del(&(cli_socket(new_client)));
+      /* The handshake failed on bytes that were already waiting (a
+       * plaintext client on a TLS port, or a peer already gone);
+       * ssl_accept() freed the SSL.  The socket is unregistered with the
+       * fd still open and given no fd (socket_del_keepfd), so its
+       * ET_DESTROY -- synchronous here, the socket is not in a callback
+       * -- neither closes the fd nor, the Connection still naming its
+       * Client, frees anything; ssl_murder() then writes the ERROR, shuts
+       * down and closes the fd, once, and add_connection_drop() frees the
+       * Client and its Connection.  The live count is released and the
+       * attempt stays, as it does when the same bytes arrive a moment
+       * later and the read path exits the client. */
       cli_socket(new_client).ssl = NULL;
+      socket_del_keepfd(&(cli_socket(new_client)));
       ssl_murder(NULL, fd, sslerr_message);
       cli_fd(new_client) = -1;
+      add_connection_drop(new_client, 0);
       return;
     }
+    /* The ClientHello may already have been waiting, in which case the
+     * server flight just went out -- possibly only part of it. */
+    if (IsSSLNeedAccept(new_client))
+      ssl_handshake_events(new_client);
   }
 #endif
 
@@ -677,10 +1166,28 @@ void add_connection(struct Listener* listener, int fd) {
     SetSSL(new_client);
     cli_socket(new_client).ssl = ssl;
     sslfp = ssl_get_fingerprint(ssl);
-    if (sslfp)
+    if (sslfp) {
       ircd_strncpy(cli_sslclifp(new_client), sslfp, BUFSIZE+1);
+      if (feature_bool(FEAT_CERT_EXPIRY_TRACKING))
+        cli_sslcliexp(new_client) = ssl_get_cert_expiry(ssl);
+    }
   }
 #endif
+
+  /* Mark WebSocket connections - they need handshake before IRC protocol */
+  Debug((DEBUG_DEBUG, "WebSocket check: listener_websocket=%d, listener_websocket_auto=%d, FEAT_WEBSOCKET=%d, listener_port=%d",
+         listener_websocket(listener), listener_websocket_auto(listener),
+         feature_bool(FEAT_WEBSOCKET), listener->addr.port));
+  if (feature_bool(FEAT_WEBSOCKET)) {
+    if (listener_websocket(listener)) {
+      Debug((DEBUG_DEBUG, "Setting WSNeedHandshake for new client"));
+      SetWSNeedHandshake(new_client);
+    } else if (listener_websocket_auto(listener)) {
+      Debug((DEBUG_DEBUG, "Setting WSSniff for new client (auto-detect)"));
+      SetWSSniff(new_client);
+      SetFlag(new_client, FLAG_BLOCKED);
+    }
+  }
 
   Count_newunknown(UserStats);
   /* if we've made it this far we can put the client on the auth query pile */
@@ -696,11 +1203,95 @@ void update_write(struct Client* cptr)
   /* If there are messages that need to be sent along, or if the client
    * is in the middle of a /list, then we need to tell the engine that
    * we're interested in writable events--otherwise, we need to drop
-   * that interest.
+   * that interest.  A WebSocket frame left pending on the wire (an
+   * out-of-band PING or PONG that went want-write, with nothing queued
+   * behind it) counts: without the event, send_queued never completes it
+   * and it waits for the next line.
    */
   socket_events(&(cli_socket(cptr)),
-		((MsgQLength(&cli_sendQ(cptr)) || cli_listing(cptr)) ?
+		((MsgQLength(&cli_sendQ(cptr)) || cli_listing(cptr) || cli_replay(cptr)
+		  || (IsWebSocket(cptr) && con_ws_txrem(cli_connect(cptr)))) ?
 		 SOCK_ACTION_ADD : SOCK_ACTION_DEL) | SOCK_EVENT_WRITABLE);
+}
+
+/** A connection fault forces @a cptr off: a flood, a WebSocket frame,
+ * size, fragment or UTF-8 error, a receive buffer that took no more
+ * data.  A fault is not an oper's verdict (user, 2026-10-27: bans end the
+ * session, faults promote): a session primary's other device takes over,
+ * or the session holds, as for a dead socket (bounce_forced_exit()).
+ * @return CPTR_KILLED, as exit_client() returns it for cptr itself. */
+static int exit_client_fault(struct Client *cptr, enum bounce_forced_exit why,
+                             const char *comment)
+{
+  if (bounce_forced_exit(cptr, cptr, why, comment))
+    return CPTR_KILLED; /* held: the ghost keeps the client, not the socket */
+  return exit_client(cptr, cptr, &me, comment);
+}
+
+/** Queue one complete WebSocket message on a client's recvQ.  Both the
+ * single-frame and the reassembled-fragment paths come through here, so
+ * neither can skip the per-class recv caps.
+ * @param cptr Client the message came from.
+ * @param buf Message bytes; must have room for one byte past @a len.
+ * @param len Message length.
+ * @return 1 to carry on, or exit_client_fault()'s result (CPTR_KILLED).
+ */
+static int ws_deliver(struct Client *cptr, char *buf, int len)
+{
+  int classify;
+
+  if (len <= 0)
+    return 1;
+  /* WebSocket IRC: messages don't require \r\n, add \n for parser */
+  if (buf[len - 1] != '\n')
+    buf[len++] = '\n';
+  classify = recv_classify(cptr, buf, len);
+  if (classify == RECV_CLASSIFY_TAG_OVERRUN
+      || classify == RECV_CLASSIFY_MSG_OVERRUN) {
+    const char *why = classify == RECV_CLASSIFY_TAG_OVERRUN
+                      ? "Excess Flood: tag region too large"
+                      : "Excess Flood: message region too large";
+
+    /* A line over a recv cap is a message too big to process: RFC 6455
+     * §7.4.1 gives that 1009, as a frame over WS_MAX_PAYLOAD gets, and
+     * keeps 1008 (policy) for when "there is no other more suitable
+     * status code (e.g., 1003 or 1009)".  The reason is the exit's. */
+    websocket_set_close(cptr, 1009, why);
+    return exit_client_fault(cptr, BOUNCE_FORCED_FLOOD, why);
+  }
+  if (dbuf_put(&(cli_recvQ(cptr)), buf, len) == 0)
+    return exit_client_fault(cptr, BOUNCE_FORCED_BUFFER, "dbuf_put fail");
+  return 1;
+}
+
+/** Hand one data frame of a fragmented message to the reassembly
+ * buffer, and queue the message once its final frame arrives.
+ * @return 1 to carry on, or exit_client_fault()'s result (CPTR_KILLED).
+ */
+static int ws_frag_feed(struct Client *cptr, int opcode, int is_fin,
+                        const char *payload, int len)
+{
+  char *msg;
+  int msg_len;
+
+  /* On a refusal websocket_frag_feed() has already set the connection's
+   * Close (1002, 1007 or 1009); what is left is to drop the connection,
+   * which sends it. */
+  switch (websocket_frag_feed(cptr, opcode, is_fin, payload, len,
+                              &msg, &msg_len)) {
+  case WS_FRAG_MORE:
+    return 1;
+  case WS_FRAG_DONE:
+    return ws_deliver(cptr, msg, msg_len);
+  case WS_FRAG_ORPHAN:
+    return exit_client_fault(cptr, BOUNCE_FORCED_WEBSOCKET, "WebSocket continuation without a message");
+  case WS_FRAG_BADUTF8:
+    return exit_client_fault(cptr, BOUNCE_FORCED_WEBSOCKET, "WebSocket text frame: invalid UTF-8");
+  case WS_FRAG_INTERLEAVED:
+    return exit_client_fault(cptr, BOUNCE_FORCED_WEBSOCKET, "WebSocket data frame inside a fragmented message");
+  default: /* WS_FRAG_OVERFLOW */
+    return exit_client_fault(cptr, BOUNCE_FORCED_WEBSOCKET, "WebSocket fragment overflow");
+  }
 }
 
 /** Read a 'packet' of data from a connection and process it.  Read in
@@ -717,9 +1308,11 @@ static int read_packet(struct Client *cptr, int socket_ready)
   unsigned int dolen = 0;
   unsigned int length = 0;
 
+#ifdef USE_SSL
+ssl_read_again:
+#endif
   if (socket_ready &&
-      !(IsUser(cptr) &&
-	DBufLength(&(cli_recvQ(cptr))) > get_recvq(cptr))) {
+      !(IsUser(cptr) && DBufLength(&(cli_recvQ(cptr))) > get_recvq(cptr) + FULL_MSG_SIZE)) {
 #ifdef USE_SSL
     switch (client_recv(cptr, readbuf, sizeof(readbuf), &length)) {
 #else
@@ -744,48 +1337,387 @@ static int read_packet(struct Client *cptr, int socket_ready)
     }
   }
 
+#ifdef USE_SSL
+  /*
+   * SSL can buffer decrypted data internally. After SSL_read() returns,
+   * there may be more data waiting that won't trigger epoll (since the
+   * kernel socket appears empty). For non-server connections, accumulate
+   * all SSL data in the receive queue before processing.
+   */
+  if (length > 0 && cli_socket(cptr).ssl && !IsServer(cptr) &&
+      !IsHandshake(cptr) && !IsConnecting(cptr)) {
+    if (ssl_pending(&cli_socket(cptr)) > 0) {
+      /* Buffer current data and read more */
+      if (dbuf_put(&(cli_recvQ(cptr)), readbuf, length) == 0)
+        return exit_client_fault(cptr, BOUNCE_FORCED_BUFFER, "dbuf_put fail");
+      length = 0;
+      goto ssl_read_again;
+    }
+  }
+#endif
+
   /*
    * For server connections, we process as many as we can without
    * worrying about the time of day or anything :)
    */
-  if (length > 0 && IsServer(cptr))
-    return server_dopacket(cptr, readbuf, length);
-  else if (length > 0 && (IsHandshake(cptr) || IsConnecting(cptr)))
-    return connect_dopacket(cptr, readbuf, length);
+  if (length > 0 && IsServer(cptr)) {
+    int classify = recv_classify(cptr, readbuf, length);
+    if (classify == RECV_CLASSIFY_TAG_OVERRUN)
+      return exit_client(cptr, cptr, &me, "Excess Flood: tag region too large");
+    if (classify == RECV_CLASSIFY_MSG_OVERRUN)
+      return exit_client(cptr, cptr, &me, "Excess Flood: S2S body exceeds 512");
+    int result = server_dopacket(cptr, readbuf, length);
+#ifdef USE_SSL
+    /* Check for more SSL-buffered data after processing */
+    if (result > 0 && cli_socket(cptr).ssl && ssl_pending(&cli_socket(cptr)) > 0)
+      goto ssl_read_again;
+#endif
+    /* This read of the link is parsed: a registration deferred on its
+     * unread bytes may go ahead now (W3 12c-2b fix 2, row 412). */
+    if (result > 0)
+      bounce_link_input_read(cptr);
+    return result;
+  }
+  else if (length > 0 && (IsHandshake(cptr) || IsConnecting(cptr))) {
+    int classify = recv_classify(cptr, readbuf, length);
+    if (classify == RECV_CLASSIFY_TAG_OVERRUN)
+      return exit_client(cptr, cptr, &me, "Excess Flood: tag region too large");
+    if (classify == RECV_CLASSIFY_MSG_OVERRUN)
+      return exit_client(cptr, cptr, &me, "Excess Flood: S2S body exceeds 512");
+    int result = connect_dopacket(cptr, readbuf, length);
+#ifdef USE_SSL
+    /* Check for more SSL-buffered data after processing */
+    if (result > 0 && cli_socket(cptr).ssl && ssl_pending(&cli_socket(cptr)) > 0)
+      goto ssl_read_again;
+#endif
+    /* A link that registered in this read may have sent its whole burst,
+     * end of burst included, in it (fix round 3, I-1). */
+    if (result > 0 && IsServer(cptr))
+      bounce_link_input_read(cptr);
+    return result;
+  }
   else
   {
+    /*
+     * Protocol sniffing for auto-detect WebSocket ports.
+     * Peek at first 4 bytes to distinguish "GET " (WebSocket) from IRC commands.
+     */
+    if (IsWSSniff(cptr)) {
+      char *client_buffer = cli_buffer(cptr);
+      int buffered = cli_count(cptr);
+
+      /* Accumulate if we don't have 4 bytes total yet */
+      if (buffered + length < 4) {
+        memcpy(client_buffer + buffered, readbuf, length);
+        cli_count(cptr) = buffered + length;
+        return 1; /* Need more data */
+      }
+
+      /* Build 4-byte peek from buffered + new data */
+      char peek[4];
+      int from_buffer = (buffered < 4) ? buffered : 4;
+      memcpy(peek, client_buffer, from_buffer);
+      if (from_buffer < 4)
+        memcpy(peek + from_buffer, readbuf, 4 - from_buffer);
+
+      ClearWSSniff(cptr);
+
+      if (peek[0] == 'G' && peek[1] == 'E' && peek[2] == 'T' && peek[3] == ' ') {
+        /* WebSocket — transition to handshake state */
+        Debug((DEBUG_DEBUG, "WSSniff: detected WebSocket (GET), switching to handshake"));
+        SetWSNeedHandshake(cptr);
+        /* Fall through to WSNeedHandshake handler which accumulates cli_buffer + readbuf */
+      } else {
+        /* Plain IRC — unblock and process normally */
+        Debug((DEBUG_DEBUG, "WSSniff: detected plain IRC, unblocking"));
+        ClrFlag(cptr, FLAG_BLOCKED);
+        send_queued(cptr);
+        /* Flush any previously buffered bytes into recvQ */
+        if (buffered > 0) {
+          if (dbuf_put(&(cli_recvQ(cptr)), client_buffer, buffered) == 0)
+            return exit_client_fault(cptr, BOUNCE_FORCED_BUFFER, "dbuf_put fail");
+          cli_count(cptr) = 0;
+        }
+        /* readbuf falls through to normal dbuf_put below */
+      }
+    }
+
+    /*
+     * Handle WebSocket handshake for client connections.
+     * This must happen before normal client data processing.
+     */
+    if (IsWSNeedHandshake(cptr)) {
+      int result;
+      int consumed;
+
+      Debug((DEBUG_DEBUG, "Client WebSocket handshake: length=%d", length));
+
+      /*
+       * The request is accumulated in a per-connection buffer of up to
+       * WS_HANDSHAKE_MAX bytes (browsers send 500-700 byte requests,
+       * more than cli_buffer holds) and the handshake runs once the
+       * blank line arrives, however many reads that takes.
+       */
+
+      /* The sniff step above may have parked up to 3 bytes in
+       * cli_buffer; they are the start of the request.  Too short to
+       * complete anything, so the result is not interesting. */
+      if (cli_count(cptr) > 0) {
+        (void)websocket_handshake_feed(cptr, cli_buffer(cptr), cli_count(cptr),
+                                       &consumed);
+        cli_count(cptr) = 0;
+      }
+
+      result = websocket_handshake_feed(cptr, readbuf, length, &consumed);
+      if (result == 0) {
+        /* Need more data */
+        return 1;
+      } else if (result == WS_HANDSHAKE_TOOBIG) {
+        return exit_client(cptr, cptr, &me, "WebSocket handshake too large");
+      } else if (result < 0) {
+        /* Handshake failed */
+        return exit_client(cptr, cptr, &me, "WebSocket handshake failed");
+      }
+      /* Handshake succeeded - unblock sends */
+      Debug((DEBUG_DEBUG, "WebSocket handshake completed successfully"));
+      ClrFlag(cptr, FLAG_BLOCKED);  /* Allow queued messages to be sent */
+      /* Trigger send of queued data */
+      send_queued(cptr);
+      /* Anything after the request in this read is already WebSocket
+       * frame data: move it to the front of readbuf for the decoder
+       * below instead of dropping it. */
+      length -= consumed;
+      if (length <= 0)
+        return 1;
+      memmove(readbuf, readbuf + consumed, length);
+    }
+
+    /*
+     * For WebSocket clients, decode frames before queuing.
+     * WebSocket frames wrap the IRC protocol data.
+     * Supports RFC 6455 fragmentation and partial frame buffering.
+     */
+    if (length > 0 && IsWebSocket(cptr)) {
+      /* Decode buffer.  The decoder rejects any payload >= the buffer
+       * size, so this must be larger than WS_MAX_PAYLOAD (the largest
+       * frame it accepts) plus the '\n' appended below.  Static rather
+       * than stack: 16 KB is too much stack, and read_packet() is not
+       * reentrant anyway (readbuf is static too). */
+      static char ws_payload[WS_MAX_PAYLOAD + 2];
+      int ws_len = 0, opcode = 0, consumed, is_fin = 0, ret;
+      unsigned char *ws_data;
+      int ws_remaining;
+      int copy_len;
+      const char *src = readbuf;
+      int src_len = length;
+
+      Debug((DEBUG_DEBUG, "WebSocket receive: length=%d, IsWebSocket=%d", length, IsWebSocket(cptr)));
+
+      /*
+       * All input goes through the per-connection frame buffer, which
+       * holds exactly one maximum-size frame (WS_MAX_FRAME).  readbuf
+       * (SERVER_TCP_WINDOW) can be much larger than that, so the loop
+       * below tops the frame buffer up from readbuf whenever it holds
+       * no complete frame, decodes what it can, and repeats until the
+       * read is drained.  A frame split across reads is thus reassembled
+       * whatever its size, and bytes after a completed frame are never
+       * dropped.
+       */
+      ws_data = cli_ws_frame_buf(cptr);
+      ws_remaining = cli_ws_frame_len(cptr);
+
+      while (ws_remaining > 0 || src_len > 0) {
+        consumed = 0;
+        if (ws_remaining > 0) {
+          consumed = websocket_decode_frame(ws_data, ws_remaining,
+                                            ws_payload, sizeof(ws_payload),
+                                            &ws_len, &opcode, &is_fin);
+          Debug((DEBUG_DEBUG, "WebSocket decode: consumed=%d, ws_len=%d, opcode=%d, is_fin=%d, remaining=%d",
+                 consumed, ws_len, opcode, is_fin, ws_remaining));
+        }
+        if (consumed == 0) {
+          /* Incomplete frame (or empty buffer): pull in more of the read */
+          if (src_len <= 0) {
+            Debug((DEBUG_DEBUG, "WebSocket: Incomplete frame, saving %d bytes", ws_remaining));
+            break;  /* tail is saved after the loop */
+          }
+          if (ws_remaining > 0 && ws_data != cli_ws_frame_buf(cptr))
+            memmove(cli_ws_frame_buf(cptr), ws_data, ws_remaining);
+          ws_data = cli_ws_frame_buf(cptr);
+          copy_len = (int)sizeof(cli_ws_frame_buf(cptr)) - ws_remaining;
+          if (copy_len <= 0) {
+            /* Buffer full and still no complete frame.  Cannot happen for
+             * a frame the decoder accepts (WS_MAX_FRAME covers the largest
+             * header plus WS_MAX_PAYLOAD), so treat it as a protocol error
+             * rather than spin. */
+            websocket_set_close(cptr, 1002, "Protocol error");
+            return exit_client_fault(cptr, BOUNCE_FORCED_WEBSOCKET, "WebSocket frame error");
+          }
+          if (copy_len > src_len)
+            copy_len = src_len;
+          memcpy(cli_ws_frame_buf(cptr) + ws_remaining, src, copy_len);
+          ws_remaining += copy_len;
+          src += copy_len;
+          src_len -= copy_len;
+          continue;
+        } else if (consumed == WS_DECODE_TOOBIG) {
+          /* Over WS_MAX_PAYLOAD: the Close tells the client why */
+          websocket_set_close(cptr, 1009, "Message too big");
+          return exit_client_fault(cptr, BOUNCE_FORCED_WEBSOCKET, "WebSocket message too big");
+        } else if (consumed < 0) {
+          /* A protocol error (RFC 6455: RSV bits, a reserved opcode, an
+           * unmasked frame, a control frame over 125 bytes or without
+           * FIN): it is dropped with Close 1002 */
+          Debug((DEBUG_DEBUG, "WebSocket: Frame error (consumed=%d)", consumed));
+          websocket_set_close(cptr, 1002, "Protocol error");
+          return exit_client_fault(cptr, BOUNCE_FORCED_WEBSOCKET, "WebSocket frame error");
+        }
+
+        Debug((DEBUG_DEBUG, "WebSocket frame payload: '%.50s'", ws_payload));
+
+        /* Frames that put nothing on the recvQ never meet fakelag, so a
+         * 6-byte PING (or an empty TEXT frame) cost a decode iteration,
+         * and for PING a TLS record and a syscall, unbounded.  They are
+         * metered on their own clock (see WS_CONTROL_FLOOD_CEIL).  CLOSE
+         * ends the connection; an empty FIN continuation completes a
+         * fragmented message, so both stay free. */
+        if ((opcode >= WS_OPCODE_CLOSE && opcode != WS_OPCODE_CLOSE)
+            || (opcode < WS_OPCODE_CLOSE && ws_len == 0
+                && !(opcode == WS_OPCODE_CONTINUATION && is_fin))) {
+          if (cli_ws_ctl_since(cptr) < CurrentTime)
+            cli_ws_ctl_since(cptr) = CurrentTime;
+          cli_ws_ctl_since(cptr) += WS_CONTROL_FLOOD_CHARGE;
+          if (cli_ws_ctl_since(cptr) - CurrentTime > WS_CONTROL_FLOOD_CEIL) {
+            websocket_set_close(cptr, 1008, "Excess Flood");
+            return exit_client_fault(cptr, BOUNCE_FORCED_FLOOD, "Excess Flood");
+          }
+        }
+
+        /* Handle control frames (always complete, can be interleaved) */
+        if (opcode >= WS_OPCODE_CLOSE) {
+          if (!websocket_handle_control(cptr, opcode, ws_payload, ws_len)) {
+            /* Close frame received.  A WS CLOSE is transport teardown --
+             * the WebSocket-layer FIN -- so it goes through the bouncer's
+             * disconnect rule exactly like the dead-link path below does
+             * for a TCP drop, and a QUIT does: a live device of the
+             * session takes over, else the session holds or (hold off)
+             * ends.  Without this, a clean WS close destroyed a
+             * persistent session an unclean drop would have kept. */
+            if (IsUser(cptr) && !IsBouncerAlias(cptr)
+                && bounce_promote_or_hold(cptr, "WebSocket closed") == 0)
+              return CPTR_KILLED; /* held: ghost owns the socket now */
+            /* Promoted here (channels already left), or nothing to keep */
+            return exit_client(cptr, cptr, &me, "WebSocket closed");
+          }
+        }
+        /* Handle continuation frame (part of fragmented message) */
+        else if (opcode == WS_OPCODE_CONTINUATION) {
+          if ((ret = ws_frag_feed(cptr, opcode, is_fin, ws_payload, ws_len)) != 1)
+            return ret;
+        }
+        /* Handle data frames (TEXT or BINARY) */
+        else if (opcode == WS_OPCODE_TEXT || opcode == WS_OPCODE_BINARY) {
+          /* Autodetect mode from the first incoming frame.  Text is the
+           * default (set at handshake), so only a BINARY first frame
+           * changes anything -- switch this client to binary. */
+          if (IsWSAutodetect(cptr)) {
+            if (opcode == WS_OPCODE_BINARY)
+              ClearWSText(cptr);
+            /* TEXT: leave the default text flag set */
+            ClearWSAutodetect(cptr);
+            Debug((DEBUG_DEBUG, "WebSocket: Autodetected mode from opcode %d, text=%d",
+                   opcode, IsWSText(cptr)));
+          }
+          if (!is_fin || cli_ws_frag_opcode(cptr) != 0) {
+            /* A first fragment starts the reassembly buffer.  A data
+             * frame while a fragmented message is in progress goes there
+             * too, and is refused (RFC 6455 §5.4). */
+            if ((ret = ws_frag_feed(cptr, opcode, is_fin, ws_payload, ws_len)) != 1)
+              return ret;
+          } else {
+            /* Complete frame - deliver immediately */
+            if (ws_len > 0) {
+              /* RFC 6455 Section 8.1: text frames must be valid UTF-8.
+               * Sanitize invalid sequences to U+FFFD. */
+              if (opcode == WS_OPCODE_TEXT) {
+                ws_payload[ws_len] = '\0';
+                /* The whole payload: a U+0000 in it is a character, and
+                 * a check of the C string stopped there. */
+                if (!string_is_valid_utf8_len(ws_payload, ws_len)) {
+                  /* string_sanitize_utf8() reads the C string too: it
+                   * returns the length up to the first NUL, or -1 when
+                   * nothing before it needed a change.  What follows the
+                   * NUL it never saw, so it is not delivered (the parser
+                   * ends the line at a NUL anyway). */
+                  int new_len = string_sanitize_utf8(ws_payload);
+                  ws_len = new_len >= 0 ? new_len : (int)strlen(ws_payload);
+                }
+              }
+              if ((ret = ws_deliver(cptr, ws_payload, ws_len)) != 1)
+                return ret;
+            }
+          }
+        }
+
+        ws_data += consumed;
+        ws_remaining -= consumed;
+      }
+
+      /* Keep any partial frame at the front of the buffer for the next read */
+      if (ws_remaining > 0 && ws_data != cli_ws_frame_buf(cptr))
+        memmove(cli_ws_frame_buf(cptr), ws_data, ws_remaining);
+      cli_ws_frame_len(cptr) = ws_remaining;
+      length = 0; /* Data processed via WebSocket path */
+    }
+
     /*
      * Before we even think of parsing what we just read, stick
      * it on the end of the receive queue and do it when its
      * turn comes around.
      */
-    if (length > 0 && dbuf_put(&(cli_recvQ(cptr)), readbuf, length) == 0)
-      return exit_client(cptr, cptr, &me, "dbuf_put fail");
+    if (length > 0) {
+      int classify = recv_classify(cptr, readbuf, length);
+      if (classify == RECV_CLASSIFY_TAG_OVERRUN)
+        return exit_client_fault(cptr, BOUNCE_FORCED_FLOOD, "Excess Flood: tag region too large");
+      if (classify == RECV_CLASSIFY_MSG_OVERRUN)
+        return exit_client_fault(cptr, BOUNCE_FORCED_FLOOD, "Excess Flood: message region too large");
+      if (dbuf_put(&(cli_recvQ(cptr)), readbuf, length) == 0)
+        return exit_client_fault(cptr, BOUNCE_FORCED_BUFFER, "dbuf_put fail");
+    }
 
-    if (DBufLength(&(cli_recvQ(cptr))) > get_recvq(cptr))
-      return exit_client(cptr, cptr, &me, "Excess Flood");
+    /*
+     * Sustained-flood check.  Per-line per-class caps are enforced by
+     * recv_classify above; this guards against pipelined-message
+     * saturation where each individual line is well-formed but the
+     * client never drains.  The +FULL_MSG_SIZE allowance is one
+     * max-legal in-flight line — the recvQ may legitimately hold a
+     * single large IRCv3 message (e.g. SASL OAUTHBEARER, a big-tag
+     * PRIVMSG) at this point because the parse loop below runs AFTER
+     * this check.  No per-CAP arithmetic: every client gets the same
+     * one-message-worth of headroom regardless of which caps are
+     * active.  Multiline batches are budgeted at the parser layer
+     * (FEAT_MULTILINE_MAX_BYTES in m_batch.c) — recv path stays out.
+     */
+    {
+      if (DBufLength(&(cli_recvQ(cptr))) > get_recvq(cptr) + FULL_MSG_SIZE)
+        return exit_client_fault(cptr, BOUNCE_FORCED_FLOOD, "Excess Flood");
+    }
 
     while (DBufLength(&(cli_recvQ(cptr))) && !NoNewLine(cptr) && 
            (IsTrusted(cptr) || cli_since(cptr) - CurrentTime < 10))
     {
-      dolen = dbuf_getmsg(&(cli_recvQ(cptr)), cli_buffer(cptr), BUFSIZE);
+      dolen = dbuf_getmsg(&(cli_recvQ(cptr)), cli_buffer(cptr), FULL_MSG_SIZE);
       /*
-       * Devious looking...whats it do ? well..if a client
-       * sends a *long* message without any CR or LF, then
-       * dbuf_getmsg fails and we pull it out using this
-       * loop which just gets the next 512 bytes and then
-       * deletes the rest of the buffer contents.
-       * -avalon
+       * If a client sends a long message without CR/LF, dbuf_getmsg
+       * returns 0.  Allow up to FULL_MSG_SIZE (IRCv3 tags + command).
        */
       if (dolen == 0)
       {
-        if (DBufLength(&(cli_recvQ(cptr))) < 510)
+        if (DBufLength(&(cli_recvQ(cptr))) < (FULL_MSG_SIZE - 2))
           SetFlag(cptr, FLAG_NONL);
         else
         {
-          /* More than 512 bytes in the line - drop the input and yell
-           * at the client.
-           */
+          /* Exceeds IRCv3 maximum message size — drop and warn */
           DBufClear(&(cli_recvQ(cptr)));
           send_reply(cptr, ERR_INPUTTOOLONG);
         }
@@ -975,17 +1907,45 @@ void init_server_identity(void)
  * @param ev Socket event structure that has a struct Connection as
  *   its associated data.
  */
-static void client_sock_callback(struct Event* ev)
+void client_sock_callback(struct Event* ev)
 {
   struct Client* cptr;
   struct Connection* con;
   char *fmt = "%s";
-  char *fallback = 0;
+  const char *fallback = 0;
 
   assert(0 != ev_socket(ev));
-  assert(0 != s_data(ev_socket(ev)));
 
-  con = (struct Connection*) s_data(ev_socket(ev));
+  /* For ET_DESTROY, atomically claim s_data to handle multiple queued events.
+   * When a socket goes through delete/add cycles (e.g., bouncer revival),
+   * stale ET_DESTROY events may be pending.  By atomically swapping s_data
+   * to NULL, only the FIRST ET_DESTROY processes the connection; subsequent
+   * events see NULL and return early.  This prevents double-free. */
+  if (ev_type(ev) == ET_DESTROY) {
+    con = (struct Connection*) s_data(ev_socket(ev));
+    s_data(ev_socket(ev)) = NULL;  /* Claim it - subsequent events see NULL */
+    if (!con) {
+      /* Still need to release a socket that still owns its fd even if the
+       * connection was already claimed: the SSL first (its close_notify
+       * needs the open fd; ssl_free sends none once s_fd is -1), then the
+       * one close. */
+#ifdef USE_SSL
+      ssl_free(ev_socket(ev));
+#endif
+      if (s_fd(ev_socket(ev)) >= 0) {
+        close(s_fd(ev_socket(ev)));
+        s_fd(ev_socket(ev)) = -1;
+      }
+      return;  /* Already claimed by earlier event or intentionally NULL */
+    }
+  } else {
+    con = (struct Connection*) s_data(ev_socket(ev));
+    if (!con) {
+      /* Non-destroy event with NULL s_data is a bug */
+      assert(0 && "client_sock_callback: s_data is NULL for non-destroy event");
+      return;
+    }
+  }
 
   assert(0 != con_client(con) || ev_type(ev) == ET_DESTROY);
 
@@ -997,26 +1957,54 @@ static void client_sock_callback(struct Event* ev)
   case ET_DESTROY:
     con_freeflag(con) &= ~FREEFLAG_SOCKET;
 
-    if (!con_freeflag(con) && !cptr)
-      free_connection(con);
 #ifdef USE_SSL
+    /* Free SSL BEFORE potentially freeing the Connection, because the
+     * Socket struct is embedded inside Connection.  Reversing the order
+     * would read/write freed memory (use-after-free).  And before the
+     * close below: its close_notify goes to the fd while it is still
+     * open.  A socket close_connection() released has no fd (s_fd -1) and
+     * no SSL by now; ssl_free never writes once s_fd is -1. */
     ssl_free(ev_socket(ev));
 #endif /* USE_SSL */
+
+    /* A socket that still owns its fd (s_fd >= 0: freed without
+     * close_connection(), e.g. a local alias's direct free) is closed
+     * here, once.  close_connection() and the bouncer revive hand the
+     * socket over with s_fd -1 (socket_del_keepfd), and closed or moved
+     * the fd themselves. */
+    if (s_fd(ev_socket(ev)) >= 0) {
+      close(s_fd(ev_socket(ev)));
+      s_fd(ev_socket(ev)) = -1;
+    }
+
+    if (!con_freeflag(con) && !cptr)
+      free_connection(con);
     break;
 
   case ET_CONNECT: /* socket connection completed */
     if (!completed_connection(cptr) || IsDead(cptr))
-      fallback = cli_info(cptr);
+      fallback = dead_reason(cptr, "Connection failed");
     break;
 
   case ET_ERROR: /* an error occurred */
-    fallback = cli_info(cptr);
+    fallback = dead_reason(cptr, "Socket error");
     cli_error(cptr) = ev_data(ev);
     /* If the OS told us we have a bad file descriptor, we should
      * record that for future reference.
      */
-    if (cli_error(cptr) == EBADF)
+    if (cli_error(cptr) == EBADF) {
+      /* F-DS1: deregister from LocalClientArray BEFORE dropping the fd
+       * index.  The array is fd-indexed and close_connection() gates its
+       * slot-clear on cli_fd >= 0, so once cli_fd is -1 the slot can never
+       * be recovered — the client is later pooled (cli_connect == NULL)
+       * yet still registered here, and every LocalClientArray walk
+       * (the send.c WALL_ broadcast/desynch loops) then derefs
+       * NULL->con_client and crashes.  Same clear-then-null idiom as
+       * close_connection() and bounce_revive(). */
+      if (-1 < cli_fd(cptr))
+        LocalClientArray[cli_fd(cptr)] = 0;
       cli_fd(cptr) = -1;
+    }
     if (s_state(&(con_socket(con))) == SS_CONNECTING) {
       completed_connection(cptr);
       /* for some reason, the os_get_sockerr() in completed_connect()
@@ -1049,6 +2037,10 @@ static void client_sock_callback(struct Event* ev)
     if (IsSSLNeedAccept(cptr)) {
       int r = ssl_accept(cptr);
       if (r == 1) {
+        /* Still in progress: wait for what OpenSSL needs.  This drops
+         * the writable interest an auth notice may have armed, so an
+         * idle socket (no ClientHello yet) does not spin the loop. */
+        ssl_handshake_events(cptr);
         break;
       } else if (r == 0) {
         SetFlag(cptr, FLAG_DEADSOCKET);
@@ -1058,11 +2050,18 @@ static void client_sock_callback(struct Event* ev)
         break;
       }
     }
-    if (s_state(&(con_socket(con))) == SS_CONNECTING) {
-      completed_connection(cptr);
+    if (s_state(&(con_socket(con))) == SS_CONNECTING || IsSSLNeedConnect(cptr)) {
+      if (!completed_connection(cptr)) {
+        fallback = dead_reason(cptr, "Connection failed");
+        break;
+      }
+      if (IsSSLNeedConnect(cptr))
+        break;   /* still handshaking: nothing to write yet */
     }
 #endif
     ClrFlag(cptr, FLAG_BLOCKED);
+    if (cli_replay(cptr) && MsgQLength(&(cli_sendQ(cptr))) < 2048)
+      replay_continue(cptr);
     if (cli_listing(cptr) && MsgQLength(&(cli_sendQ(cptr))) < 2048)
       list_next_channels(cptr);
     Debug((DEBUG_SEND, "Sending queued data to %C", cptr));
@@ -1075,6 +2074,10 @@ static void client_sock_callback(struct Event* ev)
       if (IsSSLNeedAccept(cptr)) {
         int r = ssl_accept(cptr);
         if (r == 1) {
+          /* Usually the ClientHello was just consumed and the server
+           * flight written; when only part of it fit the socket buffer
+           * this arms the writable interest that finishes it. */
+          ssl_handshake_events(cptr);
           break;
         } else if (r == 0) {
           SetFlag(cptr, FLAG_DEADSOCKET);
@@ -1083,9 +2086,18 @@ static void client_sock_callback(struct Event* ev)
           ssl_abort(cptr);
           break;
         }
+        /* Handshake done: whatever was queued meanwhile (the auth
+         * notices) needs the writable interest the handshake did not. */
+        update_write(cptr);
       }
-      if (s_state(&(con_socket(con))) == SS_CONNECTING)
-        completed_connection(cptr);
+      if (s_state(&(con_socket(con))) == SS_CONNECTING || IsSSLNeedConnect(cptr)) {
+        if (!completed_connection(cptr)) {
+          fallback = dead_reason(cptr, "Connection failed");
+          break;
+        }
+        if (IsSSLNeedConnect(cptr))
+          break;   /* still handshaking: nothing to read as data yet */
+      }
 #endif
       Debug((DEBUG_DEBUG, "Reading data from %C", cptr));
       if (read_packet(cptr, 1) == 0) /* error while reading packet */
@@ -1105,7 +2117,55 @@ static void client_sock_callback(struct Event* ev)
     msg = (cli_sslerror(cptr)) ? cli_sslerror(cptr) : msg;
     if (!msg)
       msg = "Unknown error";
-    exit_client_msg(cptr, cptr, &me, fmt, msg);
+
+    /* Re-entrancy guard.  Nefarious's event model is synchronous
+     * (event_add == event_execute).  If we got here via an ET_ERROR
+     * synthesised from inside engine_set_events on epoll_ctl failure —
+     * which can happen when send_buffer → update_write → socket_events
+     * tries to MOD a dead fd — then the outer frame is already inside
+     * exit_client (FLAG_CLOSING is set there).  A recursive
+     * exit_client_msg here would run remove_client_from_list, zero
+     * cli_connect, and return into the outer send_buffer mid-line,
+     * which then NULL-derefs at `++cli_sendM(to)`.  Let the outer
+     * frame finish the teardown; we've already marked DEADSOCKET.
+     * First, before the bouncer is asked: the client is already on its
+     * way out, and its exit decided what happens to its session (a
+     * promote or hold here would act on a client being exited). */
+    if (HasFlag(cptr, FLAG_CLOSING))
+      return;
+
+    /* Bouncer alias: skip hold logic — just clean up.
+     * exit_client_msg() → exit_client() sends BX X to other servers. */
+    if (IsUser(cptr) && IsBouncerAlias(cptr)) {
+      exit_client_msg(cptr, cptr, &me, fmt, msg);
+      return;
+    }
+
+    /* If client is already in bouncer HOLD (e.g., QUIT handler ran hold
+     * before EOF arrived), don't exit — the ghost is already set up. */
+    if (IsUser(cptr) && IsBouncerHold(cptr))
+      return;
+
+    /* A session primary: an EOF or a read error goes through the
+     * bouncer's disconnect rule as a QUIT does (bounce_promote_or_hold).
+     * A live device of the session takes over: one on this server at
+     * once (its state here is the truth, so the BX P cannot cross its own
+     * BX X), one on another server after a hold, at the next tick: a BX X
+     * for it this server has already read is seen first, one still on the
+     * wire can cross the BX P (narrowed, not closed).  With no device the
+     * session holds, or with hold off ends.  Cooperative roaming (user alive on
+     * both ends) uses the BX C session move instead. */
+    {
+      /* The exit's own comment ("Read error: ..."): a hold keeps it, and
+       * a hold that ends with nothing to take over leaves with it. */
+      char reason[1024];
+
+      ircd_snprintf(0, reason, sizeof(reason), fmt, msg);
+      if (IsUser(cptr) && bounce_promote_or_hold(cptr, reason) == 0)
+        return; /* held: the ghost keeps its channels, no QUIT */
+      /* Promoted here (channels already left), or nothing to keep */
+      exit_client(cptr, cptr, &me, reason);
+    }
   }
 }
 

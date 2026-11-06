@@ -76,8 +76,17 @@ struct ServerStatistics {
 
 extern int check_registered(struct Client *sptr);
 extern int check_registered_user(struct Client *sptr);
+/** Arm the msgid/time of a remote user's own QUIT line for the exit that
+ * follows (s_misc.c); pass NULL to clear.  See exit_client. */
+extern void exit_arm_s2s_event(const char *msgid, uint64_t ms);
 extern int exit_client(struct Client *cptr, struct Client *bcptr,
     struct Client *sptr, const char *comment);
+/** The face of @a c, a live user of ours, leaves the network as a QUIT
+ * would make it leave, without exiting @a c (W3 12c-2b, design D.1: a
+ * client that joins a bouncer session).  See s_misc.c.
+ * @return The presence time of the event, for the channel removals that
+ *         follow (0 without a msgid). */
+extern int64_t exit_face_departs(struct Client *c, const char *comment);
 extern char *myctime(time_t value);
 extern int exit_client_msg(struct Client *cptr, struct Client *bcptr,
                            struct Client *sptr, const char *pattern, ...);

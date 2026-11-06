@@ -28,6 +28,7 @@
 #include "ircd_features.h"
 #include "ircd_log.h"
 #include "s_debug.h"
+#include "thread_pool.h"
 
 /* #include <assert.h> -- Now using assert in ircd_log.h */
 #include <errno.h>
@@ -194,7 +195,13 @@ engine_add(struct Socket *sock)
          s_fd(sock), sock, state_to_name(s_state(sock))));
   set_events(sock, s_state(sock), s_events(sock), &evt);
   if (epoll_ctl(epoll_fd, EPOLL_CTL_ADD, s_fd(sock), &evt) < 0) {
-    event_generate(ET_ERROR, sock, errno);
+    /* Reported by the return value alone; see socket_add().  Callers
+     * read errno after a refusal, so keep it past the log call. */
+    int err = errno;
+
+    log_write(LS_SOCKET, L_WARNING, 0, "epoll: cannot add socket %d: %s",
+              s_fd(sock), strerror(err));
+    errno = err;
     return 0;
   }
   return 1;
@@ -214,7 +221,7 @@ engine_set_state(struct Socket *sock, enum SocketState new_state)
          sock, state_to_name(new_state)));
   set_events(sock, new_state, s_events(sock), &evt);
   if (epoll_ctl(epoll_fd, EPOLL_CTL_MOD, s_fd(sock), &evt) < 0)
-    event_generate(ET_ERROR, sock, errno);
+    socket_error(sock, errno); /* delivered by the loop, not here */
 }
 
 /** Handle change to preferred socket events.
@@ -231,7 +238,7 @@ engine_set_events(struct Socket *sock, unsigned new_events)
          sock, sock_flags(new_events)));
   set_events(sock, s_state(sock), new_events, &evt);
   if (epoll_ctl(epoll_fd, EPOLL_CTL_MOD, s_fd(sock), &evt) < 0)
-    event_generate(ET_ERROR, sock, errno);
+    socket_error(sock, errno); /* delivered by the loop, not here */
 }
 
 /** Remove a socket from the event engine.
@@ -245,10 +252,20 @@ engine_delete(struct Socket *sock)
   assert(0 != sock);
   Debug((DEBUG_ENGINE, "epoll: Deleting socket %d [%p], state %s",
 	 s_fd(sock), sock, state_to_name(s_state(sock))));
+
+  /* Explicitly remove fd from the epoll interest list.  This is
+   * necessary when dup() has been used: closing the original fd does
+   * NOT remove the epoll registration if a dup'd fd still references
+   * the same underlying open file description.  Ignore errors — the
+   * fd may already be closed or not registered. */
+  if (s_fd(sock) >= 0)
+    epoll_ctl(epoll_fd, EPOLL_CTL_DEL, s_fd(sock), NULL);
+
   /* Drop any unprocessed events citing this socket. */
   for (ii = 0; ii < events_used; ii++) {
     if (events[ii].data.ptr == sock) {
       events[ii] = events[--events_used];
+      ii--; /* re-check the swapped-in event */
     }
   }
 }
@@ -268,12 +285,25 @@ engine_loop(struct Generators *gen)
     events_count = 20;
   events = MyMalloc(sizeof(events[0]) * events_count);
   while (running) {
+    /* Engine errors deferred since the last pass (socket_error()) */
+    socket_run_errors();
+
     if ((tmp = feature_int(FEAT_POLLS_PER_LOOP)) >= 20 && tmp != events_count) {
       events = MyRealloc(events, sizeof(events[0]) * tmp);
       events_count = tmp;
     }
 
     wait = timer_next(gen) ? (timer_next(gen) - CurrentTime) * 1000 : -1;
+    /* An OVERDUE next-timer yields a NEGATIVE wait, and epoll_wait treats
+     * every negative timeout as INFINITE — with no fd traffic the loop then
+     * sleeps forever and no timer ever fires again.  Trivially reached under
+     * a slow (valgrind) boot: the first timers expire before the loop is
+     * entered, and a quiet node with no clients or inbound links has no
+     * packet to break the wait, so it boots into a coma until the first
+     * external connect (live capture: epoll_wait blocked with timeout=-5000
+     * for 91 minutes).  Clamp overdue to "poll now". */
+    if (wait < -1)
+      wait = 0;
     Debug((DEBUG_ENGINE, "epoll: delay: %d (%d) %d", timer_next(gen),
            CurrentTime, wait));
     events_used = epoll_wait(epoll_fd, events, events_count, wait);
@@ -338,6 +368,7 @@ engine_loop(struct Generators *gen)
       gen_ref_dec(sock);
     }
     timer_run();
+    thread_pool_poll(); /* process completed async tasks */
   }
   MyFree(events);
 }

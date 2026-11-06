@@ -81,17 +81,26 @@
  */
 #include "config.h"
 
+#include "bouncer_session.h"
+#include "capab.h"
 #include "channel.h"
+#include "chathistory_presence.h"
+#include "sasl_webhook.h"
 #include "client.h"
+#include "handlers.h"
 #include "hash.h"
+#include "history.h"
 #include "ircd.h"
 #include "ircd_log.h"
 #include "ircd_reply.h"
 #include "ircd_string.h"
+#include "match.h"
+#include "metadata_sync.h"
 #include "msg.h"
 #include "numeric.h"
 #include "numnicks.h"
 #include "send.h"
+#include "ircd_features.h"
 
 /* #include <assert.h> -- Now using assert in ircd_log.h */
 
@@ -115,13 +124,139 @@ int ms_end_of_burst(struct Client* cptr, struct Client* sptr, int parc, char* pa
   assert(0 != cptr);
   assert(0 != sptr);
 
-  sendto_opmask_butone(0, SNO_NETWORK, "Completed net.burst from %C.", 
+  sendto_opmask_butone(0, SNO_NETWORK, "Completed net.burst from %C.",
   	sptr);
   sendcmdto_serv_butone(sptr, CMD_END_OF_BURST, cptr, "");
+
+  /* End IRCv3 netjoin batch for local clients */
+  send_netjoin_batch_end(sptr);
+
   ClearBurst(sptr);
   SetBurstAck(sptr);
-  if (MyConnect(sptr))
+
+  /* Convergence-completion event: a gated peer waiting only because
+   * this one was IsBurst can release its gate now (subject to the
+   * other condition, hs_restore_pending, also being clear). */
+  bounce_release_idle_gates();
+
+  /* (BX R retired in Phase 5; convergence is at-N-time per redesign
+   * D.1 + D.3 — no EOB demote-retry pass.) */
+
+  /* Deferred local-user registrations (queued by check_auth_finished when
+   * SASL completed mid-burst) are drained at the end of this read of the
+   * link (bounce_link_input_read()), once no peer is still bursting, not
+   * inside this line: lines after the EB in the same read are part of
+   * what the registration must see (W3 12c-2b fix round 3, I-1). */
+
+  /* Prune stale alias entries from all sessions.  A peer's burst is
+   * the authoritative source of which numerics it currently holds;
+   * any alias entry pointing at an unknown numeric on this peer is
+   * stale (peer restarted with a new numeric pool, BX X for the old
+   * numeric was never received, or restore-from-DB seeded entries
+   * that don't match post-restart state).  Without this prune /CHECK
+   * shows "not found" entries forever and session state keeps
+   * desyncing across reboot cycles. */
+  bounce_prune_stale_aliases();
+
+  /* Post-burst session reconcile: a peer's burst can introduce a
+   * primary for the same bouncer session as one of our locals (e.g.,
+   * post-crash MDBX desync where each side restored a primary, or
+   * any post-split rejoin where both sides held a primary).  The N
+   * + BS C burst preserves both as primaries because nicks differ
+   * (so m_nick's at-N-time D.2 split-merge doesn't fire) and cross-
+   * sessid convergence only renames the session ID without
+   * restructuring clients.  Merge same-session multi-primary into
+   * one primary + alias here; older lastnick wins the primary slot. */
+  bounce_post_burst_reconcile();
+
+  if (MyConnect(sptr)) {
     sendcmdto_one(&me, CMD_END_OF_BURST_ACK, sptr, "");
+
+    /* (BX R reconcile moved to pre-burst — see server_estab.  Post-
+     * EOB is too late: by then peer's N for hold ghosts has already
+     * been processed and any colliding ghosts have already been
+     * killed by m_nick.) */
+
+    /* Strict-presence #6 step 2: catch the newly-linked peer up on
+     * closed account intervals it could not have observed (netsplit
+     * windows, downtime, brand-new servers) -- their PN broadcasts
+     * were lost while the link was down.  Self-gated on the feature
+     * and storage availability; union application on the receiver
+     * makes repeat syncs across relinks harmless. */
+    /* Legacy peers (X3, vanilla ircu) do not speak PN and logged every
+     * line as a parse error -- up to 20000 of them per relink (audit P4). */
+    if (IsIRCv3Aware(sptr))
+      presence_burst_sync(sptr);
+
+    /* W4 Task 10: re-pull every attached account (not only the ones
+     * this link introduced) now that this direct peer has finished
+     * telling us everything it has -- a relink can follow a split
+     * during which THIS link's view went stale regardless of which
+     * side an account is nominally on.  Self-gated on IsIRCv3Aware and
+     * storage availability inside; the stock slot (legacy, no MD at
+     * all) never gets this call to begin with here, same as
+     * presence_burst_sync just above. */
+    if (IsIRCv3Aware(sptr))
+      mdsync_link_eob(sptr);
+
+    /* Webhook plan 4: catch the peer up on the Keycloak events applied
+     * here while it was away (netsplit, downtime, a new server); it
+     * drops what it has and forwards what it lacks.  Self-gated on
+     * IsIRCv3Aware inside. */
+    sasl_webhook_link_catchup(sptr);
+
+    /* Advertise chathistory storage capability (CH A S) to newly linked server.
+     * Only advertise if we have CHATHISTORY_STORE enabled - this indicates we
+     * actually store messages locally, not just handle queries.
+     * The retention value tells the remote server how far back our history
+     * really goes: the configured retention, or less once oldest-overall
+     * eviction left a coverage floor inside it (later changes go out as
+     * CH A R, chathistory_coverage_changed).
+     *
+     * Gate on IsIRCv3Aware(sptr) — legacy peers (X3, vanilla ircu) don't
+     * implement the CH token and log "PARSE ERROR" on receipt. */
+    if (feature_bool(FEAT_CHATHISTORY_STORE) && IsIRCv3Aware(sptr)) {
+      int retention = history_coverage_days();
+      sendcmdto_one(&me, CMD_CHATHISTORY, sptr, "A S %d", retention);
+
+      /* Layer 1: Also send channel advertisements (CH A F) */
+      send_channel_advertisements(sptr);
+    }
+    /* Re-advertise storage servers already known to us so the new peer
+     * can federate to the whole network, not just its own subtree
+     * (audit 2026-09-06 #21).  Independent of OUR storage: the relay-only
+     * hub is exactly the topology that needs it (re-review R11). */
+    if (IsIRCv3Aware(sptr))
+      chathistory_reflood_ads(sptr);
+  }
+
+  /* Check if the linking server is the SASL server (for legacy X3 support).
+   * If SASL_DEFAULT_MECHANISMS is set and no dynamic mechanisms have been
+   * received yet, enable SASL with the default mechanisms.
+   * Only send CAP NEW if the advertised state actually changes.
+   */
+  {
+    const char *sasl_server = feature_str(FEAT_SASL_SERVER);
+    int is_sasl_server = (!strcmp(sasl_server, "*") ||
+                          match(sasl_server, cli_name(sptr)) == 0);
+
+    if (is_sasl_server && !get_sasl_mechanisms()) {
+      const char *default_mechs = feature_str(FEAT_SASL_DEFAULT_MECHANISMS);
+      if (default_mechs && *default_mechs) {
+        /* In wildcard mode, SASL was already being advertised (UserStats.servers > 0
+         * is always true due to local server), using these same default mechanisms.
+         * In specific server mode, SASL wasn't advertised before, so send CAP NEW. */
+        int was_already_advertised = !strcmp(sasl_server, "*");
+
+        if (!was_already_advertised) {
+          log_write(LS_SYSTEM, L_INFO, 0,
+                    "SASL server linked (%C), enabling SASL with default mechanisms: %s",
+                    sptr, default_mechs);
+          send_cap_notify("sasl", 1, default_mechs);
+        }
+      }
+    }
+  }
 
   /* Count through channels... */
   for (chan = GlobalChannelList; chan; chan = next_chan) {

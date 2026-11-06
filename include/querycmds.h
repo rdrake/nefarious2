@@ -20,13 +20,23 @@ struct UserStatistics {
   /* Local connections: */
   unsigned int unknowns;  /**< Clients of types: unknown, connecting, handshake */
   unsigned int local_servers;   /**< Directly connected servers. */
-  unsigned int local_clients;   /**< Directly connected clients. */
+  unsigned int local_clients;   /**< Directly connected clients (sockets, including bouncer aliases). */
   unsigned int local_clients_max; /**< Maximum number of Directly connected clients. */
 
   /* Global counts: */
   unsigned int servers;         /**< Known servers, including #me. */
-  unsigned int clients;         /**< Registered users. */
+  unsigned int clients;         /**< Registered users (includes our local aliases — see note). */
   unsigned int clients_max;     /**< Maximum number of Registered users. */
+
+  /* Network-visible (N-token) counts — exclude bouncer aliases.
+   * RPL_CURRENT_LOCAL / RPL_CURRENT_GLOBAL display these so the
+   * advertised user count matches what peers actually see on the
+   * wire.  Aliases come in via BX C (not N) and don't bump
+   * announced_*; held ghosts stay counted (still N-visible). */
+  unsigned int local_announced_clients;     /**< Local primaries + held ghosts (N-announced from this server). */
+  unsigned int local_announced_clients_max; /**< Maximum number of local announced clients. */
+  unsigned int announced_clients;           /**< Network-wide N-announced users. */
+  unsigned int announced_clients_max;       /**< Maximum number of network-wide announced users. */
 
   /* Global user mode changes: */
   unsigned int inv_clients;     /**< Registered invisible users. */
@@ -38,34 +48,88 @@ struct UserStatistics {
 
 extern struct UserStatistics UserStats;
 
+/* Unified UserStats.opers / inv_clients accounting — single source of truth.
+ * Rather than ++/-- at each transition (whose gates — MyConnect vs IsRegistered
+ * vs unconditional — didn't all match across register/copy_umodes/promote/mode/
+ * exit, so any race tipped the counter over or under and tripped the
+ * opers>0 / opers<=clients+unknowns asserts), counting is keyed off the per-client
+ * FLAG_COUNTED_OPER / FLAG_COUNTED_INV flags:
+ *   - userstats_count_sync(cli): reconcile the counters to whether @a cli should
+ *     currently be counted (idempotent — safe after ANY state change: +o/-o, +i/-i,
+ *     registration, alias conversion, promote).
+ *   - userstats_count_clear(cli): force-uncount @a cli (decrement iff its flag is
+ *     set), used at exit / free.  Because the decrement keys off the flag and not a
+ *     re-derived gate, every ++ has exactly one matching -- over the client's
+ *     lifetime — no leak, no underflow. */
+extern void userstats_count_sync(struct Client *cptr);
+extern void userstats_count_clear(struct Client *cptr);
+
 /*
  * Macros
  */
 
 /* Macros for remote connections: */
-/** Count \a cptr as a new remote client. */
+/** Count \a cptr as a new remote client.
+ *
+ * Bumps clients (socket/identity count) and announced_clients
+ * (N-token count) symmetrically — Count_newremoteclient is only
+ * reached via the N-token receive path (see m_nick.c:1101), and N
+ * is by construction the "this is a network-visible user"
+ * announcement.  Bouncer aliases arrive via BX C and do NOT go
+ * through this macro. */
 #define Count_newremoteclient(UserStats, cptr) \
   do { \
     ++UserStats.clients; \
     ++(cli_serv(cptr)->clients); \
+    ++UserStats.announced_clients; \
     if (UserStats.clients > UserStats.clients_max) { \
       UserStats.clients_max = UserStats.clients; \
+      save_tunefile(); \
+    } \
+    if (UserStats.announced_clients > UserStats.announced_clients_max) { \
+      UserStats.announced_clients_max = UserStats.announced_clients; \
       save_tunefile(); \
     } \
   } while (0)
 /** Count a new remote server. */
 #define Count_newremoteserver(UserStats)  (++UserStats.servers)
 
-/** Count a remote user quit. */
+/** Count a remote user quit.
+ *
+ * Releases what Count_newremoteclient took: one registered user, one
+ * in its server's count, one announced user.  A remote alias must never
+ * reach this macro: it holds no count (BX C counts nothing, and a client
+ * converted into one in place gave its counts up then), and every exit
+ * path skips it.  The !IsBouncerAlias gate covers only the announced
+ * decrement; clients and the server's count would still be
+ * decremented. */
 #define Count_remoteclientquits(UserStats,cptr)                \
   do { \
     --UserStats.clients; \
     if (!IsServer(cptr)) \
       --(cli_serv(cli_user(cptr)->server)->clients); \
+    if (!IsServer(cptr) && !IsBouncerAlias(cptr)) \
+      --UserStats.announced_clients; \
   } while (0)
 
 /** Count a remote server quit. */
 #define Count_remoteserverquits(UserStats)      (--UserStats.servers)
+
+/** Underflow guard helper for Count_unknown* decrement macros. */
+void count_unknowns_underflow(const char *file, int line, const char *what);
+
+/** Decrement UserStats.unknowns with underflow detection.
+ * If the counter is already zero, log + skip the decrement and snotice
+ * the offending caller's file:line so the source of the imbalance can be
+ * traced rather than silently wrapping to UINT_MAX.
+ */
+#define DEC_UNKNOWNS_GUARDED(what) \
+  do { \
+    if (UserStats.unknowns == 0) \
+      count_unknowns_underflow(__FILE__, __LINE__, (what)); \
+    else \
+      --UserStats.unknowns; \
+  } while (0)
 
 /* Macros for local connections: */
 /** Count a new local unknown connection. */
@@ -73,7 +137,15 @@ extern struct UserStatistics UserStats;
 /** Update counters when \a cptr goes from unknown to registered. */
 #define Count_unknownbecomesclient(cptr, UserStats) \
   do { \
-    --UserStats.unknowns; ++UserStats.local_clients; ++UserStats.clients; \
+    DEC_UNKNOWNS_GUARDED("becomesclient"); \
+    ++UserStats.local_clients; ++UserStats.clients; \
+    /* Announced counters: register_user fires for primaries only.   \
+     * Aliases are converted from this state by                       \
+     * bounce_setup_local_alias which decrements the announced       \
+     * counters after the conversion.  No IsBouncerAlias gate needed \
+     * here — the flag isn't set yet at register_user time. */       \
+    ++UserStats.local_announced_clients; \
+    ++UserStats.announced_clients; \
     if (match(feature_str(FEAT_DOMAINNAME), cli_sockhost(cptr)) == 0) \
       ++current_load.local_count; \
     if (UserStats.local_clients > max_client_count) \
@@ -86,6 +158,14 @@ extern struct UserStatistics UserStats;
       UserStats.clients_max = UserStats.local_clients_max; \
       save_tunefile(); \
     } \
+    if (UserStats.local_announced_clients > UserStats.local_announced_clients_max) { \
+      UserStats.local_announced_clients_max = UserStats.local_announced_clients; \
+      save_tunefile(); \
+    } \
+    if (UserStats.announced_clients > UserStats.announced_clients_max) { \
+      UserStats.announced_clients_max = UserStats.announced_clients; \
+      save_tunefile(); \
+    } \
     if (UserStats.local_clients + UserStats.local_servers > max_connection_count) \
     { \
       max_connection_count = UserStats.local_clients + UserStats.local_servers; \
@@ -95,19 +175,55 @@ extern struct UserStatistics UserStats;
     } \
   } while(0)
 /** Update counters when \a cptr goes from unknown to server. */
-#define Count_unknownbecomesserver(UserStats)   do { --UserStats.unknowns; ++UserStats.local_servers; ++UserStats.servers; } while(0)
-/** Update counters when \a cptr (a local user) disconnects. */
+#define Count_unknownbecomesserver(UserStats) \
+  do { DEC_UNKNOWNS_GUARDED("becomesserver"); ++UserStats.local_servers; ++UserStats.servers; } while(0)
+/** Update counters when \a cptr (a local user) disconnects.
+ *
+ * `local_clients` and `current_load.local_count` are socket-side
+ * counters — gated on `!IsNoLcDecrement(cptr)`.  The flag is set
+ * when local_clients is already settled for this Client (decremented
+ * at bounce_hold_client, or never bumped for boot-spawned ghosts),
+ * and cleared by bounce_revive when a fresh socket attaches and
+ * bumps local_clients again.  Without this gate, destroy paths
+ * for held ghosts would double-decrement (once at hold, again at
+ * destroy via this macro).  Cannot use cli_fd >= 0 as the gate —
+ * exit_client closes the socket before reaching this macro, so
+ * cli_fd is -1 by the time we get here for every destroy.
+ *
+ * `clients` is the registered-user count (network-wide identity
+ * tally) and decrements unconditionally on every destroy — ghosts
+ * ARE counted there from their creation through destroy.
+ *
+ * Announced counters decrement only if cptr is NOT a bouncer alias
+ * — aliases got their announced bump at register_user but gave it up
+ * when they became one (bounce_setup_local_alias, a demote).
+ * Held ghosts (IsBouncerHold) ARE still announced and need the
+ * decrement on destroy. */
 #define Count_clientdisconnects(cptr, UserStats) \
   do \
   { \
-    --UserStats.local_clients; --UserStats.clients; \
-    if (match(feature_str(FEAT_DOMAINNAME), cli_sockhost(cptr)) == 0) \
+    --UserStats.clients; \
+    if (!IsNoLcDecrement(cptr)) \
+      --UserStats.local_clients; \
+    if (!IsBouncerAlias(cptr)) { \
+      --UserStats.local_announced_clients; \
+      --UserStats.announced_clients; \
+    } \
+    if (!IsNoLcDecrement(cptr) \
+        && match(feature_str(FEAT_DOMAINNAME), cli_sockhost(cptr)) == 0) \
       --current_load.local_count; \
   } while(0)
+/** Undo Count_unknownbecomesclient() for a local client that goes back to
+ * an unregistered connection before it was announced: a registration the
+ * bouncer defers (register_user()'s DEFER_PEER_INBOUND).  Its exit as an
+ * unknown, or its registration at the drain, counts it again.  The maxima
+ * stay where they are. */
+#define Count_clientbecomesunknown(cptr, UserStats) \
+  do { Count_clientdisconnects(cptr, UserStats); Count_newunknown(UserStats); } while (0)
 /** Update counters when a local server disconnects. */
 #define Count_serverdisconnects(UserStats)              do { --UserStats.local_servers; --UserStats.servers; } while(0)
 /** Update counters when an unknown client disconnects. */
-#define Count_unknowndisconnects(UserStats)             (--UserStats.unknowns)
+#define Count_unknowndisconnects(UserStats)             DEC_UNKNOWNS_GUARDED("unknowndisconnects")
 
 /*
  * Prototypes

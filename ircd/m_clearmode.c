@@ -82,6 +82,7 @@
  */
 #include "config.h"
 
+#include "bouncer_session.h"
 #include "client.h"
 #include "channel.h"
 #include "hash.h"
@@ -124,6 +125,7 @@ do_clearmode(struct Client *cptr, struct Client *sptr, struct Channel *chptr,
     MODE_BAN,		'b',
     MODE_EXCEPT,	'e',
     MODE_LIMIT,		'l',
+    MODE_REDIRECT,	'L',
     MODE_REGONLY,	'r',
     MODE_DELJOINS,      'D',
     0x0, 0x0
@@ -192,6 +194,14 @@ do_clearmode(struct Client *cptr, struct Client *sptr, struct Channel *chptr,
   if (del_mode & MODE_LIMIT && chptr->mode.limit) {
     modebuf_mode_uint(&mbuf, MODE_DEL | MODE_LIMIT, chptr->mode.limit);
     chptr->mode.limit = 0; /* not referenced, so safe */
+  }
+
+  /* Same for the redirect: -L takes no parameter and modebuf_mode_string
+   * keeps no reference for MODE_DEL|MODE_REDIRECT, so clear in place.
+   * CLEARMODE had no 'L' at all (PR #108 follow-up, 2026-09-07). */
+  if (del_mode & MODE_REDIRECT && *chptr->mode.redir) {
+    modebuf_mode_string(&mbuf, MODE_DEL | MODE_REDIRECT, chptr->mode.redir, 0);
+    *chptr->mode.redir = '\0';
   }
 
   /*
@@ -263,6 +273,12 @@ do_clearmode(struct Client *cptr, struct Client *sptr, struct Channel *chptr,
       }
     }
 
+  /* Sync cleared modes to bouncer aliases */
+  if (del_mode & (MODE_CHANOP | MODE_HALFOP | MODE_VOICE))
+    for (member = chptr->members; member; member = member->next_member)
+      if (!IsMemberAlias(member) && IsAccount(member->user))
+        bounce_sync_alias_chanmodes(chptr, member->user);
+
   /* And flush the modes to the channel */
   modebuf_flush(&mbuf);
 
@@ -331,7 +347,7 @@ int
 mo_clearmode(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
 {
   struct Channel *chptr;
-  char *control = "ovpsmikbl"; /* default control string */
+  char *control = "ovpsmikblL"; /* default control string; L pairs with l */
   const char *chname, *qreason;
   int force = 0;
 

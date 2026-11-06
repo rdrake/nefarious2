@@ -81,6 +81,7 @@ static struct lexer_token {
   TOKEN(SERVER),
   TOKEN(YES),
   TOKEN(NO),
+  TOKEN(AUTODETECT),
   TOKEN(HUB),
   TOKEN(LEAF),
   TOKEN(UWORLD),
@@ -115,6 +116,13 @@ static struct lexer_token {
   TOKEN(DNS),
   TOKEN(FORWARDS),
   TOKEN(WEBIRC),
+  TOKEN(DNSBL),
+  TOKEN(BITMASK),
+  TOKEN(SCORE),
+  TOKEN(ACTION),
+  TOKEN(BLOCK_ALL),
+  TOKEN(BLOCK_ANON),
+  TOKEN(WHITELIST),
   TOKEN(IDENT),
   TOKEN(USERIDENT),
   TOKEN(IGNOREIDENT),
@@ -147,6 +155,8 @@ static struct lexer_token {
   TOKEN(RESTRICT_JOIN),
   TOKEN(RESTRICT_PRIVMSG),
   TOKEN(RESTRICT_UMODE),
+  TOKEN(REQUIRE_SASL),
+  TOKEN(BOUNCER),
   TOKEN(MATCHUSERNAME),
   TOKEN(FAKELAGMINIMUM),
   TOKEN(FAKELAGFACTOR),
@@ -157,10 +167,44 @@ static struct lexer_token {
   TOKEN(SWHOIS),
   TOKEN(ENABLEOPTIONS),
   TOKEN(TRUSTACCOUNT),
+  TOKEN(WEBSOCKET),
+  TOKEN(PASTE),
+  TOKEN(CERTIFICATE),
+  TOKEN(KEY),
+  TOKEN(WEBHOOK),
+  TOKEN(AUTHTOKEN),
+  TOKEN(KEYCLOAK),
+  TOKEN(SECRET),
+  TOKEN(URL),
+  TOKEN(REALM),
+  TOKEN(CLIENT_ID),
+  TOKEN(CLIENT_SECRET),
+  TOKEN(ISSUER),
+  TOKEN(ALLOWED_CLIENTS),
+  TOKEN(INSECURE_TOKEN_VALIDATION),
+  TOKEN(PATH),
+  /* Explicit entry rather than TOKEN(...) because the bison token symbol
+   * is T_MAXCONNECTIONS (see ircd_parser.y) — the prefix avoids
+   * collision with config.h's MAXCONNECTIONS macro.  Conf keyword
+   * stays the user-facing "MAXCONNECTIONS". */
+  { "MAXCONNECTIONS", T_MAXCONNECTIONS },
+  TOKEN(MAXREQUESTSIZE),
+  TOKEN(QUEUEMAX),
+  TOKEN(BATCHSIZE),
+  TOKEN(SIGNATUREWINDOW),
+  TOKEN(LEGACYSECRET),
 #undef TOKEN
   { "ssl", SSLTOK },
   { "administrator", ADMIN },
   { "apass_opmode", TPRIV_APASS_OPMODE },
+  /* "auto" is the legacy short form for `autoconnect` in Connect blocks.
+   * It used to collide with the Port-block `websocket = auto;` keyword
+   * (TOKEN(AUTO) and this entry both case-insensitively claimed "auto",
+   * so bsearch returned whichever qsort happened to place first — any
+   * reordering churn flipped the winning rule).  Resolved by renaming
+   * the Port-block keyword to "autodetect" (TOKEN(AUTODETECT) above);
+   * "auto" is now unambiguously the Connect-block AUTOCONNECT short
+   * form, with the full word handled by TOKEN(AUTOCONNECT). */
   { "auto", AUTOCONNECT },
   { "b", BYTES },
   { "badchan", TPRIV_BADCHAN },
@@ -183,6 +227,7 @@ static struct lexer_token {
   { "kb", KBYTES },
   { "kilobytes", KBYTES },
   { "list_chan", TPRIV_LIST_CHAN },
+  { "gitsync", TPRIV_GITSYNC },
   { "local_badchan", TPRIV_LOCAL_BADCHAN },
   { "local_gline", TPRIV_LOCAL_GLINE },
   { "local_jupe", TPRIV_LOCAL_JUPE },

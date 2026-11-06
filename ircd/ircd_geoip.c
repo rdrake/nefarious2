@@ -53,9 +53,10 @@ MMDB_s mmdb;
 int mmdb_loaded = 0;
 #endif /* USE_MMDB */
 
-const char geoip_continent_code[7][3] = {"--", "AF", "AS", "EU", "NA", "OC", "SA"};
-const char *geoip_continent_name[7] = {"N/A", "Africa", "Asia", "Europe",
+const char geoip_continent_code[8][3] = {"--", "AF", "AN", "AS", "EU", "NA", "OC", "SA"};
+const char *geoip_continent_name[8] = {"N/A", "Africa", "Antarctica", "Asia", "Europe",
                                        "North America", "Oceania", "South America"};
+#define GEOIP_CONTINENTS (sizeof(geoip_continent_code) / sizeof(geoip_continent_code[0]))
 
 /** Find continent name by 2 letter code.
  * @param[in] cc 2 letter continent code
@@ -63,14 +64,16 @@ const char *geoip_continent_name[7] = {"N/A", "Africa", "Asia", "Europe",
  */
 const char* geoip_continent_name_by_code(const char* cc)
 {
-  int i = 0;
+  unsigned int i;
 
-  for (i=0; i<7; i++) {
+  /* An unknown code (a MARK from a peer or IAuth carries any string) is
+   * "N/A": it used to index one past the table. */
+  for (i = 0; i < GEOIP_CONTINENTS; i++) {
     if (strncasecmp(cc, (char *)&geoip_continent_code[i], 2) == 0)
-      break;
+      return geoip_continent_name[i];
   }
 
-  return geoip_continent_name[i];
+  return geoip_continent_name[0];
 }
 
 /** Initialize GeoIP global states.
@@ -258,10 +261,16 @@ void geoip_apply_mark(struct Client* cptr, char* country, char* continent, char*
   SetGeoIP(cptr);
 }
 
-/** Handle an update to FEAT_GEOIP_ENABLE. */
+/** Handle an update to FEAT_GEOIP_ENABLE.
+ * During config parsing, GEOIP_ENABLE may be set before GEOIP_FILE
+ * or GEOIP_IPV6_FILE. Defer loading — geoip_init() is called
+ * explicitly after config parsing completes (startup and rehash).
+ * For runtime /SET changes, reload immediately.
+ */
 void geoip_handle_enable(void)
 {
-  geoip_init();
+  if (!feature_conf_loading())
+    geoip_init();
 }
 
 /** Handle an update to FEAT_MMDB_FILE. */

@@ -41,6 +41,7 @@ extern int auth_ping_timeout(struct Client *);
 extern int auth_set_pong(struct AuthRequest *auth, unsigned int cookie);
 extern int auth_set_user(struct AuthRequest *auth, const char *username, const char *hostname, const char *servername, const char *userinfo);
 extern int auth_set_nick(struct AuthRequest *auth, const char *nickname);
+extern int auth_defer_nick(struct AuthRequest *auth, const char *nickname);
 extern int auth_set_password(struct AuthRequest *auth, const char *password);
 extern int auth_set_webirc(struct AuthRequest *auth, const char *password, const char *username, const char *hostname, const char *ip, const char *opts);
 extern int auth_set_webirc_trusted(struct AuthRequest *auth, const char *password, const char *username, const char *hostname, const char *ip, const char *opts);
@@ -49,8 +50,13 @@ extern int auth_set_account(struct AuthRequest *auth, const char *account);
 extern void auth_set_originalip(struct AuthRequest *auth, const struct irc_in_addr addr);
 extern int auth_cap_start(struct AuthRequest *auth);
 extern int auth_cap_done(struct AuthRequest *auth);
+extern void auth_sasl_start(struct AuthRequest *auth);
+extern int auth_sasl_done(struct AuthRequest *auth);
+extern void auth_sasl_clear(struct AuthRequest *auth);
 extern void auth_end_loc(struct AuthRequest *auth);
 extern void destroy_auth_request(struct AuthRequest *req);
+extern void auth_detach_client(struct AuthRequest *auth);
+extern void auth_dnsbl_complete(struct AuthRequest *auth);
 
 extern int auth_restart(void);
 extern int auth_spawn(int argc, char *argv[]);
@@ -63,9 +69,11 @@ extern void report_iauth_stats(struct Client *cptr, const struct StatDesc *sd, c
 
 /* SASL via IAuth */
 extern int auth_iauth_handles_sasl(void);
+extern const char *auth_iauth_sasl_mechs(void);
 extern int auth_send_sasl_start(struct Client *cptr, const char *mechanism, const char *certfp);
 extern int auth_send_sasl_host(struct Client *cptr, const char *username, const char *host, const char *ip);
 extern int auth_send_sasl_data(struct Client *cptr, const char *data);
+extern int auth_send_sasl_abort(struct Client *cptr);
 
 #endif /* INCLUDED_s_auth_h */
 

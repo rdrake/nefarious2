@@ -81,6 +81,7 @@
  */
 #include "config.h"
 
+#include "capab.h"
 #include "channel.h"
 #include "client.h"
 #include "hash.h"
@@ -119,8 +120,9 @@ int m_invite(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
 {
   struct Client *acptr;
   struct Channel *chptr;
-  
-  if (parc < 2 ) { 
+  int lb = labeled_batch_start(sptr);
+
+  if (parc < 2 ) {
     /*
      * list the channels you have an invite to.
      */
@@ -128,39 +130,49 @@ int m_invite(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
     for (lp = cli_user(sptr)->invited; lp; lp = lp->next)
       send_reply(cptr, RPL_INVITELIST, lp->value.chptr->chname);
     send_reply(cptr, RPL_ENDOFINVITELIST);
+    if (lb) labeled_batch_end(sptr);
     return 0;
   }
-  
-  if (parc < 3 || EmptyString(parv[2]))
+
+  if (parc < 3 || EmptyString(parv[2])) {
+    if (lb) labeled_batch_end(sptr);
     return need_more_params(sptr, "INVITE");
+  }
 
   if (!(acptr = FindUser(parv[1]))) {
     send_reply(sptr, ERR_NOSUCHNICK, parv[1]);
+    if (lb) labeled_batch_end(sptr);
     return 0;
   }
 
-  if (is_silenced(sptr, acptr, 0))
+  if (is_silenced(sptr, acptr, 0)) {
+    if (lb) labeled_batch_end(sptr);
     return 0;
+  }
 
   if (!IsChannelName(parv[2])
       || !strIsIrcCh(parv[2])
       || !(chptr = FindChannel(parv[2]))) {
     send_reply(sptr, ERR_NOSUCHCHANNEL, parv[2]);
+    if (lb) labeled_batch_end(sptr);
     return 0;
   }
 
   if (!find_channel_member(sptr, chptr)) {
     send_reply(sptr, ERR_NOTONCHANNEL, chptr->chname);
+    if (lb) labeled_batch_end(sptr);
     return 0;
   }
 
   if (find_channel_member(acptr, chptr)) {
     send_reply(sptr, ERR_USERONCHANNEL, cli_name(acptr), chptr->chname);
+    if (lb) labeled_batch_end(sptr);
     return 0;
   }
 
   if (!is_chan_op(sptr, chptr) && !is_half_op(sptr, chptr)) {
     send_reply(sptr, ERR_CHANOPRIVSNEEDED, chptr->chname);
+    if (lb) labeled_batch_end(sptr);
     return 0;
   }
 
@@ -168,26 +180,31 @@ int m_invite(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
 
   if (IsAccountOnly(acptr) && !IsAccount(sptr) && !IsOper(sptr)) {
     send_reply(sptr, ERR_ACCOUNTONLY, cli_name(acptr), "INVITE", cli_name(acptr));
+    if (lb) labeled_batch_end(sptr);
     return 0;
   }
 
   if (IsPrivDeaf(acptr) && !IsOper(sptr)) {
     send_reply(sptr, ERR_PRIVDEAF, cli_name(acptr), "INVITE", cli_name(acptr));
+    if (lb) labeled_batch_end(sptr);
     return 0;
   }
 
   if (IsCommonChansOnly(acptr) && !IsAnOper(sptr) && !common_chan_count(acptr, sptr, 1)) {
     send_reply(sptr, ERR_COMMONCHANSONLY, cli_name(acptr), "INVITE");
+    if (lb) labeled_batch_end(sptr);
     return 0;
   }
 
-  if (check_target_limit(sptr, acptr, cli_name(acptr), 0))
+  if (check_target_limit(sptr, acptr, cli_name(acptr), 0)) {
+    if (lb) labeled_batch_end(sptr);
     return 0;
+  }
 
   send_reply(sptr, RPL_INVITING, cli_name(acptr), chptr->chname);
 
   if (cli_user(acptr)->away)
-    send_reply(sptr, RPL_AWAY, cli_name(acptr), cli_user(acptr)->away);
+    send_reply(sptr, RPL_AWAY, cli_name(acptr), away_text_for(sptr, cli_user(acptr)->away));
 
   if (MyConnect(acptr)) {
     add_invite(acptr, chptr);
@@ -198,19 +215,53 @@ int m_invite(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
   }
 
   if (!IsLocalChannel(chptr->chname) || MyConnect(acptr)) {
+    char inv_msgid[64] = "";
+    if (feature_bool(FEAT_MSGID)) {
+      generate_msgid(inv_msgid, sizeof(inv_msgid));
+      sendcmdto_set_client_msgid(inv_msgid);
+    }
+
+    /* Send invite-notify to LOCAL channel members with the capability */
+    if (feature_bool(FEAT_CAP_invite_notify))
+      sendcmdto_channel_capab_butserv_butone(sptr, CMD_INVITE, chptr, sptr, 0,
+                                             CAP_INVITENOTIFY, CAP_NONE,
+                                             "%C %H", acptr, chptr);
+
+    /* Propagate INVITE to remote servers that have channel members so
+     * they can fan out invite-notify to their own locals via ms_invite.
+     * Without this, remote CAP_INVITENOTIFY subscribers never see the
+     * invite — the "butserv" local fanout above stays server-local and
+     * the SKIP_NONOPS path below is intentionally narrower (ops only).
+     * We broadcast to all member-servers here when invite_notify is on
+     * and skip the narrower SKIP_NONOPS variant in that case since this
+     * broadcast already carries the INVITE that each remote server's
+     * ms_invite will use to emit its own RPL_ISSUEDINVITE if
+     * FEAT_ANNOUNCE_INVITES is enabled. */
+    if (feature_bool(FEAT_CAP_invite_notify)) {
+      sendcmdto_channel_servers_butone(sptr, NULL, TOK_INVITE, chptr, acptr, 0,
+                                       "%s %H %Tu", cli_name(acptr),
+                                       chptr, chptr->creationtime);
+    }
+
     if (feature_bool(FEAT_ANNOUNCE_INVITES)) {
-      /* Announce to channel operators. */
+      /* Announce to channel operators on this server. */
       sendcmdto_channel_butserv_butone(&his, get_error_numeric(RPL_ISSUEDINVITE)->str,
                                        NULL, chptr, sptr, SKIP_NONOPS,
                                        "%H %C %C :%C has been invited by %C",
                                        chptr, acptr, sptr, acptr, sptr);
-      /* Announce to servers with channel operators. */
-      sendcmdto_channel_servers_butone(sptr, NULL, TOK_INVITE, chptr, acptr, SKIP_NONOPS,
-                                       "%s %H %Tu", cli_name(acptr),
-                                       chptr, chptr->creationtime);
+      /* Only propagate the S2S INVITE here if the invite_notify path
+       * above didn't already do a full fanout. */
+      if (!feature_bool(FEAT_CAP_invite_notify)) {
+        sendcmdto_channel_servers_butone(sptr, NULL, TOK_INVITE, chptr, acptr, SKIP_NONOPS,
+                                         "%s %H %Tu", cli_name(acptr),
+                                         chptr, chptr->creationtime);
+      }
     }
+
+    sendcmdto_set_client_msgid(NULL);
   }
 
+  if (lb) labeled_batch_end(sptr);
   return 0;
 }
 
@@ -302,16 +353,45 @@ int ms_invite(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
                   chptr->creationtime);
   }
 
-  if (feature_bool(FEAT_ANNOUNCE_INVITES)) {
-    /* Announce to channel operators. */
-    sendcmdto_channel_butserv_butone(&his, get_error_numeric(RPL_ISSUEDINVITE)->str,
-                                     NULL, chptr, sptr, SKIP_NONOPS,
-                                     "%H %C %C :%C has been invited by %C",
-                                     chptr, acptr, sptr, acptr, sptr);
-    /* Announce to servers with channel operators. */
-    sendcmdto_channel_servers_butone(sptr, NULL, TOK_INVITE, chptr, acptr, SKIP_NONOPS,
-                                     "%s %H %Tu", cli_name(acptr), chptr,
-                                     chptr->creationtime);
+  {
+    char inv_msgid[64] = "";
+    if (feature_bool(FEAT_MSGID)) {
+      generate_msgid(inv_msgid, sizeof(inv_msgid));
+      sendcmdto_set_client_msgid(inv_msgid);
+    }
+
+    /* Send invite-notify to LOCAL channel members with the capability */
+    if (feature_bool(FEAT_CAP_invite_notify))
+      sendcmdto_channel_capab_butserv_butone(sptr, CMD_INVITE, chptr, sptr, 0,
+                                             CAP_INVITENOTIFY, CAP_NONE,
+                                             "%C %H", acptr, chptr);
+
+    /* Propagate INVITE to downstream servers with channel members so they
+     * can fan out invite-notify locally. Mirrors the same fix in m_invite;
+     * SKIP_NONOPS would drop servers whose only channel members are
+     * non-ops with CAP_INVITENOTIFY. */
+    if (feature_bool(FEAT_CAP_invite_notify)) {
+      sendcmdto_channel_servers_butone(sptr, NULL, TOK_INVITE, chptr, acptr, 0,
+                                       "%s %H %Tu", cli_name(acptr), chptr,
+                                       chptr->creationtime);
+    }
+
+    if (feature_bool(FEAT_ANNOUNCE_INVITES)) {
+      /* Announce to channel operators on this server. */
+      sendcmdto_channel_butserv_butone(&his, get_error_numeric(RPL_ISSUEDINVITE)->str,
+                                       NULL, chptr, sptr, SKIP_NONOPS,
+                                       "%H %C %C :%C has been invited by %C",
+                                       chptr, acptr, sptr, acptr, sptr);
+      /* Only propagate the SKIP_NONOPS variant if invite_notify isn't
+       * already doing a full-servers broadcast above. */
+      if (!feature_bool(FEAT_CAP_invite_notify)) {
+        sendcmdto_channel_servers_butone(sptr, NULL, TOK_INVITE, chptr, acptr, SKIP_NONOPS,
+                                         "%s %H %Tu", cli_name(acptr), chptr,
+                                         chptr->creationtime);
+      }
+    }
+
+    sendcmdto_set_client_msgid(NULL);
   }
 
   return 0;

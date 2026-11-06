@@ -23,7 +23,9 @@
  */
 #include "config.h"
 
+#include "bouncer_session.h"
 #include "channel.h"
+#include "chathistory_presence.h"
 #include "class.h"
 #include "client.h"
 #include "destruct_event.h"
@@ -53,11 +55,16 @@
 #include "struct.h"
 #include "sys.h"
 #include "whowas.h"
+#include "history.h"
+#include "history_trim_codec.h"
+#include "metadata.h"
 
 /* #include <assert.h> -- Now using assert in ircd_log.h */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/time.h>
+#include <time.h>
 
 /** Linked list containing the full list of all channels */
 struct Channel* GlobalChannelList = 0;
@@ -74,6 +81,96 @@ static size_t bans_alloc;
 static size_t bans_inuse;
 
 int parse_extban(char *ban, struct ExtBan *extban, int level, char *prefix);
+
+#ifdef USE_ROCKSDB
+
+/** Store a channel event (JOIN, PART, etc.) in the history database.
+ * If ext_msgid is provided, uses it; otherwise generates a new one.
+ * @param[in] sptr Client that triggered the event.
+ * @param[in] chptr Target channel.
+ * @param[in] text Event content (e.g., part reason, empty for joins).
+ * @param[in] type Event type (HISTORY_JOIN, HISTORY_PART, etc.).
+ * @param[in] ext_msgid Pre-generated msgid (NULL to auto-generate).
+ */
+static void store_channel_event(struct Client *sptr, struct Channel *chptr,
+                                const char *text, enum HistoryMessageType type,
+                                const char *ext_msgid, uint64_t event_ms)
+{
+  char timestamp[32];
+  char msgid[64];
+  char sender[HISTORY_SENDER_LEN];
+  char owner[HTC_OWNER_MAX];
+  const char *account;
+  const char *use_msgid;
+
+  if (!history_is_available())
+    return;
+
+  /* Check if chathistory storage is enabled */
+  if (!feature_bool(FEAT_CHATHISTORY_STORE))
+    return;
+
+  /* Check if channel has +P (no storage) mode */
+  if (chptr->mode.exmode & EXMODE_NOSTORAGE)
+    return;
+
+  /* Events store UNCONDITIONALLY (send-time filtering per client cap
+   * happens in should_send_message_type): every delivered msgid must
+   * be indexable, or event msgids become unusable anchors -- briefly
+   * shipped feature-gated and it broke ATTACH cursors on prod. */
+
+  /* Storage gate: when CHATHISTORY_REQUIRE_AUTH is on, unauthed
+   * clients can never query, so storing into a channel with no
+   * authed member would be dead bytes nobody can read.  Skip in that
+   * case (unless +H makes the channel public-history).  When
+   * REQUIRE_AUTH is off, store unconditionally — admin has chosen
+   * open history.  STRICT_PRESENCE only filters at replay, never
+   * gates storage.  Mirrors store_channel_history (ircd_relay.c).
+   *
+   * Note: +Y user mode only blocks message storage (PRIVMSG/NOTICE),
+   * not channel events (JOIN/PART/etc) which are metadata. */
+  if (feature_bool(FEAT_CHATHISTORY_REQUIRE_AUTH)
+      && chptr->authusers == 0
+      && !(chptr->mode.exmode & EXMODE_PUBLICHISTORY))
+    return;  /* msgid resolves intrinsically (2026-09 repack); no
+              * anchor row needed */
+
+  /* Use provided msgid or generate a new one -- BEFORE reading the time:
+   * minting advances the HLC and the row time must be the mint time. */
+  if (ext_msgid && *ext_msgid)
+    use_msgid = ext_msgid;
+  else {
+    generate_msgid(msgid, sizeof(msgid));
+    use_msgid = msgid;
+  }
+
+  /* Row time: the caller's event time (S2S tag time for a remote event,
+   * the membership/mode stamp it already emitted on the wire), else the
+   * local HLC mint time.  Never the wall clock at observation. */
+  if (!event_ms)
+    event_ms = history_event_time_ms(NULL);
+  history_format_ms(timestamp, sizeof(timestamp), event_ms);
+
+  /* Build sender string: nick!user@host */
+  if (cli_user(sptr))
+    ircd_snprintf(0, sender, sizeof(sender), "%s!%s@%s",
+                  cli_name(sptr),
+                  cli_user(sptr)->username,
+                  cli_user(sptr)->host);
+  else
+    ircd_strncpy(sender, cli_name(sptr), sizeof(sender) - 1);
+
+  /* Get account name if logged in */
+  account = (cli_user(sptr) && cli_user(sptr)->account[0])
+            ? cli_user(sptr)->account : NULL;
+  /* The row's trim owner: the client whose account it carries. */
+  history_owner_of(owner, sizeof(owner), sptr);
+
+  /* Store in database */
+  history_store_message(use_msgid, timestamp, chptr->chname, NULL, sender,
+                        account, type, text ? text : "", NULL, owner);
+}
+#endif /* USE_ROCKSDB */
 
 #if !defined(NDEBUG)
 /** return the length (>=0) of a chain of links.
@@ -272,6 +369,15 @@ int sub1_from_channel(struct Channel* chptr)
 
   chptr->users = 0;
 
+  /* Bouncer aliases keep the channel alive even with 0 real users.
+   * During SQUIT, alias members stay in the channel (hs_promoting
+   * suppresses bounce_sync_alias_part) so that
+   * bounce_execute_squit_promotions() can promote them to real users.
+   * Without this guard, destruct_channel() would assert-fail on
+   * non-empty chptr->members. */
+  if (chptr->aliases > 0)
+    return 0;
+
   if (chptr->mode.exmode & EXMODE_PERSIST)
     return 0;
 
@@ -285,6 +391,16 @@ int sub1_from_channel(struct Channel* chptr)
    */
   chptr->mode.mode &= ~MODE_INVITEONLY;
   chptr->mode.limit = 0;
+  /*
+   * +L goes with +l: the redirect fires on users >= limit (m_join.c),
+   * so with the limit cleared to 0 on an empty channel a surviving +L
+   * turned from an overflow redirect into an UNCONDITIONAL one and sent
+   * every joiner -- the founder included -- away from their own empty
+   * channel, the exact lockout this reset exists to prevent.  A
+   * redirect meant to outlive an empty channel belongs on a +z channel,
+   * which returned above (PR #108 follow-up, 2026-09-07).
+   */
+  *chptr->mode.redir = '\0';
   /*
    * We do NOT reset a possible key or bans because when
    * the 'channel owners' can't get in because of a key
@@ -346,6 +462,14 @@ int destruct_channel(struct Channel* chptr)
 
   assert(0 == chptr->members);
 
+  /* This is the one place a struct Channel is actually freed, so it is the
+   * one place a relocation tombstone can learn its channel died early
+   * (services DESTRUCT, or a MODE -z followed by the last member parting,
+   * both of which get past EXMODE_PERSIST).  Retiring the record here takes
+   * its grace timer with it, instead of leaving a fired-but-unresolvable
+   * record behind.  A no-op for every ordinary channel. */
+  relocate_tombstone_channel_gone(chptr);
+
   /*
    * Now, find all invite links from channel structure
    */
@@ -362,6 +486,10 @@ int destruct_channel(struct Channel* chptr)
     next = ban->next;
     free_ban(ban);
   }
+
+  /* Free channel metadata */
+  metadata_free_channel(chptr);
+
   if (chptr->prev)
     chptr->prev->next = chptr->next;
   else
@@ -666,6 +794,11 @@ void add_user_to_channel(struct Channel* chptr, struct Client* who,
     member->channel      = chptr;
     member->status       = flags;
     member->banflags     = 0;
+    /* Whole array, not just the first byte: bounce_hold_client copies
+     * all 16 bytes into the persisted session record, and valgrind
+     * flagged the malloc tail reaching RocksDB (2026-09-06). */
+    memset(member->join_msgid, 0, sizeof(member->join_msgid));
+    memset(&member->join_tv, 0, sizeof(member->join_tv));
     SetOpLevel(member, oplevel);
 
     member->next_member  = chptr->members;
@@ -682,10 +815,24 @@ void add_user_to_channel(struct Channel* chptr, struct Client* who,
 
     if (chptr->destruct_event)
       remove_destruct_event(chptr);
-    ++chptr->users;
-    if (!IsSSL(who) && !IsChannelService(who))
-      ++chptr->nonsslusers;
-    ++((cli_user(who))->joined);
+
+    if (!(flags & CHFL_ALIAS)) {
+      ++chptr->users;
+      if (!IsSSL(who) && !IsChannelService(who))
+        ++chptr->nonsslusers;
+      if (IsAccount(who))
+        ++chptr->authusers;
+      ++((cli_user(who))->joined);
+      /* Auto-sync: add local aliases of this user to the channel */
+      bounce_sync_alias_join(chptr, who);
+    } else {
+      ++chptr->aliases;
+    }
+
+    /* Strict-presence chathistory: open a presence interval for this
+     * client's anchor in this channel (no-op if a sibling connection
+     * was already a member, or if the feature is disabled). */
+    presence_on_channel_add(who, chptr);
   }
 }
 
@@ -726,15 +873,65 @@ static int remove_member_from_channel(struct Membership* member)
   else
     (cli_user(member->user))->channel = member->next_channel;
 
-  --(cli_user(member->user))->joined;
-
   member->next_member = membershipFreeList;
   membershipFreeList = member;
 
+  if (IsMemberAlias(member)) {
+    /* Alias removal: decrement alias counter only.
+     * Skip joined/nonssl/auth decrements. */
+    if (chptr->aliases > 0)
+      --chptr->aliases;
+    /* If this was the last alias and no real users remain,
+     * the channel is truly empty — destroy it. */
+    if (chptr->aliases == 0 && chptr->users == 0)
+      return sub1_from_channel(chptr);
+    return 1;
+  }
+
+  --(cli_user(member->user))->joined;
+
   if (!IsSSL(member->user) && !IsChannelService(member->user))
     --chptr->nonsslusers;
+  if (IsAccount(member->user) && chptr->authusers > 0)
+    --chptr->authusers;
 
   return sub1_from_channel(chptr);
+}
+
+/** Adjust the authusers counter on every channel @a cptr is a member
+ * of, skipping CHFL_ALIAS memberships (alias memberships are never
+ * counted at add/remove time and must never be counted here either).
+ *
+ * This is THE chokepoint for account-state transitions on a client
+ * that already holds memberships: the add/remove sites above evaluate
+ * IsAccount() at membership add/remove time, so any FLAG_ACCOUNT flip
+ * in between silently desyncs the counter unless the flip site calls
+ * this helper.  Under FEAT_CHATHISTORY_REQUIRE_AUTH a low counter
+ * silently disables history storage for the channel, so drift here is
+ * an invisible data hole (decrements are guarded, never a crash).
+ *
+ * Call with delta=+1 immediately AFTER SetAccount on a false->true
+ * transition, and delta=-1 BEFORE ClearAccount on a true->false one.
+ * An account CHANGE (name swap, flag stays set) must NOT call this.
+ *
+ * @param cptr  Client whose memberships to walk.
+ * @param delta +1 or -1.
+ */
+void channel_account_adjust(struct Client *cptr, int delta)
+{
+  struct Membership *member;
+
+  if (!cptr || !cli_user(cptr))
+    return;
+
+  for (member = cli_user(cptr)->channel; member; member = member->next_channel) {
+    if (IsMemberAlias(member))
+      continue;
+    if (delta > 0)
+      ++member->channel->authusers;
+    else if (member->channel->authusers > 0)
+      --member->channel->authusers;
+  }
 }
 
 /** Check if all the remaining members on the channel are zombies
@@ -769,14 +966,29 @@ void remove_user_from_channel(struct Client* cptr, struct Channel* chptr)
   assert(0 != chptr);
 
   if ((member = find_member_link(chptr, cptr))) {
+    /* Auto-sync: remove aliases of this user from the channel first */
+    if (!IsMemberAlias(member))
+      bounce_sync_alias_part(chptr, cptr);
+    /* Strict-presence chathistory: close the presence interval for this
+     * client's anchor in this channel (no-op if a sibling connection
+     * is still a member, or if the feature is disabled).  Called
+     * BEFORE remove_member_from_channel because the implementation
+     * walks chptr->members with @a cptr excluded. */
+    presence_on_channel_remove(cptr, chptr);
     if (remove_member_from_channel(member)) {
       if (channel_all_zombies(chptr)) {
         /*
          * XXX - this looks dangerous but isn't if we got the referential
          * integrity right for channels
+         *
+         * Strict-presence: this sweep bypassed remove_user_from_channel,
+         * so every member torn down here kept a permanently-open
+         * presence interval (unbounded forward visibility).  Hook each
+         * removal like the normal path does.
          */
-        while (remove_member_from_channel(chptr->members))
-          ;
+        do {
+          presence_on_channel_remove(chptr->members->user, chptr);
+        } while (remove_member_from_channel(chptr->members));
       }
     }
   }
@@ -909,6 +1121,10 @@ int member_can_send_to_channel(struct Membership* member, int reveal)
     return 1;
   }
 
+  /* Alias inherits primary's send rights — same trust as remote users. */
+  if (IsBouncerAlias(member->user))
+    return 1;
+
   /* Discourage using the Apass to get op.  They should use the Upass. */
   if (IsChannelManager(member) && member->channel->mode.apass[0] &&
       !feature_bool(FEAT_APASS_CANSEND))
@@ -937,9 +1153,50 @@ int member_can_send_to_channel(struct Membership* member, int reveal)
   if (member->channel->mode.exmode & EXMODE_OPERONLY && !IsAnOper(member->user))
     return 0;
 
-  /* If only SSL users may join and you're not one, you can't speak. */
-  if (member->channel->mode.exmode & EXMODE_SSLONLY && !IsSSL(member->user))
+  /* If only SSL users may join and you're not one, you can't speak.
+   * For bouncer sessions: if ANY connection is non-TLS, the session
+   * is treated as non-TLS.  If this invariant is violated (user is
+   * somehow in a +Z channel with a plaintext session), kick them
+   * rather than silently muting — makes the bug visible. */
+  if ((member->channel->mode.exmode & EXMODE_SSLONLY) &&
+      (!IsSSL(member->user) || bounce_session_has_plaintext(member->user))) {
+    if (IsSSL(member->user) && bounce_session_has_plaintext(member->user)) {
+      /* Invariant violation: TLS primary in +Z but session has plaintext.
+       * Kick from channel — this shouldn't happen with gates A/B working. */
+      char ssl_kick_msgid[64] = "";
+      int64_t ssl_kick_ms = history_event_time_ms(NULL);
+      if (feature_bool(FEAT_MSGID)) {
+        generate_msgid(ssl_kick_msgid, sizeof(ssl_kick_msgid));
+        sendcmdto_set_client_event(ssl_kick_msgid, ssl_kick_ms);
+      }
+      sendcmdto_serv_butone(&me, CMD_KICK, NULL,
+                            "%H %C :SSL-only channel (insecure session)",
+                            member->channel, member->user);
+      sendcmdto_channel_butserv_butone(&me, CMD_KICK, member->channel, NULL, 0,
+                                       "%H %C :SSL-only channel (insecure session)",
+                                       member->channel, member->user);
+      sendcmdto_set_client_msgid(NULL);
+#ifdef USE_ROCKSDB
+      {
+        char kick_text[512];
+        ircd_snprintf(0, kick_text, sizeof(kick_text), "%s :SSL-only channel (insecure session)",
+                      cli_name(member->user));
+        store_channel_event(&me, member->channel, kick_text,
+                            HISTORY_KICK, ssl_kick_msgid[0] ? ssl_kick_msgid : NULL,
+                            0);
+      }
+#endif
+      /* The victim's presence interval closes at the kick's time, the
+       * same stamp every peer closes at from the KICK's msgid, not at
+       * whatever make_zombie's removal runs at (P2; every m_kick.c site
+       * already arms this -- re-review 2026-09-07 R16). */
+      presence_set_event_time(ssl_kick_msgid[0]
+                              ? presence_event_time(ssl_kick_msgid, ssl_kick_ms) : 0);
+      make_zombie(member, member->user, &me, &me, member->channel);
+      presence_set_event_time(0);
+    }
     return 0;
+  }
 
   /* If only logged in users may join and you're not one, you can't speak. */
   if (member->channel->mode.mode & MODE_REGONLY && !IsAccount(member->user))
@@ -1129,6 +1386,10 @@ void channel_modes(struct Client *cptr, char *mbuf, char *pbuf, int buflen,
     *mbuf++ = 'c';
   if (chptr->mode.exmode & EXMODE_STRIPCOLOR)
     *mbuf++ = 'S';
+  if (chptr->mode.exmode & EXMODE_PUBLICHISTORY)
+    *mbuf++ = 'H';
+  if (chptr->mode.exmode & EXMODE_NOSTORAGE)
+    *mbuf++ = 'P';
   if (chptr->mode.limit) {
     *mbuf++ = 'l';
     pbuf_pos = ircd_snprintf(0, pbuf, buflen, "%u", chptr->mode.limit);
@@ -1268,6 +1529,11 @@ void send_channel_modes(struct Client *cptr, struct Channel *chptr)
     {
       while (member)
       {
+	/* Skip alias members — aliases are created via BX C, not BURST */
+	if (IsMemberAlias(member)) {
+	  member = member->next_member;
+	  continue;
+	}
 	if (flag_cnt < 2 && IsChanOp(member))
 	{
 	  /*
@@ -1440,6 +1706,18 @@ void send_channel_modes(struct Client *cptr, struct Channel *chptr)
       sendcmdto_one(&me, CMD_TOPIC, cptr, "%H %s %Tu %Tu :%s", chptr,
                     chptr->topic_nick, chptr->creationtime,
                     chptr->topic_time, chptr->topic);
+
+  /* Burst channel metadata if enabled.  MD is an IRCv3-aware extension —
+   * legacy peers (X3, vanilla ircu) log PARSE ERROR on receipt. */
+  if (feature_bool(FEAT_METADATA_BURST) && IsIRCv3Aware(cptr)) {
+    struct MetadataEntry *entry;
+    for (entry = chptr->metadata; entry; entry = entry->next) {
+      sendcmdto_one(&me, CMD_METADATA, cptr, "%s %s %s :%s",
+                    chptr->chname, entry->key,
+                    entry->visibility == METADATA_VIS_PRIVATE ? "P" : "*",
+                    entry->value ? entry->value : "");
+    }
+  }
 }
 
 /** Canonify a mask.
@@ -1738,6 +2016,8 @@ int SetAutoChanModes(struct Channel *chptr)
     EXMODE_NOMULTITARG,	'T',
     EXMODE_NOCOLOR,	'c',
     EXMODE_STRIPCOLOR,	'S',
+    EXMODE_PUBLICHISTORY,	'H',
+    EXMODE_NOSTORAGE,	'P',
     0, 0
   };
   unsigned int *flag_p;
@@ -1840,6 +2120,95 @@ struct Channel *get_channel(struct Client *cptr, char *chname, ChannelGetType fl
     hAddChannel(chptr);
   }
   return chptr;
+}
+
+/** Rename a channel.
+ * Updates the channel name in the hash table and channel structure.
+ * Reallocates the channel structure if the new name is longer.
+ *
+ * @param[in,out] chptr_p Pointer to channel pointer. Updated if reallocation occurs.
+ * @param[in] newname New name for the channel.
+ * @return 0 on success, -1 if invalid params, -2 if new name exists.
+ */
+int rename_channel(struct Channel **chptr_p, const char *newname)
+{
+  struct Channel *chptr;
+  size_t oldlen, newlen;
+  struct Channel *newchptr;
+  struct Membership *member;
+  struct SLink *link;
+
+  if (!chptr_p || !*chptr_p || !newname || !*newname)
+    return -1;
+
+  chptr = *chptr_p;
+
+  newlen = strlen(newname);
+  if (newlen > CHANNELLEN)
+    return -1;
+
+  /* Check if new name already exists */
+  if (FindChannel(newname))
+    return -2;
+
+  oldlen = strlen(chptr->chname);
+
+  /* If new name fits in existing allocation, just update in place */
+  if (newlen <= oldlen) {
+    hChangeChannel(chptr, newname);
+    strcpy(chptr->chname, newname);
+    return 0;
+  }
+
+  /* New name is longer - need to reallocate */
+  newchptr = (struct Channel*) MyMalloc(sizeof(struct Channel) + newlen);
+  if (!newchptr)
+    return -1;
+
+  /* Copy all data from old to new */
+  memcpy(newchptr, chptr, sizeof(struct Channel));
+  strcpy(newchptr->chname, newname);
+
+  /* Update hash table */
+  hRemChannel(chptr);
+  hAddChannel(newchptr);
+
+  /* Update global linked list */
+  if (chptr->prev)
+    chptr->prev->next = newchptr;
+  else
+    GlobalChannelList = newchptr;
+  if (chptr->next)
+    chptr->next->prev = newchptr;
+
+  /* Update all membership pointers */
+  for (member = newchptr->members; member; member = member->next_member)
+    member->channel = newchptr;
+
+  /* Update user invite lists that point to this channel */
+  for (link = newchptr->invites; link; link = link->next) {
+    struct Client *cptr = link->value.cptr;
+    struct SLink *inv;
+    /* Find and update user's invite pointer to this channel */
+    for (inv = cli_user(cptr)->invited; inv; inv = inv->next) {
+      if (inv->value.chptr == chptr) {
+        inv->value.chptr = newchptr;
+        break;
+      }
+    }
+  }
+
+  /* Update destruct event if pending */
+  if (newchptr->destruct_event)
+    newchptr->destruct_event->chptr = newchptr;
+
+  /* Free old channel structure */
+  MyFree(chptr);
+
+  /* Update caller's pointer */
+  *chptr_p = newchptr;
+
+  return 0;
 }
 
 /** invite a user to a channel.
@@ -1975,13 +2344,16 @@ void del_invite(struct Client *cptr, struct Channel *chptr)
  * @param sptr    The client that is doing the kicking.
  * @param chptr	  The channel the user is being kicked from.
  */
-void make_zombie(struct Membership* member, struct Client* who, 
+void make_zombie(struct Membership* member, struct Client* who,
 		struct Client* cptr, struct Client* sptr, struct Channel* chptr)
 {
   assert(0 != member);
   assert(0 != who);
   assert(0 != cptr);
   assert(0 != chptr);
+
+  /* Mark bouncer session dirty for periodic persistence (before removal) */
+  bounce_mark_dirty(who);
 
   /* Default for case a): */
   SetZombie(member);
@@ -2132,6 +2504,8 @@ modebuf_flush_int(struct ModeBuf *mbuf, int all)
     EXMODE_NOMULTITARG,	'T',
     EXMODE_NOCOLOR,	'c',
     EXMODE_STRIPCOLOR,	'S',
+    EXMODE_PUBLICHISTORY, 'H',
+    EXMODE_NOSTORAGE,   'P',
     0x0, 0x0
   };
   static int local_flags[] = {
@@ -2166,6 +2540,9 @@ modebuf_flush_int(struct ModeBuf *mbuf, int all)
 
   unsigned int limitdel = MODE_LIMIT;
   unsigned int redirdel = MODE_REDIRECT;
+
+  char mode_msgid[64] = "";
+  uint64_t mode_time_ms = 0;
 
   assert(0 != mbuf);
 
@@ -2411,7 +2788,21 @@ modebuf_flush_int(struct ModeBuf *mbuf, int all)
 		mbuf->mb_channel, rembuf_i ? "-" : "", rembuf,
 		addbuf_i ? "+" : "", addbuf, remstr, addstr);
 
-    if (mbuf->mb_dest & MODEBUF_DEST_CHANNEL)
+    if (mbuf->mb_dest & MODEBUF_DEST_CHANNEL) {
+      if (feature_bool(FEAT_MSGID)) {
+        /* Reuse incoming S2S msgid for cross-server consistency */
+        if (mbuf->mb_connect && cli_s2s_msgid(mbuf->mb_connect)[0]) {
+          ircd_strncpy(mode_msgid, cli_s2s_msgid(mbuf->mb_connect),
+                       sizeof(mode_msgid));
+          mode_time_ms = cli_s2s_time_ms(mbuf->mb_connect);
+        } else {
+          generate_msgid(mode_msgid, sizeof(mode_msgid));
+        }
+        if (!mode_time_ms)
+          mode_time_ms = history_event_time_ms(NULL);  /* mint time */
+        sendcmdto_set_client_event(mode_msgid, mode_time_ms);
+      }
+
       sendcmdto_channel_butserv_butone(app_source, CMD_MODE, mbuf->mb_channel, NULL, 0,
                                        "%H %s%s%s%s%s%s%s%s", mbuf->mb_channel,
                                        rembuf_i || rembuf_local_i ? "-" : "",
@@ -2419,6 +2810,25 @@ modebuf_flush_int(struct ModeBuf *mbuf, int all)
                                        addbuf_i || addbuf_local_i ? "+" : "",
                                        addbuf, addbuf_local,
                                        remstr, addstr);
+
+      sendcmdto_set_client_msgid(NULL);
+
+#ifdef USE_ROCKSDB
+      /* Store MODE event in history — same msgid as broadcast;
+       * receiver-side like the other event stores. */
+      {
+        char mode_text[512];
+        ircd_snprintf(0, mode_text, sizeof(mode_text), "%s%s%s%s%s%s%s%s",
+                      rembuf_i || rembuf_local_i ? "-" : "",
+                      rembuf, rembuf_local,
+                      addbuf_i || addbuf_local_i ? "+" : "",
+                      addbuf, addbuf_local,
+                      remstr, addstr);
+        store_channel_event(mbuf->mb_source, mbuf->mb_channel, mode_text, HISTORY_MODE,
+                            mode_msgid[0] ? mode_msgid : NULL, mode_time_ms);
+      }
+#endif
+    }
   }
 
   /* Now are we supposed to propagate to other servers? */
@@ -2461,8 +2871,10 @@ modebuf_flush_int(struct ModeBuf *mbuf, int all)
                                      " %s%s:%d",
                                      NumNick(MB_CLIENT(mbuf, i)),
                                      MB_OPLEVEL(mbuf, i));
-          *strptro_i += ircd_snprintf(0, strptro+ *strptro_i, BUFSIZE - *strptro_i,
-                                     " %s%s", NumNick(MB_CLIENT(mbuf, i)));
+          /* A bounced deop carries the oplevel too, in remstr only. */
+          if (strptro)
+            *strptro_i += ircd_snprintf(0, strptro+ *strptro_i, BUFSIZE - *strptro_i,
+                                       " %s%s", NumNick(MB_CLIENT(mbuf, i)));
 
       /* deal with other modes that take clients */
       } else if (MB_TYPE(mbuf, i) & (MODE_CHANOP | MODE_HALFOP | MODE_VOICE)) {
@@ -2507,11 +2919,19 @@ modebuf_flush_int(struct ModeBuf *mbuf, int all)
 
     if (mbuf->mb_dest & MODEBUF_DEST_OPMODE) {
       /* If OPMODE was set, we're propagating the mode as an OPMODE message */
+      if (mode_msgid[0] && mode_time_ms) {
+        sendcmdto_set_s2s_tags(mode_time_ms, mode_msgid);
+        sendcmdto_want_s2s_tags(1);
+      }
       sendcmdto_flag_serv_butone(mbuf->mb_source, CMD_OPMODE, mbuf->mb_connect,
                             FLAG_OPLEVELS, FLAG_LAST_FLAG,
 			    "%H %s%s%s%s%s%s", mbuf->mb_channel,
 			    rembuf_i ? "-" : "", rembuf, addbuf_i ? "+" : "",
 			    addbuf, remstr, addstr);
+      if (mode_msgid[0] && mode_time_ms) {
+        sendcmdto_set_s2s_tags(mode_time_ms, mode_msgid);
+        sendcmdto_want_s2s_tags(1);
+      }
       sendcmdto_flag_serv_butone(mbuf->mb_source, CMD_OPMODE, mbuf->mb_connect,
                             FLAG_LAST_FLAG, FLAG_OPLEVELS,
                             "%H %s%s%s%s%s%s", mbuf->mb_channel,
@@ -2534,6 +2954,10 @@ modebuf_flush_int(struct ModeBuf *mbuf, int all)
        * to the rest of the network.  We send the actual channel TS.
        */
       /* Send oplevels to servers with oplevels support. */
+      if (mode_msgid[0] && mode_time_ms) {
+        sendcmdto_set_s2s_tags(mode_time_ms, mode_msgid);
+        sendcmdto_want_s2s_tags(1);
+      }
       sendcmdto_flag_serv_butone(mbuf->mb_source, CMD_MODE, mbuf->mb_connect,
                                  FLAG_OPLEVELS, FLAG_LAST_FLAG,
                                  "%H %s%s%s%s%s%s %Tu", mbuf->mb_channel,
@@ -2541,6 +2965,10 @@ modebuf_flush_int(struct ModeBuf *mbuf, int all)
                                  addbuf, remstr, addstr,
                                  mbuf->mb_channel->creationtime);
       /* Send no oplevels to servers without oplevels support. */
+      if (mode_msgid[0] && mode_time_ms) {
+        sendcmdto_set_s2s_tags(mode_time_ms, mode_msgid);
+        sendcmdto_want_s2s_tags(1);
+      }
       sendcmdto_flag_serv_butone(mbuf->mb_source, CMD_MODE, mbuf->mb_connect,
                                  FLAG_LAST_FLAG, FLAG_OPLEVELS,
                                  "%H %s%s%s%s%s%s %Tu", mbuf->mb_channel,
@@ -2658,7 +3086,8 @@ modebuf_exmode(struct ModeBuf *mbuf, unsigned int mode)
   mode &= (MODE_ADD | MODE_DEL | EXMODE_ADMINONLY | EXMODE_OPERONLY |
            EXMODE_REGMODERATED | EXMODE_NONOTICES | EXMODE_PERSIST |
            EXMODE_SSLONLY | EXMODE_NOQUITPARTS | EXMODE_NOCTCPS |
-           EXMODE_NOMULTITARG | EXMODE_NOCOLOR | EXMODE_STRIPCOLOR);
+           EXMODE_NOMULTITARG | EXMODE_NOCOLOR | EXMODE_STRIPCOLOR |
+           EXMODE_PUBLICHISTORY | EXMODE_NOSTORAGE);
 
   if (!(mode & ~(MODE_ADD | MODE_DEL))) /* don't add empty modes... */
     return;
@@ -2813,6 +3242,8 @@ modebuf_extract(struct ModeBuf *mbuf, char *buf, int oplevels)
     EXMODE_NOMULTITARG,	'T',
     EXMODE_NOCOLOR,	'c',
     EXMODE_STRIPCOLOR,	'S',
+    EXMODE_PUBLICHISTORY, 'H',
+    EXMODE_NOSTORAGE,   'P',
     0x0, 0x0
   };
   unsigned int add;
@@ -3772,6 +4203,29 @@ mode_parse_ban(struct ParseState *state, int *flag_p)
   apply_ban(&state->chptr->banlist, newban, 0);
 }
 
+/** Undo what mode_parse_ban() / mode_parse_except() did to \a list
+ * when mode_parse() returns without processing it: unlink the temporary
+ * entries (they live in the ParseState on mode_parse()'s stack) and
+ * clear the marks they left on the real ones.  apply_ban() and
+ * apply_except() only link BAN_ADD entries, at the tail, and the real
+ * entries had BAN_ADD cleared before the first one, so the temporaries
+ * are the tail from the first BAN_ADD entry on.
+ * @param[in,out] list Channel ban or ban exception list.
+ */
+static void
+mode_discard_bans(struct Ban **list)
+{
+  struct Ban *ban;
+
+  for (; (ban = *list); list = &ban->next) {
+    if (ban->flags & BAN_ADD) {
+      *list = 0;
+      break;
+    }
+    ban->flags &= ~(BAN_DEL | BAN_OVERLAPPED);
+  }
+}
+
 /*
  * This is the bottom half of the ban processor
  */
@@ -4155,9 +4609,12 @@ mode_parse_client(struct ParseState *state, int *flag_p)
     /* find client we're manipulating */
     acptr = find_chasing(state->sptr, t_str, NULL);
   } else {
-    if (t_str[5] == ':') {
-      t_str[5] = '\0';
-      oplevel = atoi(t_str + 6);
+    colon = strchr(t_str, ':');
+    if (colon != NULL) {
+      *colon++ = '\0';
+      /* As for local users, only an op carries an oplevel. */
+      if (*flag_p == CHFL_CHANOP && state->dir == MODE_ADD)
+        oplevel = atoi(colon);
     }
     acptr = findNUser(t_str);
   }
@@ -4210,6 +4667,16 @@ mode_process_clients(struct ParseState *state)
 	send_reply(state->sptr, ERR_USERNOTINCHANNEL,
 		   cli_name(state->cli_change[i].client),
 		   state->chptr->chname);
+      continue;
+    }
+
+    /* Block mode changes targeting alias members — aliases inherit
+     * their channel mode from the primary; direct changes desync. */
+    if (IsMemberAlias(member)) {
+      if (MyUser(state->sptr))
+        send_reply(state->sptr, ERR_USERNOTINCHANNEL,
+                   cli_name(state->cli_change[i].client),
+                   state->chptr->chname);
       continue;
     }
 
@@ -4317,6 +4784,12 @@ mode_process_clients(struct ParseState *state)
       } else
 	member->status &= ~(state->cli_change[i].flag &
 			    (MODE_CHANOP | MODE_HALFOP | MODE_VOICE));
+
+      /* Mark bouncer session dirty for periodic persistence (mode change) */
+      bounce_mark_dirty(state->cli_change[i].client);
+
+      /* Sync channel modes to aliases of this member */
+      bounce_sync_alias_chanmodes(state->chptr, state->cli_change[i].client);
     }
 
     /* accumulate the change */
@@ -4397,6 +4870,113 @@ mode_parse_exmode(struct ParseState *state, int *flag_p)
   assert(0 == (state->exadd & state->exdel));
 }
 
+/** B3 (metadata-era2-completion §B3): the channel-metadata side of a
+ * MODE_REGISTERED (±R) transition.  Fired from mode_parse's apply flush
+ * (below), AFTER the bit flips and ONLY when it actually changed — the
+ * caller compares the pre-flush bit against the new one, so re-applying +R
+ * to an already-+R channel (or -R to a non-registered one) does not fire.
+ *
+ * NB on placement: MODE_REGISTERED is a *simple* mode.  mode_parse_mode()
+ * accumulates it into state->add/state->del; it lands in chptr->mode.mode at
+ * the single bulk flush in mode_parse (state.chptr->mode.mode = t_mode), NOT
+ * in any per-flag apply arm (contrast +l/+k/+L, which write mode.mode
+ * directly).  So this one call site covers every MODE/OPMODE/BURST ±R apply.
+ *
+ * Known R flip sites NOT covered by this hook (traced Task 4 + review; each
+ * safe — do not re-derive):
+ *   - SetAutoChanModes (channel.c) — flips R only if 'R' is (nonsensically)
+ *     listed in FEAT_AUTOCHANMODES_LIST; channel is brand-new with empty
+ *     memory; healed by the next real ±R or the GET-fallback promotion.
+ *   - sub1_from_channel (channel.c) — the empty-channel reset zeroes ALL
+ *     modes incl. R; MUST stay unhooked: a -R store wipe here would destroy
+ *     a registered channel's persistent metadata merely because it went
+ *     momentarily empty.
+ *   - m_burst.c (net-ride wipeout) + m_join.c (TS-loss wipeout in the
+ *     JOIN-create path) — both `&= MODE_BURSTADDED|MODE_WASDELJOINS`; the
+ *     winning side's modes are re-applied through mode_parse, so a net +R
+ *     re-fires this hook (idempotently) at the flush; rare, and any
+ *     latent-stale window self-heals via the doc reconcile.
+ *   - crdt_shadow.c apply_mode_snap + the channel materialize (`|= s->mode`;
+ *     CRDT_MODE_MASK carries MODE_REGISTERED) — doc-DRIVEN R flips are
+ *     CORRECTLY unhooked: the metadata doc reconcile independently drives
+ *     store+memory from the doc, and minting doc ops from a doc-driven
+ *     apply would break single-writer.
+ *   - CLEARMODE (m_clearmode.c) cannot flip R at all — 'R' is absent from
+ *     do_clearmode's flag table (verified).
+ *
+ * mode_parse runs on EVERY node applying the mode, so the hook fires
+ * everywhere — which is exactly right on this branch: each node
+ * materializes its OWN store from the relayed mode.  (On crdt-mesh the
+ * same hook additionally gates a doc-op mint to the entry node via a
+ * suspend bracket; no doc here.)
+ *
+ * +R (adding): persist-memory-first — walk chptr->metadata and persist each
+ * entry permanently (metadata_account_set_permanent, each entry's own
+ * visibility) — then hydrate any stored rows not already in memory
+ * (metadata_channel_load).  At burst/restart chptr->metadata is empty, so
+ * only the load half runs: the restart-hydration path.
+ *
+ * -R (!adding): wipe THIS node's store rows for the channel
+ * (metadata_account_clear) — THEN clear chptr->metadata with per-key unset
+ * notifies, on EVERY node (Task-4 review fix).  Memory must not be kept:
+ * the mode relays everywhere, so every node wipes its OWN store rows here,
+ * and retained memory would diverge LIST across nodes; worse, a later +R
+ * on such a node would re-persist the retained entries via the persist
+ * half above (resurrection of cleared metadata).  So the hook clears
+ * memory itself with an explicit unset notify per key.  (The spec's
+ * "-R: memory stays" line is amended per its own AC U account-unregister
+ * analogy, which clears live memory on the account side.)
+ *
+ * @param[in] chptr  Channel whose MODE_REGISTERED bit just changed.
+ * @param[in] cptr   Connection the MODE arrived on (unused on this branch).
+ * @param[in] adding Non-zero for +R, zero for -R.
+ */
+static void
+mode_channel_registered_hook(struct Channel *chptr, struct Client *cptr,
+                             int adding)
+{
+  (void)cptr;
+
+  if (!chptr || !metadata_lmdb_is_available())
+    return;
+
+  if (adding) {
+    struct MetadataEntry *md;
+    /* Persist the channel's current ephemeral memory permanently
+     * (memory -> store), then hydrate any store-only rows back into
+     * memory. */
+    for (md = chptr->metadata; md; md = md->next)
+      metadata_account_set_permanent(chptr->chname, md->key, md->value,
+                                     md->visibility);
+    metadata_channel_load(chptr);
+  } else {
+    /* Store wipe; memory cleared below. */
+    metadata_account_clear(chptr->chname);
+  }
+
+  if (!adding) {
+    /* -R memory clear + unset notifies — EVERY node, entry and relay alike
+     * (see the function header for why memory must not be kept).
+     * Walk-safe by construction: each iteration re-reads the list
+     * head, copies its key + visibility, then deletes by key —
+     * metadata_channel_memory_del splices out the (matching) head, so the
+     * list strictly shrinks and no saved next pointer ever dangles.  The
+     * notify shape: NULL
+     * value (unset), the removed entry's own visibility for delivery scope
+     * (a PRIVATE channel entry notifies nobody — channels have no session
+     * owner — exactly like the reconcile path). */
+    struct MetadataEntry *md;
+    while ((md = chptr->metadata) != NULL) {
+      char mkey[METADATA_KEY_LEN + 1];
+      int vis = md->visibility;
+
+      ircd_strncpy(mkey, md->key, sizeof(mkey));
+      metadata_channel_memory_del(chptr, mkey);
+      metadata_notify_subscribers(chptr->chname, mkey, NULL, vis);
+    }
+  }
+}
+
 /**
  * This routine is intended to parse MODE or OPMODE commands and effect the
  * changes (or just build the bounce buffer).
@@ -4453,6 +5033,8 @@ mode_parse(struct ModeBuf *mbuf, struct Client *cptr, struct Client *sptr,
     EXMODE_NOMULTITARG,	'T',
     EXMODE_NOCOLOR,	'c',
     EXMODE_STRIPCOLOR,	'S',
+    EXMODE_PUBLICHISTORY, 'H',
+    EXMODE_NOSTORAGE,   'P',
     0x0, 0x0
   };
 
@@ -4718,6 +5300,10 @@ mode_parse(struct ModeBuf *mbuf, struct Client *cptr, struct Client *sptr,
             state.mbuf->mb_rem = 0;
             state.mbuf->mb_exrem = 0;
             state.mbuf->mb_count = 0;
+            if (state.done & DONE_BANCLEAN)
+              mode_discard_bans(&state.chptr->banlist);
+            if (state.done & DONE_EXCEPTCLEAN)
+              mode_discard_bans(&state.chptr->exceptlist);
             return state.args_used;
           } else {
             /* Server is desynced; bounce the mode and deop the source
@@ -4747,8 +5333,13 @@ mode_parse(struct ModeBuf *mbuf, struct Client *cptr, struct Client *sptr,
    */
   if (!state.mbuf ||
       ((state.flags & (MODE_PARSE_NOTOPER | MODE_PARSE_NOTMEMBER))
-       && !(state.flags & MODE_PARSE_ISHALFOP)))
+       && !(state.flags & MODE_PARSE_ISHALFOP))) {
+    if (state.done & DONE_BANCLEAN)
+      mode_discard_bans(&state.chptr->banlist);
+    if (state.done & DONE_EXCEPTCLEAN)
+      mode_discard_bans(&state.chptr->exceptlist);
     return state.args_used; /* tell our parent how many args we gobbled */
+  }
 
   t_mode = state.chptr->mode.mode;
   t_exmode = state.chptr->mode.exmode;
@@ -4775,21 +5366,45 @@ mode_parse(struct ModeBuf *mbuf, struct Client *cptr, struct Client *sptr,
   }
 
   if (state.flags & MODE_PARSE_SET) { /* set the channel modes */
+    /* B3: capture the MODE_REGISTERED bit BEFORE the flush so the ±R
+     * metadata hook fires only on an ACTUAL change (re-applying +R to an
+     * already-+R channel must not re-fire). */
+    unsigned int reg_before = state.chptr->mode.mode & MODE_REGISTERED;
+
     if ((state.chptr->mode.mode & MODE_INVITEONLY) &&
 	!(t_mode & MODE_INVITEONLY))
       mode_invite_clear(state.chptr);
 
     state.chptr->mode.mode = t_mode;
     state.chptr->mode.exmode = t_exmode;
+
+    /* B3: fire the channel-metadata ±R hook AFTER the flip (so the persist
+     * leg observes the new bit).  See mode_channel_registered_hook. */
+    if (reg_before != (t_mode & MODE_REGISTERED))
+      mode_channel_registered_hook(state.chptr, state.cptr,
+                                   (t_mode & MODE_REGISTERED) ? 1 : 0);
   }
 
   if (state.flags & MODE_PARSE_WIPEOUT) {
-    if (state.chptr->mode.limit && !(state.done & DONE_LIMIT))
+    /*
+     * The limit and the redirect are special-cased by modebuf_mode_uint()
+     * and modebuf_mode_string(): -l and -L take no parameter, so neither
+     * routine keeps a reference to what we pass it.  That makes it safe to
+     * clear them here, which we must do -- nothing else on the wipeout path
+     * ever will, and both are enforced straight off the stored value.
+     */
+    if (state.chptr->mode.limit && !(state.done & DONE_LIMIT)) {
       modebuf_mode_uint(state.mbuf, MODE_DEL | MODE_LIMIT,
 			state.chptr->mode.limit);
-    if (*state.chptr->mode.redir && !(state.done & DONE_REDIR))
+      if (state.flags & MODE_PARSE_SET)
+        state.chptr->mode.limit = 0;
+    }
+    if (*state.chptr->mode.redir && !(state.done & DONE_REDIR)) {
       modebuf_mode_string(state.mbuf, MODE_DEL | MODE_REDIRECT,
               state.chptr->mode.redir, 0);
+      if (state.flags & MODE_PARSE_SET)
+        *state.chptr->mode.redir = '\0';
+    }
     if (*state.chptr->mode.key && !(state.done & DONE_KEY_DEL))
       modebuf_mode_string(state.mbuf, MODE_DEL | MODE_KEY,
 			  state.chptr->mode.key, 0);
@@ -4817,6 +5432,48 @@ mode_parse(struct ModeBuf *mbuf, struct Client *cptr, struct Client *sptr,
 /*
  * Initialize a join buffer
  */
+/** Load the per-channel msgids carried by an incoming S2S JOIN / PART /
+ * CREATE into @a out (positional: one slot per channel in the command's
+ * channel list).  The origin tags a single-channel command with the
+ * plain @A<time><msgid> form and a multi-channel one with
+ * msgid1+msgid2+...; the parser fills cli_s2s_multi_msgid only for the
+ * latter, so readers that consulted the multi buffer alone re-minted a
+ * fresh msgid for every single-channel JOIN/PART -- the common case --
+ * and each server stored the same event under a different msgid
+ * (federated chathistory merges then counted it once per server, and
+ * an event msgid was only resolvable as an anchor on the origin).
+ * Returns the number of slots filled. */
+int joinbuf_load_s2s_msgids(struct Client *cptr, char out[][16], int max)
+{
+  const char *multi;
+  int idx = 0;
+
+  if (!cptr || !out || max <= 0)
+    return 0;
+  memset(out, 0, (size_t)max * 16);
+
+  multi = cli_s2s_multi_msgid(cptr);
+  if (multi[0]) {
+    const char *mp = multi;
+    while (mp && *mp && idx < max) {
+      const char *plus = strchr(mp, '+');
+      int len = plus ? (int)(plus - mp) : (int)strlen(mp);
+      if (len > 0 && len < 16) {
+        memcpy(out[idx], mp, len);
+        out[idx][len] = '\0';
+      }
+      idx++;
+      mp = plus ? plus + 1 : NULL;
+    }
+    return idx;
+  }
+  if (cli_s2s_msgid(cptr)[0]) {
+    ircd_strncpy(out[0], cli_s2s_msgid(cptr), 16);
+    return 1;
+  }
+  return 0;
+}
+
 void
 joinbuf_init(struct JoinBuf *jbuf, struct Client *source,
 	     struct Client *connect, unsigned int type, char *comment,
@@ -4834,6 +5491,9 @@ joinbuf_init(struct JoinBuf *jbuf, struct Client *source,
   jbuf->jb_comment = comment;
   jbuf->jb_create = create;
   jbuf->jb_count = 0;
+  jbuf->jb_alias_source = NULL;
+  memset(jbuf->jb_msgids, 0, sizeof(jbuf->jb_msgids));
+  jbuf->jb_msgid_time_ms = 0;
   jbuf->jb_strlen = (((type == JOINBUF_TYPE_JOIN ||
 		       type == JOINBUF_TYPE_PART ||
 		       type == JOINBUF_TYPE_PARTALL) ?
@@ -4856,6 +5516,9 @@ joinbuf_join(struct JoinBuf *jbuf, struct Channel *chan, unsigned int flags)
   assert(0 != jbuf);
 
   if (!chan) {
+    if (jbuf->jb_alias_source)
+      sendcmdto_set_alias_source(jbuf->jb_alias_source);
+    sendcmdto_want_s2s_tags(1);
     sendcmdto_serv_butone(jbuf->jb_source, CMD_JOIN, jbuf->jb_connect, "0");
     return;
   }
@@ -4865,19 +5528,63 @@ joinbuf_join(struct JoinBuf *jbuf, struct Channel *chan, unsigned int flags)
   if (jbuf->jb_type == JOINBUF_TYPE_PART ||
       jbuf->jb_type == JOINBUF_TYPE_PARTALL) {
     struct Membership *member = find_member_link(chan, jbuf->jb_source);
+    uint64_t part_ms = 0;
+    char part_msgid[64] = "";
     if (IsUserParting(member))
       return;
     SetUserParting(member);
 
-    /* Send notification to channel */
-    if (!(flags & (CHFL_ZOMBIE | CHFL_DELAYED)))
-      sendcmdto_channel_butserv_butone(jbuf->jb_source, CMD_PART, chan, NULL, 0,
-				(flags & CHFL_BANNED || !jbuf->jb_comment) ?
-				":%H" : "%H :%s", chan, jbuf->jb_comment);
-    else if (MyUser(jbuf->jb_source))
-      sendcmdto_one(jbuf->jb_source, CMD_PART, jbuf->jb_source,
-		    (flags & CHFL_BANNED || !jbuf->jb_comment) ?
-		    ":%H" : "%H :%s", chan, jbuf->jb_comment);
+    /* Generate or use pre-populated msgid for PART */
+    {
+
+      /* Use pre-populated msgid from incoming S2S (re-relay), or generate new */
+      if (jbuf->jb_msgids[jbuf->jb_count][0])
+        ircd_strncpy(part_msgid, jbuf->jb_msgids[jbuf->jb_count],
+                      sizeof(part_msgid));
+      else
+        generate_msgid(part_msgid, sizeof(part_msgid));
+
+      /* The event's ONE time: the origin's tag time for a re-relayed
+       * PART (ms_part loaded it into jb_msgid_time_ms), else the mint
+       * time of the msgid just generated.  This used to be overwritten
+       * with the local wall clock, so every hop re-stamped the tag and
+       * the row. */
+      part_ms = jbuf->jb_msgid_time_ms
+          ? jbuf->jb_msgid_time_ms : history_event_time_ms(NULL);
+
+      if (feature_bool(FEAT_MSGID))
+        sendcmdto_set_client_event(part_msgid, part_ms);
+
+      /* Save per-channel msgid for S2S relay in joinbuf_flush() */
+      ircd_strncpy(jbuf->jb_msgids[jbuf->jb_count], part_msgid,
+                    sizeof(jbuf->jb_msgids[0]));
+      jbuf->jb_msgid_time_ms = part_ms;
+
+      /* Send notification to channel */
+      if (!(flags & (CHFL_ZOMBIE | CHFL_DELAYED)))
+        sendcmdto_channel_butserv_butone(jbuf->jb_source, CMD_PART, chan, NULL, 0,
+                                         (flags & CHFL_BANNED || !jbuf->jb_comment) ?
+                                         ":%H" : "%H :%s", chan, jbuf->jb_comment);
+      else if (MyUser(jbuf->jb_source))
+        sendcmdto_one_tags(jbuf->jb_source, CMD_PART, jbuf->jb_source,
+                           (flags & CHFL_BANNED || !jbuf->jb_comment) ?
+                           ":%H" : "%H :%s", chan, jbuf->jb_comment);
+
+#ifdef USE_ROCKSDB
+      /* Store PART event in history -- receiver-side like the message
+       * store; msgid unified via jb_msgids (S2S re-relay). */
+      if (!(flags & (CHFL_ZOMBIE | CHFL_DELAYED)))
+        store_channel_event(jbuf->jb_source, chan,
+                            (flags & CHFL_BANNED || !jbuf->jb_comment) ? "" : jbuf->jb_comment,
+                            HISTORY_PART, part_msgid, part_ms);
+#endif
+
+      sendcmdto_set_client_msgid(NULL);
+    }
+
+    /* Mark bouncer session dirty for periodic persistence */
+    bounce_mark_dirty(jbuf->jb_source);
+
     /* XXX: Shouldn't we send a PART here anyway? */
     /* to users on the channel?  Why?  From their POV, the user isn't on
      * the channel anymore anyway.  We don't send to servers until below,
@@ -4886,31 +5593,129 @@ joinbuf_join(struct JoinBuf *jbuf, struct Channel *chan, unsigned int flags)
      * the original m_part.c */
 
     if (jbuf->jb_type == JOINBUF_TYPE_PARTALL ||
-	is_local) /* got to remove user here */
+	is_local) { /* got to remove user here */
+      /* The presence hook closes at the PART's own HLC stamp (the row's). */
+      presence_set_event_time(presence_event_time(part_msgid, part_ms));
       remove_user_from_channel(jbuf->jb_source, chan);
+      presence_set_event_time(0);
+    }
   } else {
     int oplevel = !chan->mode.apass[0] ? MAXOPLEVEL
         : (flags & CHFL_CHANNEL_MANAGER) ? 0
         : 1;
-    /* Add user to channel */
+    /* Generate or use pre-populated msgid for this JOIN BEFORE the
+     * membership is added: the presence hook inside add_user_to_channel
+     * opens the interval at this event's HLC stamp -- the origin's for a
+     * re-relayed JOIN, the msgid's mint stamp for a local one -- so a
+     * message minted just before the JOIN (even in the same millisecond)
+     * sorts before it, while the JOIN row itself is on the edge and
+     * stays visible.  The msgid is used in the membership stamp, the
+     * channel broadcast, the joiner echo and the history row. */
+    {
+      char join_msgid[64];
+      struct Membership *memb;
+      uint64_t join_ms;
+
+      /* Use pre-populated msgid from incoming S2S (re-relay), or
+       * generate new.  Accept the pre-populated id for ALL joinbuf
+       * types, not just CREATE -- a plain re-relayed JOIN otherwise
+       * re-mints per hop and every server stores a different msgid
+       * for the same event. */
+      if (jbuf->jb_msgids[jbuf->jb_count][0])
+        ircd_strncpy(join_msgid, jbuf->jb_msgids[jbuf->jb_count],
+                      sizeof(join_msgid));
+      else
+        generate_msgid(join_msgid, sizeof(join_msgid));
+
+      /* The event's ONE time: the origin's S2S tag time for a
+       * re-relayed JOIN (jb_msgid_time_ms), else the mint time of the
+       * msgid generated just above -- never this server's clock. */
+      join_ms = jbuf->jb_msgid_time_ms
+          ? jbuf->jb_msgid_time_ms : history_event_time_ms(NULL);
+
+    /* Add user to channel (presence opens at the JOIN's own stamp) */
+    presence_set_event_time(presence_event_time(join_msgid, join_ms));
     if ((chan->mode.mode & MODE_DELJOINS) && !(flags & CHFL_VOICED_OR_OPPED))
       add_user_to_channel(chan, jbuf->jb_source, flags | CHFL_DELAYED, oplevel);
     else
       add_user_to_channel(chan, jbuf->jb_source, flags, oplevel);
+    presence_set_event_time(0);
 
-    /* send JOIN notification to all servers (CREATE is sent later). */
-    if (jbuf->jb_type != JOINBUF_TYPE_CREATE && !is_local)
+      /* Stamp membership for bouncer replay with the same time; it
+       * feeds the re-relay tag and the history row below. */
+      memb = find_member_link(chan, jbuf->jb_source);
+      if (memb) {
+        memb->join_tv.tv_sec = (time_t)(join_ms / 1000);
+        memb->join_tv.tv_usec = (suseconds_t)((join_ms % 1000) * 1000);
+        ircd_strncpy(memb->join_msgid, join_msgid, sizeof(memb->join_msgid));
+      }
+
+      /* Set msgid override so channel sends and echo include it */
+      if (feature_bool(FEAT_MSGID))
+        sendcmdto_set_client_event(join_msgid,
+                                   memb ? (uint64_t)memb->join_tv.tv_sec * 1000
+                                          + memb->join_tv.tv_usec / 1000 : 0);
+
+      /* Save per-channel msgid for S2S relay in joinbuf_flush() (CREATE batches channels) */
+      if (jbuf->jb_type == JOINBUF_TYPE_CREATE && memb) {
+        ircd_strncpy(jbuf->jb_msgids[jbuf->jb_count], join_msgid,
+                      sizeof(jbuf->jb_msgids[0]));
+        jbuf->jb_msgid_time_ms = (uint64_t)memb->join_tv.tv_sec * 1000
+                                + memb->join_tv.tv_usec / 1000;
+      }
+
+    /* Mark bouncer session dirty for periodic persistence */
+    bounce_mark_dirty(jbuf->jb_source);
+
+    /* send JOIN notification to all servers (CREATE is sent later) */
+    if (jbuf->jb_type != JOINBUF_TYPE_CREATE && !is_local) {
+      if (jbuf->jb_alias_source)
+        sendcmdto_set_alias_source(jbuf->jb_alias_source);
+      if (join_msgid[0] && memb) {
+        sendcmdto_set_s2s_tags(
+          (uint64_t)memb->join_tv.tv_sec * 1000 + memb->join_tv.tv_usec / 1000,
+          join_msgid);
+        sendcmdto_want_s2s_tags(1);
+      }
       sendcmdto_serv_butone(jbuf->jb_source, CMD_JOIN, jbuf->jb_connect,
 			    "%H %Tu", chan, chan->creationtime);
+    }
 
     if (!((chan->mode.mode & MODE_DELJOINS) && !(flags & CHFL_VOICED_OR_OPPED))) {
+      /* When the joiner has a labeled-response batch active, skip them from
+       * the channel send and send a separate tagged message. The channel send
+       * functions use format_message_tags_ex() which only supports network
+       * batches, not per-client labeled-response batches (cli_batch_id). */
+      struct Client *skip_one = NULL;
+      if (MyUser(jbuf->jb_source) && has_active_batch(jbuf->jb_source))
+        skip_one = jbuf->jb_source;
+
       /* Send the notification to the channel */
-      sendcmdto_channel_capab_butserv_butone(jbuf->jb_source, CMD_JOIN, chan, NULL, 0,
+      sendcmdto_channel_capab_butserv_butone(jbuf->jb_source, CMD_JOIN, chan, skip_one, 0,
                                              CAP_NONE, CAP_EXTJOIN, "%H", chan);
-      sendcmdto_channel_capab_butserv_butone(jbuf->jb_source, CMD_JOIN, chan, NULL, 0,
+      sendcmdto_channel_capab_butserv_butone(jbuf->jb_source, CMD_JOIN, chan, skip_one, 0,
                                              CAP_EXTJOIN, CAP_NONE, "%H %s :%s", chan,
                                              IsAccount(jbuf->jb_source) ? cli_account(jbuf->jb_source) : "*",
                                              cli_info(jbuf->jb_source));
+
+      /* Send tagged JOIN echo to joiner separately (for labeled-response batch) */
+      if (skip_one) {
+        if (CapRecipientHas(jbuf->jb_source, CAP_EXTJOIN))
+          sendcmdto_one_tags(jbuf->jb_source, CMD_JOIN, jbuf->jb_source, "%H %s :%s", chan,
+                        IsAccount(jbuf->jb_source) ? cli_account(jbuf->jb_source) : "*",
+                        cli_info(jbuf->jb_source));
+        else
+          sendcmdto_one_tags(jbuf->jb_source, CMD_JOIN, jbuf->jb_source, ":%H", chan);
+      }
+
+#ifdef USE_ROCKSDB
+      /* Store JOIN event in history with the same msgid --
+       * receiver-side; net-burst joins bypass the joinbuf entirely so
+       * they remain unstored. */
+      store_channel_event(jbuf->jb_source, chan, "", HISTORY_JOIN, join_msgid,
+                          memb ? (uint64_t)memb->join_tv.tv_sec * 1000
+                                 + memb->join_tv.tv_usec / 1000 : 0);
+#endif
 
       if (cli_user(jbuf->jb_source)->away)
         sendcmdto_channel_capab_butserv_butone(jbuf->jb_source, CMD_AWAY, chan, NULL, 0,
@@ -4923,13 +5728,33 @@ joinbuf_join(struct JoinBuf *jbuf, struct Channel *chan, unsigned int flags)
                                          CMD_MODE, chan, NULL, 0, "%H +o %C",
 					 chan, jbuf->jb_source);
     } else if (MyUser(jbuf->jb_source)) {
-      if (CapActive(jbuf->jb_source, CAP_EXTJOIN))
-        sendcmdto_one(jbuf->jb_source, CMD_JOIN, jbuf->jb_source, "%H %s :%s", chan,
+      /* Use tag-aware send so batch=/label=/time= tags are included */
+      if (CapRecipientHas(jbuf->jb_source, CAP_EXTJOIN))
+        sendcmdto_one_tags(jbuf->jb_source, CMD_JOIN, jbuf->jb_source, "%H %s :%s", chan,
                       IsAccount(jbuf->jb_source) ? cli_account(jbuf->jb_source) : "*",
                       cli_info(jbuf->jb_source));
       else
-        sendcmdto_one(jbuf->jb_source, CMD_JOIN, jbuf->jb_source, ":%H", chan);
+        sendcmdto_one_tags(jbuf->jb_source, CMD_JOIN, jbuf->jb_source, ":%H", chan);
+
+#ifdef USE_ROCKSDB
+      /* Store DELJOINS JOIN event in history (receiver-side) */
+      store_channel_event(jbuf->jb_source, chan, "", HISTORY_JOIN, join_msgid,
+                          memb ? (uint64_t)memb->join_tv.tv_sec * 1000
+                                 + memb->join_tv.tv_usec / 1000 : 0);
+#endif
     }
+
+    /* Clear msgid override after all JOIN sends */
+    sendcmdto_set_client_msgid(NULL);
+    } /* end join_msgid scope */
+
+    /* Send post-join replies (TOPIC/NAMES) to local aliases.  Must be
+     * AFTER the JOIN echo above so clients see JOIN before NAMES. */
+    if (!IsBouncerAlias(jbuf->jb_source))
+      bounce_send_alias_join_replies(chan, jbuf->jb_source);
+
+    /* Send metadata subscription notifications for new channel member */
+    metadata_send_join_notifications(jbuf->jb_source, chan);
   }
 
   if (jbuf->jb_type == JOINBUF_TYPE_PARTALL ||
@@ -4938,8 +5763,18 @@ joinbuf_join(struct JoinBuf *jbuf, struct Channel *chan, unsigned int flags)
 
   /* figure out if channel name will cause buffer to be overflowed */
   len = chan ? strlen(chan->chname) + 1 : 2;
-  if (jbuf->jb_strlen + len > BUFSIZE)
+  if (jbuf->jb_strlen + len > BUFSIZE) {
+    /* This channel's msgid is already in slot jb_count (minted or
+     * pre-populated above), but the flush sends the slots before it and
+     * empties them all, and this channel becomes slot 0 of the next
+     * batch: carry its msgid there, or the next batch relays it under
+     * no msgid (before the flush emptied the slots: under the first
+     * flushed channel's). */
+    char cur_msgid[sizeof(jbuf->jb_msgids[0])];
+    memcpy(cur_msgid, jbuf->jb_msgids[jbuf->jb_count], sizeof(cur_msgid));
     joinbuf_flush(jbuf);
+    memcpy(jbuf->jb_msgids[0], cur_msgid, sizeof(cur_msgid));
+  }
 
   /* add channel to list of channels to send and update counts */
   jbuf->jb_channels[jbuf->jb_count++] = chan;
@@ -4961,18 +5796,28 @@ joinbuf_flush(struct JoinBuf *jbuf)
   char *p = 0;
   int chanlist_i = 0;
   int i;
+  int saved_count;
 
   if (!jbuf->jb_count || jbuf->jb_type == JOINBUF_TYPE_PARTALL ||
       jbuf->jb_type == JOINBUF_TYPE_JOIN)
     return 0; /* no joins to process */
 
+  saved_count = jbuf->jb_count;
+
   for (i = 0; i < jbuf->jb_count; i++) { /* build channel list */
     build_string(chanlist, &chanlist_i,
 		 jbuf->jb_channels[i] ? jbuf->jb_channels[i]->chname : "0", 0,
 		 i == 0 ? '\0' : ',');
-    if (JOINBUF_TYPE_PART == jbuf->jb_type)
-      /* Remove user from channel */
+    if (JOINBUF_TYPE_PART == jbuf->jb_type) {
+      /* Remove user from channel.  The presence hook closes at the
+       * PART's own event time (this slot's msgid, the batch time):
+       * closing at receipt time here let every observing server stamp
+       * a different, later interval end (audit 2026-09-06 P2). */
+      presence_set_event_time(presence_event_time(jbuf->jb_msgids[i],
+                                                  jbuf->jb_msgid_time_ms));
       remove_user_from_channel(jbuf->jb_source, jbuf->jb_channels[i]);
+      presence_set_event_time(0);
+    }
 
     jbuf->jb_channels[i] = 0; /* mark slot empty */
   }
@@ -4982,9 +5827,37 @@ joinbuf_flush(struct JoinBuf *jbuf)
 		      STARTJOINLEN : STARTCREATELEN) +
 		     (jbuf->jb_comment ? strlen(jbuf->jb_comment) + 2 : 0));
 
+  /* Build multi-msgid S2S tag: @A<time_7><msgid1>+<msgid2>+...
+   * Each msgid corresponds positionally to a channel in the comma list.
+   * Old servers extract only the first msgid (backwards compatible). */
+  if (jbuf->jb_msgids[0][0] && jbuf->jb_msgid_time_ms
+      && feature_bool(FEAT_P10_MESSAGE_TAGS)) {
+    char s2s_tag[256];
+    char time_b64[8];
+    int pos;
+
+    inttobase64_64(time_b64, jbuf->jb_msgid_time_ms, 7);
+    pos = ircd_snprintf(0, s2s_tag, sizeof(s2s_tag), "@A%s%s",
+                        time_b64, jbuf->jb_msgids[0]);
+    for (i = 1; i < saved_count && pos < (int)sizeof(s2s_tag) - 16; i++) {
+      if (jbuf->jb_msgids[i][0])
+        pos += ircd_snprintf(0, s2s_tag + pos, sizeof(s2s_tag) - pos,
+                             "+%s", jbuf->jb_msgids[i]);
+    }
+    /* Trailing space required by tag format */
+    if (pos < (int)sizeof(s2s_tag) - 1) {
+      s2s_tag[pos++] = ' ';
+      s2s_tag[pos] = '\0';
+    }
+    sendcmdto_set_s2s_raw_tags(s2s_tag);
+  }
+
   /* and send the appropriate command */
   switch (jbuf->jb_type) {
   case JOINBUF_TYPE_CREATE:
+    if (jbuf->jb_alias_source)
+      sendcmdto_set_alias_source(jbuf->jb_alias_source);
+    sendcmdto_want_s2s_tags(1);
     sendcmdto_serv_butone(jbuf->jb_source, CMD_CREATE, jbuf->jb_connect,
 			  "%s %Tu", chanlist, jbuf->jb_create);
     if (feature_bool(FEAT_AUTOCHANMODES) && feature_str(FEAT_AUTOCHANMODES_LIST)
@@ -4998,11 +5871,21 @@ joinbuf_flush(struct JoinBuf *jbuf)
     break;
 
   case JOINBUF_TYPE_PART:
+    if (jbuf->jb_alias_source)
+      sendcmdto_set_alias_source(jbuf->jb_alias_source);
+    sendcmdto_want_s2s_tags(1);
     sendcmdto_serv_butone(jbuf->jb_source, CMD_PART, jbuf->jb_connect,
 			  jbuf->jb_comment ? "%s :%s" : "%s", chanlist,
 			  jbuf->jb_comment);
     break;
   }
+
+  /* The slots belong to the batch just sent.  joinbuf_join takes a
+   * non-empty slot as a pre-populated msgid, so a slot left filled here
+   * gave the next batch's channels the msgids of this batch's (a local
+   * JOIN or PART of more than MAXJOINARGS channels echoed and stored
+   * channel 16 under channel 1's msgid). */
+  memset(jbuf->jb_msgids, 0, sizeof(jbuf->jb_msgids));
 
   return 0;
 }
@@ -5022,7 +5905,15 @@ int IsInvited(struct Client* cptr, const void* chptr)
 
 void RevealDelayedJoin(struct Membership *member)
 {
+  char reveal_msgid[64] = "";
+
   ClearDelayedJoin(member);
+
+  if (feature_bool(FEAT_MSGID)) {
+    generate_msgid(reveal_msgid, sizeof(reveal_msgid));
+    sendcmdto_set_client_event(reveal_msgid, history_event_time_ms(NULL));
+  }
+
   sendcmdto_channel_capab_butserv_butone(member->user, CMD_JOIN, member->channel,
                                    member->user, 0, CAP_NONE, CAP_EXTJOIN, "%H",
                                    member->channel);
@@ -5035,6 +5926,13 @@ void RevealDelayedJoin(struct Membership *member)
     sendcmdto_channel_capab_butserv_butone(member->user, CMD_AWAY, member->channel, NULL, 0,
                                            CAP_AWAYNOTIFY, CAP_NONE, ":%s",
                                            cli_user(member->user)->away);
+
+  sendcmdto_set_client_msgid(NULL);
+
+#ifdef USE_ROCKSDB
+  store_channel_event(member->user, member->channel, "", HISTORY_JOIN,
+                      reveal_msgid[0] ? reveal_msgid : NULL, 0);
+#endif
 
   CheckDelayedJoins(member->channel);
 }

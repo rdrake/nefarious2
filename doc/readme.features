@@ -813,6 +813,18 @@ This is the maximum number of seconds to wait for the ident lookup and
 the DNS query to succeed.  On older (pre 2.10.11.06) servers this was
 hard coded to 60 seconds.
 
+BOUNCER_MAX_ALIASES
+ * Type: integer
+ * Default: 4
+
+Maximum number of simultaneous alias connections (additional clients on
+the same account attaching to one bouncer session) this server will
+ADMIT locally.  Settable at runtime with /SET, clamped to the compiled
+array size (16).  Lowering it never disturbs existing aliases; it only
+gates new attach attempts.  A connection refused here (and unable to
+attach any other way) is rejected with "Account already has an active
+session on this network".
+
 IPCHECK_CLONE_LIMIT
  * Type: integer
  * Default: 4
@@ -840,6 +852,65 @@ code kicks in.  Even if a user connects repetitively during this period,
 they will never get throttled.  This is so after a restart users on a
 multiuser box can all connect to a server simultaniously without being
 considered an attack.
+
+STATS ipcheck <server> [<address>] (any oper, local included, from any
+server) shows what the throttle knows.  Without an address: how many
+addresses it holds and how many connections it counts, the limit, period
+and grace in force, the SASL refund table's occupancy, and the ten
+busiest addresses.  With one: that address's entry -- its live count,
+its attempts, how long since its last connect or drop, its free targets
+-- and whether its next connection would be accepted or refused, and for
+how long.  A mask or a wildcard is refused: the read-out is of one entry.
+An IPv4 address has an entry of its own (/32); an IPv6 address shares
+one with its whole /64; a 6to4 address (2002::/16) is keyed on its /48,
+the IPv4 address it embeds.
+
+IPCHECK_COUNT_REFUSALS
+ * Type: boolean
+ * Default: TRUE
+
+Whether a connection the throttle refuses counts as a connection attempt
+and renews the IPCHECK_CLONE_PERIOD window, as it always has.  Set to
+FALSE, a refusal leaves no trace, so a client that keeps retrying gets
+back in IPCHECK_CLONE_PERIOD seconds after its last accepted connection
+rather than after its last retry.  The check when a connection arrives is
+otherwise unchanged.
+
+IPCHECK_SASL_REFUND
+ * Type: integer
+ * Default: 0
+
+The number of times per IPCHECK_SASL_REFUND_PERIOD seconds that one
+account may have a connection attempt given back.  When a connection logs
+in with SASL and registers, the attempt IPcheck charged its address at the
+accept is refunded (attempts goes down by one; the window itself is not
+moved), so an account holder whose device reconnects often -- a web
+client on a phone loses its socket at every app switch, and every return
+is a new connection -- is not throttled for it.  A connection the address
+already counts as its first (a return after a quiet gap) has nothing to
+give back and spends none of the account's refunds.  A failed or missing
+login earns nothing, and the check when a connection arrives is
+unchanged: an address without credentials is still refused at its
+IPCHECK_CLONE_LIMIT-th connection within the window, before any TLS.
+
+Weigh this before enabling it: the count a refund lowers is the address's,
+not the connection's.  The room it frees is there for every connection
+from that address, anonymous ones included, so each refund lets one more
+connection of any kind in before the address reaches IPCHECK_CLONE_LIMIT.
+Someone holding several accounts can free up to this many times the
+number of accounts per period for their address.
+
+The counts are kept in memory only, in a fixed table of 4096 accounts
+hashed into buckets of four.  An account whose bucket is full of other
+accounts' live windows gets no refund until one of them ends; it is
+throttled exactly as without this feature.  0 disables refunds.
+
+IPCHECK_SASL_REFUND_PERIOD
+ * Type: integer
+ * Default: 600
+
+The length in seconds of the window IPCHECK_SASL_REFUND counts refunds
+in, per account, from that account's first refund in it.
 
 SOCKSENDBUF
  * Type: integer
@@ -1198,6 +1269,62 @@ SASL_TIMEOUT
   * Default: 8
 
 Specifies the number of seconds before an SASL request should timeout.
+
+SASL_TRUSTED_AUTHZID
+  * Type: string
+  * Default: (none)
+
+Comma- or space-separated list of account names permitted to assert a SASL
+authorization identity (authzid) different from the authenticated identity
+(authcid) -- i.e. accounts allowed to log in on behalf of another account,
+such as a service/bouncer gateway. When empty (the default), any asserted
+authzid that differs from the authcid is ignored and the client is logged in
+as the authenticated authcid. Matching is case-insensitive and exact (no
+prefix match). Leave this empty unless you operate a trusted service that
+must impersonate users.
+
+KEYCLOAK_ISSUER
+  * Type: string
+  * Default: (none)
+
+Expected iss (issuer) claim for OAUTHBEARER JWT access tokens. When set, a
+locally-validated token whose issuer does not exactly match this value is
+rejected. This is Keycloak's front-end issuer URL (e.g.
+https://kc.example.net/realms/myrealm), which is NOT necessarily the internal
+KEYCLOAK_URL the server connects to. Also settable as "issuer" in a Keycloak {}
+block. Ignored when KEYCLOAK_INSECURE_TOKEN_VALIDATION is enabled. When empty
+and insecure validation is off, OAUTHBEARER local validation fails closed.
+
+Note: if a Keycloak {} block is present, put ALL Keycloak settings inside it.
+The block overwrites the KEYCLOAK_* features (including any left unset in the
+block, which reset to empty), so do not split Keycloak configuration between a
+Keycloak {} block and KEYCLOAK_* F: feature lines.
+
+KEYCLOAK_ALLOWED_CLIENTS
+  * Type: string
+  * Default: (none)
+
+Comma- or space-separated list of Keycloak client identifiers (the token azp /
+authorized-party claim) permitted to authenticate via OAUTHBEARER. Keycloak
+sets the JWT audience to "account" for every client, so azp is the only claim
+that identifies the issuing client. A locally-validated token whose azp is not
+in this list is rejected. Matching is case-insensitive. Also settable as
+"allowed_clients" in a Keycloak {} block. Ignored when
+KEYCLOAK_INSECURE_TOKEN_VALIDATION is enabled. When empty and insecure
+validation is off, OAUTHBEARER local validation fails closed.
+
+KEYCLOAK_INSECURE_TOKEN_VALIDATION
+  * Type: boolean
+  * Default: FALSE
+
+DEVELOPMENT/TEST ONLY -- do not enable in production. When TRUE, OAUTHBEARER
+JWT validation skips the issuer (KEYCLOAK_ISSUER) and authorized-client
+(KEYCLOAK_ALLOWED_CLIENTS) checks. The JWKS signature, expiry (exp) and
+not-before (nbf) checks are still enforced. This exists so a test network whose
+Keycloak issues tokens with an unstable issuer URL (e.g. a container IP) can use
+OAUTHBEARER without pinning issuer/client. Enabling it re-opens the hole where a
+token issued to any client in the realm can authenticate as its subject. Also
+settable as "insecure_token_validation" in a Keycloak {} block.
 
 NOMULTITARGETS
   * Type: boolean
@@ -1804,3 +1931,58 @@ UPING_PORT
 
 The default UDP ping server port. Change requires a restart of the
 IRCd.
+
+REGISTER_VERIFY_EMAIL
+ * Type: boolean
+ * Default: FALSE
+
+Controls whether accounts created via the IRCv3 draft/account-registration
+REGISTER command require e-mail verification before they are usable. When
+enabled, REGISTER creates the Keycloak account with emailVerified set to
+false and a pending VERIFY_EMAIL required action; Keycloak mails the
+verification link and the client is sent a REGISTER VERIFICATION_REQUIRED
+reply instead of being logged in. The draft/account-registration CAP 302
+value also gains the "email-required" token so clients can detect the
+policy before registering. When disabled, REGISTER creates a fully usable,
+already-verified account and logs the client in immediately.
+
+Both SASL PLAIN and SASL SCRAM-SHA-256 gate on the same signal: a
+pending VERIFY_EMAIL required action on the Keycloak account (PLAIN via
+the ROPC "Account is not fully set up" error, SCRAM via the
+requiredActions field fetched with the user).  Accounts that predate
+this feature have emailVerified=false but no pending required action,
+so enabling the policy does not lock them out of either mechanism; only
+accounts created by REGISTER while the policy is on (which carry the
+required action until the verification link is followed) are held to
+verification.
+
+REGISTER_THROTTLE_LIMIT
+ * Type: integer
+ * Default: 3
+
+Maximum counted REGISTER attempts per client IP address (per /64 for
+IPv6) within REGISTER_THROTTLE_PERIOD seconds.  Attempts are counted,
+not successes: a rejected duplicate account name or a failed backend
+call still consumes budget, so account-name enumeration is rate-limited
+too.  A throttled client receives FAIL REGISTER RATE_LIMITED.  IRC
+operators bypass the throttle.  0 disables the per-IP limiter.
+
+REGISTER_THROTTLE_PERIOD
+ * Type: integer
+ * Default: 3600
+
+The window, in seconds, for both REGISTER_THROTTLE_LIMIT and
+REGISTER_THROTTLE_GLOBAL.  A client's per-IP window resets once this
+many seconds pass after its last counted attempt.  0 disables both
+limiters.
+
+REGISTER_THROTTLE_GLOBAL
+ * Type: integer
+ * Default: 60
+
+Server-wide cap on counted REGISTER attempts per
+REGISTER_THROTTLE_PERIOD, regardless of source IP -- the backstop that
+bounds account minting from a botnet spread across many addresses.
+Trips are logged at L_WARNING.  Note this is per-server, not
+per-network: each server enforces its own budget.  0 disables the
+global limiter.

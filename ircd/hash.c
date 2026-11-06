@@ -214,6 +214,23 @@ int hRemChannel(struct Channel *chptr)
   return -1;
 }
 
+/** Rename a channel in the hash table.
+ * @param[in] chptr Channel whose name is changing.
+ * @param[in] newname New name for channel.
+ * @return Zero on success.
+ */
+int hChangeChannel(struct Channel *chptr, const char *newname)
+{
+  HASHREGS newhash = strhash(newname);
+
+  assert(0 != chptr);
+  hRemChannel(chptr);
+
+  chptr->hnext = channelTable[newhash];
+  channelTable[newhash] = chptr;
+  return 0;
+}
+
 /** Find a client by name, filtered by status mask.
  * If a client is found, it is moved to the top of its hash bucket.
  * @param[in] name Client name to search for.
@@ -484,9 +501,14 @@ void list_next_channels(struct Client *cptr)
   /* If we did all buckets, clean the client and send RPL_LISTEND. */
   if (args->bucket >= HASHSIZE)
   {
+    char saved_batch[16];
+    ircd_strncpy(saved_batch, args->batch_id, sizeof(saved_batch));
     MyFree(cli_listing(cptr));
     cli_listing(cptr) = NULL;
     send_reply(cptr, RPL_LISTEND);
+    /* Close the labeled-response batch opened in m_list for async LIST */
+    if (saved_batch[0] && has_active_batch(cptr))
+      send_batch_end(cptr);
   }
 }
 

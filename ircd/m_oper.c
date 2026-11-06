@@ -101,13 +101,110 @@
 #include "s_debug.h"
 #include "s_user.h"
 #include "s_misc.h"
+#include "s_bsd.h"
 #include "send.h"
+#include "bouncer_session.h"
 
 /* #include <assert.h> -- Now using assert in ircd_log.h */
 #include <stdlib.h>
 #include <string.h>
 
-void do_oper(struct Client* cptr, struct Client* sptr, struct ConfItem* aconf)
+/* Forward declarations */
+void do_oper(struct Client* cptr, struct Client* sptr, struct ConfItem* aconf, int flags);
+
+/**
+ * Context for async OPER password verification.
+ * This is passed to the thread pool callback.
+ */
+struct oper_verify_ctx {
+  int fd;                         /**< Client file descriptor */
+  unsigned int cookie;            /**< Unique cookie to verify client identity */
+  char name[NICKLEN + 1];         /**< Oper name for logging */
+  struct ConfItem *aconf;         /**< Oper config block */
+};
+
+/**
+ * Callback invoked when async OPER password verification completes.
+ * Called in main thread context via thread_pool_poll().
+ */
+static void oper_password_verified(int result, void *arg)
+{
+  struct oper_verify_ctx *ctx = arg;
+  struct Client *sptr;
+
+  /* Look up client by fd */
+  if (ctx->fd < 0 || ctx->fd >= MAXCONNECTIONS) {
+    MyFree(ctx);
+    return;
+  }
+
+  sptr = LocalClientArray[ctx->fd];
+
+  /* Verify client still exists and matches our cookie */
+  if (!sptr || IsDead(sptr) || !IsOperPending(sptr)) {
+    Debug((DEBUG_DEBUG, "oper_password_verified: client gone or not pending "
+           "(fd %d)", ctx->fd));
+    MyFree(ctx);
+    return;
+  }
+
+  /* Clear pending flag */
+  ClearOperPending(sptr);
+
+  if (result == CRYPT_VERIFY_MATCH) {
+    /* Password matched - complete OPER */
+    if (MyUser(sptr)) {
+      int attach_result = attach_conf(sptr, ctx->aconf);
+      if ((ACR_OK != attach_result) && (ACR_ALREADY_AUTHORIZED != attach_result)) {
+        send_reply(sptr, ERR_NOOPERHOST);
+        sendto_opmask_butone_global(&me, SNO_OLDREALOP,
+            "Failed OPER attempt by %s (%s@%s) (attach failed after async)",
+            cli_name(sptr), cli_user(sptr)->username, cli_user(sptr)->realhost);
+        MyFree(ctx);
+        return;
+      }
+    }
+    do_oper(sptr, sptr, ctx->aconf, 0);
+    SetOperedLocal(sptr);
+    ClearOperedRemote(sptr);
+    Debug((DEBUG_INFO, "oper_password_verified: OPER success for %s",
+           cli_name(sptr)));
+  } else {
+    /* Password didn't match */
+    send_reply(sptr, ERR_PASSWDMISMATCH);
+    sendto_opmask_butone_global(&me, SNO_OLDREALOP,
+        "Failed OPER attempt by %s (%s@%s) (password mismatch)",
+        cli_name(sptr), cli_user(sptr)->username, cli_user(sptr)->realhost);
+    Debug((DEBUG_INFO, "oper_password_verified: OPER failed for %s",
+           cli_name(sptr)));
+  }
+
+  MyFree(ctx);
+}
+
+/** Copy @a modes into @a buf (of @a size) without any 'b'.  b is the
+ * bouncer hold (+b joins or makes the account's session, -b ends it): a
+ * mode string applied by do_oper() would run that in the middle of the
+ * OPER, on a client that may just have become an alias.  A hold is the
+ * user's own choice, never an Operator block's (W3 final fix wave).
+ * @return 1 when a 'b' was left out. */
+static int oper_umode_without_b(char *buf, size_t size, const char *modes)
+{
+  size_t n = 0;
+  int dropped = 0;
+
+  for (; *modes && n + 1 < size; modes++) {
+    if (*modes == 'b') {
+      dropped = 1;
+      continue;
+    }
+    buf[n++] = *modes;
+  }
+  buf[n] = '\0';
+  return dropped;
+}
+
+void do_oper(struct Client* cptr, struct Client* sptr, struct ConfItem* aconf, int flags)
 {
   struct Flags old_mode = cli_flags(sptr);
   char*        modes;
@@ -117,6 +214,7 @@ void do_oper(struct Client* cptr, struct Client* sptr, struct ConfItem* aconf)
   char*        ajoinchan;
   char*        ajoinnotice;
   unsigned int snomask = 0;
+  char         umode_buf[BUFSIZE];
 
   parv[0] = cli_name(sptr);
   parv[1] = NULL;
@@ -139,8 +237,7 @@ void do_oper(struct Client* cptr, struct Client* sptr, struct ConfItem* aconf)
       SetOper(sptr);
       if (HasPriv(sptr, PRIV_ADMIN))
         SetAdmin(sptr);
-      if (!IsHideOper(sptr) && !IsChannelService(sptr) && !IsBot(sptr))
-        ++UserStats.opers;
+      userstats_count_sync(sptr); /* count +o (flag-keyed source of truth) */
     }
     cli_handler(sptr) = OPER_HANDLER;
 
@@ -175,6 +272,14 @@ void do_oper(struct Client* cptr, struct Client* sptr, struct ConfItem* aconf)
   }
 
   modes = ConfUmode(aconf);
+  if (modes && oper_umode_without_b(umode_buf, sizeof(umode_buf), modes)) {
+    log_write(LS_OPER, L_WARNING, 0, "OPER (%s) by (%#C): the umode \"%s\" "
+              "of its class %s has b, which is not applied (a bouncer hold "
+              "is the user's own)", aconf->name, sptr, modes,
+              aconf->conn_class ? aconf->conn_class->cc_name : "*");
+    /* Nothing left but signs: no mode change to apply. */
+    modes = umode_buf[strspn(umode_buf, "+-")] ? umode_buf : NULL;
+  }
   if (modes) {
     if (MyUser(sptr)) {
       char *umodev[] = { NULL, NULL, NULL, NULL };
@@ -193,6 +298,41 @@ void do_oper(struct Client* cptr, struct Client* sptr, struct ConfItem* aconf)
         sendcmdto_one(&me, CMD_MODE, sptr, "%s %s", cli_name(sptr), modes);
     }
   }
+
+  /* Record the oper grant on the session record so the state survives
+   * primary changes (promote/demote) and server restart.  No-op for
+   * clients without a bouncer session (oper without an account).
+   * Propagate the grant to every other server so cross-server alias
+   * promote / server restart elsewhere can apply it without rerunning
+   * /OPER.  P10 MODE +o (via send_umode_out above) already covers the
+   * live flag on remote primaries — BS O is for the session record.
+   *
+   * Use bounce_mark_dirty (not a manual hs_dirty=1) so the periodic
+   * persist timer actually arms: the record is written at its next tick
+   * (BOUNCER_PERSIST_INTERVAL), else only by the next dirty event or a
+   * graceful shutdown (`/RESTART`, `/DIE`, SIGTERM: bounce_db_shutdown).
+   * An abrupt termination (SIGKILL, container kill, OOM) brings a live
+   * session back only when its record carries the restart marker -- hold
+   * on, primary here, no device on another server (bounce_record_stamp())
+   * -- and as that record has it: with the grant once this tick has
+   * written it, without it before (fails closed).  A grant's clear (-o,
+   * -O, BS O) does not wait: it is written at once
+   * (bounce_session_persist_now()). */
+  {
+    struct BouncerSession *sess = bounce_get_session(sptr);
+    if (sess) {
+      ircd_strncpy(sess->hs_oper_name, aconf->name,
+                   sizeof(sess->hs_oper_name));
+      sess->hs_oper_granted_at = CurrentTime;
+      bounce_mark_dirty(sptr);
+      bounce_broadcast(sess, 'O', aconf->name);
+    }
+  }
+
+  /* Sync oper mode flags across all members of this client's bouncer
+   * session — handles /OPER on alias as well as on primary.  Must be
+   * after all mode and ConfUmode changes are applied. */
+  bounce_sync_session_umodes(sptr, NULL, sptr);
 
   send_reply(sptr, RPL_YOUREOPER);
 
@@ -238,16 +378,18 @@ void do_oper(struct Client* cptr, struct Client* sptr, struct ConfItem* aconf)
     sendcmdto_serv_butone(&me, CMD_SWHOIS, NULL, "%C :%s", sptr, aconf->swhois);
   }
 
-  sendto_opmask_butone_global((MyUser(sptr) ? &me : NULL), SNO_OLDSNO,
-     "%s (%s@%s) is now a %s operator (%c)",
-     cli_name(sptr), cli_user(sptr)->username, cli_user(sptr)->realhost,
-     HasPriv(sptr, PRIV_PROPAGATE) ? "global" : "local",
-     HasPriv(sptr, PRIV_PROPAGATE) ? 'O' : 'o');
+  if (!(flags & OPER_FLAG_SILENT)) {
+    sendto_opmask_butone_global((MyUser(sptr) ? &me : NULL), SNO_OLDSNO,
+       "%s (%s@%s) is now a %s operator (%c)",
+       cli_name(sptr), cli_user(sptr)->username, cli_user(sptr)->realhost,
+       HasPriv(sptr, PRIV_PROPAGATE) ? "global" : "local",
+       HasPriv(sptr, PRIV_PROPAGATE) ? 'O' : 'o');
 
-  if (feature_bool(FEAT_OPERMOTD))
-    m_opermotd(sptr, sptr, 1, parv);
+    if (feature_bool(FEAT_OPERMOTD))
+      m_opermotd(sptr, sptr, 1, parv);
 
-  log_write(LS_OPER, L_INFO, 0, "OPER (%s) by (%#C)", aconf->name, sptr);
+    log_write(LS_OPER, L_INFO, 0, "OPER (%s) by (%#C)", aconf->name, sptr);
+  }
 }
 
 int can_oper(struct Client *cptr, struct Client *sptr, char *name,
@@ -288,6 +430,36 @@ int can_oper(struct Client *cptr, struct Client *sptr, char *name,
     return 0;
   }
 
+  /*
+   * Try async password verification if available.
+   * This prevents blocking the event loop during bcrypt/PBKDF2 hashing.
+   * Falls back to synchronous verification if async is not available.
+   */
+  if (MyUser(sptr) && ircd_crypt_async_available() && !IsOperPending(sptr)) {
+    struct oper_verify_ctx *ctx;
+
+    ctx = (struct oper_verify_ctx *)MyMalloc(sizeof(struct oper_verify_ctx));
+    ctx->fd = cli_fd(sptr);
+    ctx->aconf = aconf;
+    ircd_strncpy(ctx->name, name, NICKLEN + 1);
+
+    if (ircd_crypt_verify_async(password, aconf->passwd,
+                                 oper_password_verified, ctx) == 0) {
+      /* Async verification started */
+      SetOperPending(sptr);
+      Debug((DEBUG_INFO, "can_oper: started async verification for %s",
+             cli_name(sptr)));
+      *_aconf = aconf;
+      return 1; /* Return 1 = pending async */
+    }
+
+    /* Async failed to start, fall back to sync */
+    MyFree(ctx);
+    Debug((DEBUG_DEBUG, "can_oper: async failed, falling back to sync for %s",
+           cli_name(sptr)));
+  }
+
+  /* Synchronous password verification (blocking) */
   if (oper_password_match(password, aconf->passwd))
   {
     if (MyUser(sptr))
@@ -356,10 +528,23 @@ int m_oper(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
   if (EmptyString(name) || EmptyString(password))
     return need_more_params(sptr, "OPER");
 
-  if (can_oper(cptr, sptr, name, password, &aconf)) {
-    do_oper(cptr, sptr, aconf);
-    SetOperedLocal(sptr);
-    ClearOperedRemote(sptr);
+  /* Reject if async verification already in progress */
+  if (IsOperPending(sptr)) {
+    sendcmdto_one(&me, CMD_NOTICE, sptr, "%C :OPER authentication already in progress",
+                  sptr);
+    return 0;
+  }
+
+  {
+    int result = can_oper(cptr, sptr, name, password, &aconf);
+    if (result == -1) {
+      /* Sync verification succeeded */
+      do_oper(cptr, sptr, aconf, 0);
+      SetOperedLocal(sptr);
+      ClearOperedRemote(sptr);
+    }
+    /* result == 1 means async pending, callback will handle it */
+    /* result == 0 means failed, error already sent */
   }
 
   return 0;
@@ -392,7 +577,7 @@ int ms_oper(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
     }
 
     if (can_oper(cptr, sptr, parv[2], parv[3], &aconf))
-      do_oper(cptr, sptr, aconf);
+      do_oper(cptr, sptr, aconf, 0);
   } else if (!IsServer(sptr))
     send_reply(sptr, RPL_YOUREOPER);
 

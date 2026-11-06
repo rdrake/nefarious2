@@ -35,6 +35,7 @@
 #include "ircd_string.h"
 #include "match.h"
 #include "numeric.h"
+#include "paste_listener.h"
 #include "s_bsd.h"
 #include "s_conf.h"
 #include "s_misc.h"
@@ -131,7 +132,7 @@ void show_ports(struct Client* sptr, const struct StatDesc* sd,
                 char* param)
 {
   struct Listener *listener = 0;
-  char flags[9];
+  char flags[12];
   char bindip[SOCKIPLEN];
   int show_hidden = IsOper(sptr);
   int count = (IsOper(sptr) || MyUser(sptr)) ? 100 : 8;
@@ -170,6 +171,12 @@ void show_ports(struct Client* sptr, const struct StatDesc* sd,
       if (listener->fd_v6 < 0)
         flags[len++] = '-';
     }
+    if (FlagHas(&listener->flags, LISTEN_WEBSOCKET))
+      flags[len++] = 'W';
+    if (FlagHas(&listener->flags, LISTEN_WEBSOCKET_AUTO))
+      flags[len++] = 'A';
+    if (FlagHas(&listener->flags, LISTEN_PASTE))
+      flags[len++] = 'P';
     flags[len] = '\0';
 
     if (irc_in_addr_unspec(&listener->addr.addr))
@@ -252,10 +259,19 @@ static int inetport(struct Listener* listener, int family)
   fd = os_socket(&listener->addr, SOCK_STREAM, get_listener_name(listener), family);
   if (fd < 0)
     return -1;
-  if (!os_set_listen(fd, HYBRID_SOMAXCONN)) {
-    report_error(LISTEN_ERROR_MSG, get_listener_name(listener), errno);
-    close(fd);
-    return -1;
+  /* listen(2) is deferred to start_all_listeners() if we're still in
+   * pre-event-loop init.  Until then the socket is bound but not
+   * listening, so kernel returns RST → clients get ECONNREFUSED and
+   * retry naturally instead of TCP-handshaking into a backlog that
+   * userspace can't drain (rocksdb DB::Open keeps the main thread
+   * busy for tens of seconds under valgrind).  After boot it's safe
+   * to listen() immediately. */
+  if (server_boot_complete) {
+    if (!os_set_listen(fd, HYBRID_SOMAXCONN)) {
+      report_error(LISTEN_ERROR_MSG, get_listener_name(listener), errno);
+      close(fd);
+      return -1;
+    }
   }
   if (!set_listener_options(listener, fd, family))
     return -1;
@@ -268,6 +284,22 @@ static int inetport(struct Listener* listener, int family)
   }
 
   return fd;
+}
+
+/** Issue listen(2) on every listener fd that hasn't been listened on
+ * yet.  Called once at the end of init, just before event_loop(),
+ * after slow subsystem opens (rocksdb DB::Open, libkc init, bouncer
+ * restore) have completed.  Safe to call multiple times — listen()
+ * on an already-listening socket is a no-op. */
+void start_all_listeners(void)
+{
+  struct Listener* listener;
+  for (listener = ListenerPollList; listener; listener = listener->next) {
+    if (listener->fd_v4 >= 0 && !os_set_listen(listener->fd_v4, HYBRID_SOMAXCONN))
+      report_error(LISTEN_ERROR_MSG, get_listener_name(listener), errno);
+    if (listener->fd_v6 >= 0 && !os_set_listen(listener->fd_v6, HYBRID_SOMAXCONN))
+      report_error(LISTEN_ERROR_MSG, get_listener_name(listener), errno);
+  }
 }
 
 /** Find the listener (if any) for a particular port and address.
@@ -412,6 +444,33 @@ void close_listener(struct Listener* listener)
   free_listener(listener);
 }
 
+/** Stop accepting connections: close every listening socket but keep the
+ * Listener structures, which attached clients still point at.  For the
+ * shutdown paths.  The database shutdowns that follow there can take
+ * seconds, during which a listener left open kept accepting: those
+ * connections were never served (the event loop was not running), and
+ * the ports stayed held against the replacement process.  A closed
+ * socket refuses at once, so a reconnecting client meets the new server
+ * or a clean refusal, never a socket that sits until exit. */
+void stop_listeners(void)
+{
+  struct Listener* listener;
+
+  for (listener = ListenerPollList; listener; listener = listener->next) {
+    FlagClr(&listener->flags, LISTEN_ACTIVE);
+    if (-1 < listener->fd_v4) {
+      socket_del(&listener->socket_v4);
+      close(listener->fd_v4);
+      listener->fd_v4 = -1;
+    }
+    if (-1 < listener->fd_v6) {
+      socket_del(&listener->socket_v6);
+      close(listener->fd_v6);
+      listener->fd_v6 = -1;
+    }
+  }
+}
+
 /** Close all inactive listeners. */
 void close_listeners(void)
 {
@@ -503,7 +562,15 @@ static void accept_connection(struct Event* ev)
       if (fd > MAXCLIENTS - 1)
       {
         ++ServerStats->is_ref;
-        send(fd, "ERROR :All connections in use\r\n", 32, 0);
+        /* Skip the plaintext ERROR on SSL/paste listeners — the client
+         * is mid-TLS-ClientHello, and writing "ERROR :..." into the raw
+         * fd makes OpenSSL parse those bytes as a TLS record (`E` 0x45
+         * isn't a valid content type, length parses as ~20000 > 16384)
+         * and surface a confusing "wrong version number" /
+         * "packet length too long" error.  A clean close gives the TLS
+         * client an unambiguous reset instead. */
+        if (!(listener_ssl(listener) || listener_paste(listener)))
+          send(fd, "ERROR :All connections in use\r\n", 32, 0);
         close(fd);
         return;
       }
@@ -515,7 +582,9 @@ static void accept_connection(struct Event* ev)
       if (!listener_active(listener))
       {
         ++ServerStats->is_ref;
-        send(fd, "ERROR :Use another port\r\n", 25, 0);
+        /* Same SSL/paste plaintext guard as the MAXCLIENTS branch above. */
+        if (!(listener_ssl(listener) || listener_paste(listener)))
+          send(fd, "ERROR :Use another port\r\n", 25, 0);
         close(fd);
         continue;
       }
@@ -525,14 +594,18 @@ static void accept_connection(struct Event* ev)
       if (!ipmask_check(&addr.addr, &listener->mask, listener->mask_bits))
       {
         ++ServerStats->is_ref;
-        send(fd, "ERROR :Use another port\r\n", 25, 0);
+        /* Same SSL/paste plaintext guard as the MAXCLIENTS branch above. */
+        if (!(listener_ssl(listener) || listener_paste(listener)))
+          send(fd, "ERROR :Use another port\r\n", 25, 0);
         close(fd);
         continue;
       }
       ++ServerStats->is_ac;
       /* nextping = CurrentTime; */
 #ifdef USE_SSL
-      if (listener_ssl(listener))
+      if (listener_paste(listener))
+        paste_accept_connection(listener, fd);
+      else if (listener_ssl(listener))
         ssl_add_connection(listener, fd);
       else
         add_connection(listener, fd, NULL);

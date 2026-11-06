@@ -95,10 +95,21 @@
 /** Maximum length for away messages.
  */
 #define AWAYLEN		250
+/** Maximum length of a channel name.
+ * Also defined in channel.h; having it here allows client.h to use it
+ * without creating a circular dependency.
+ */
+#ifndef CHANNELLEN
+#define CHANNELLEN	200
+#endif
 /** Exactly long enough to hold one protocol message (RFC 1459)
  * including the line termination (\\r\\n).  DO NOT CHANGE THIS!!!!
  */
 #define BUFSIZE         512
+/** IRCv3 message-tags: max tag data including leading '@' (8191 bytes). */
+#define IRCV3_TAG_MAX   8191
+/** Full IRCv3 message size: tags (8191) + command (512). */
+#define FULL_MSG_SIZE   (IRCV3_TAG_MAX + BUFSIZE)
 
 /** Maximum available targets for a user. */
 #define MAXTARGETS      20

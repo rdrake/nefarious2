@@ -156,6 +156,7 @@ int m_who(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
   char *p;                      /* Scratch char pointer                     */
   char *qrt;                    /* Pointer to the query type                */
   static char mymask[512];      /* To save the mask before corrupting it    */
+  int lb = labeled_batch_start(sptr);
 
   /* Let's find where is our mask, and if actually contains something */
   mask = ((parc > 1) ? parv[1] : 0);
@@ -349,6 +350,8 @@ int m_who(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
                     || ((member->status & CHFL_DELAYED)
                         && !(bitsel & WHOSELECT_DELAY))))
               continue;
+            if (IsMemberAlias(member))
+              continue;
             if (!(isthere || (SEE_USER(sptr, acptr, bitsel))))
               continue;
             if (!Process(acptr))        /* This can't be moved before other checks */
@@ -411,6 +414,8 @@ int m_who(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
           if (!(IsUser(acptr) && Process(acptr)))
             continue;           /* Now Process() is at the beginning, if we fail
                                    we'll never have to show this acptr in this query */
+          if (IsMemberAlias(member))
+            continue;
  	  if ((bitsel & WHOSELECT_OPER) && !SeeOper(sptr,acptr))
 	    continue;
           if ((mask) && (matchsel & WHO_FIELD_MRK)) {
@@ -449,13 +454,23 @@ int m_who(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
         }
       }
     }
-    /* Loop through all clients :-\, if we still have something to match to 
+    /* Loop through all clients :-\, if we still have something to match to
        and we can show more clients */
     if ((!(counter < 1)) && matchsel) {
       int matchmark = 0;
       for (acptr = cli_prev(&me); acptr; acptr = cli_prev(acptr))
       {
         if (!(IsUser(acptr) && Process(acptr)))
+          continue;
+        /* Bouncer aliases are internal session mirrors of a primary
+         * connection — they share nick/account/host with the primary
+         * and are not user-facing identities.  /WHO showing both the
+         * primary and its alias produces a duplicate entry that the
+         * user reads as "two ibutsus on different servers, one of
+         * them not really a bouncer", masking the actual session
+         * topology.  Skip aliases from the global-walk WHO output.
+         * Channel-scoped WHO already filters via IsMemberAlias above. */
+        if (IsBouncerAlias(acptr))
           continue;
 	if ((bitsel & WHOSELECT_OPER) && !SeeOper(sptr,acptr))
 	  continue;
@@ -506,5 +521,6 @@ int m_who(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
     send_reply(sptr, ERR_QUERYTOOLONG, BadPtr(mask) ? "*" : mask);
   send_reply(sptr, RPL_ENDOFWHO, BadPtr(mask) ? "*" : mask);
 
+  if (lb) labeled_batch_end(sptr);
   return 0;
 }

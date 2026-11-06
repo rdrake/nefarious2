@@ -36,7 +36,10 @@
 #include "config.h"
 
 #include "s_auth.h"
+#include "bouncer_session.h"
 #include "class.h"
+#include "dnsbl.h"
+#include "authtoken.h"
 #include "client.h"
 #include "hash.h"
 #include "IPcheck.h"
@@ -68,12 +71,19 @@
 #include "ssl.h"
 
 #include <errno.h>
+#include <limits.h>
 #include <string.h>
 #include <stdlib.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <sys/socket.h>
 #include <sys/ioctl.h>
+
+/** Maximum number of config/stats entries from IAuth to prevent DoS. */
+#define IAUTH_LIST_MAX 1000
+
+/** Circuit breaker threshold: consecutive timeouts before bypassing IAUTH_REQUIRED. */
+#define IAUTH_CIRCUIT_BREAKER_THRESHOLD 10
 
 /** Pending operations during registration. */
 enum AuthRequestFlag {
@@ -83,7 +93,8 @@ enum AuthRequestFlag {
     AR_NEEDS_PONG,      /**< user has not PONGed */
     AR_NEEDS_USER,      /**< user must send USER command */
     AR_NEEDS_NICK,      /**< user must send NICK command */
-    AR_LAST_SCAN = AR_NEEDS_NICK, /**< maximum flag to scan through */
+    AR_SASL_PENDING,    /**< SASL authentication in progress */
+    AR_LAST_SCAN = AR_SASL_PENDING, /**< maximum flag to scan through */
     AR_IAUTH_PENDING,   /**< iauth request sent, waiting for response */
     AR_IAUTH_HURRY,     /**< we told iauth to hurry up */
     AR_IAUTH_USERNAME,  /**< iauth sent a username (preferred or forced) */
@@ -91,6 +102,8 @@ enum AuthRequestFlag {
     AR_IAUTH_SOFT_DONE, /**< iauth has no objection to client */
     AR_PASSWORD_CHECKED, /**< client password already checked */
     AR_LOC_DONE,        /**< loc messages have been sent */
+    AR_DNSBL_PENDING,   /**< native DNSBL check pending */
+    AR_CAP_DONE,        /**< CAP negotiation completed (CAP END received) */
     AR_NUM_FLAGS
 };
 
@@ -109,27 +122,24 @@ struct AuthRequest {
   struct AuthRequestFlags flags;  /**< current state of request */
   unsigned int        cookie;     /**< cookie the user must PONG */
   unsigned short      port;       /**< client's remote port number */
+  struct DNSBLRequest *dnsbl_request; /**< native DNSBL check request */
+  char deferred_nick[NICKLEN + 1]; /**< nick deferred due to bouncer ghost collision */
 };
 
-/** Array of message text (with length) pairs for AUTH status
- * messages.  Indexed using #ReportType.
+/** Array of AUTH status message texts (CRLF is added by msgq).
+ * Indexed using #ReportType.
  */
-static struct {
-  const char*  message;
-  unsigned int length;
-} HeaderMessages [] = {
-#define MSG(STR) { STR, sizeof(STR) - 1 }
-  MSG("NOTICE * :*** Looking up your hostname\r\n"),
-  MSG("NOTICE * :*** Found your hostname\r\n"),
-  MSG("NOTICE * :*** Couldn't look up your hostname\r\n"),
-  MSG("NOTICE * :*** Checking Ident\r\n"),
-  MSG("NOTICE * :*** Got ident response\r\n"),
-  MSG("NOTICE * :*** No ident response\r\n"),
-  MSG("NOTICE * :*** \r\n"),
-  MSG("NOTICE * :*** Your forward and reverse DNS do not match, "
-    "ignoring hostname.\r\n"),
-  MSG("NOTICE * :*** Invalid hostname\r\n")
-#undef MSG
+static const char* HeaderMessages [] = {
+  "NOTICE * :*** Looking up your hostname",
+  "NOTICE * :*** Found your hostname",
+  "NOTICE * :*** Couldn't look up your hostname",
+  "NOTICE * :*** Checking Ident",
+  "NOTICE * :*** Got ident response",
+  "NOTICE * :*** No ident response",
+  "NOTICE * :*** ",
+  "NOTICE * :*** Your forward and reverse DNS do not match, "
+    "ignoring hostname.",
+  "NOTICE * :*** Invalid hostname"
 };
 
 /** Enum used to index messages in the HeaderMessages[] array. */
@@ -145,20 +155,28 @@ typedef enum {
   REPORT_INVAL_DNS
 } ReportType;
 
-/** Sends response \a r (from #ReportType) to client \a c. */
-#ifdef USE_SSL
+/** Sends response \a r (from #ReportType) to client \a c.
+ *
+ * Always goes through the client's sendQ (msgq appends the CRLF).
+ * This used to be a raw write() on plain sockets, which bypassed the
+ * IsWSNeedHandshake()/IsWSSniff() hold in deliver_it() and put bare
+ * IRC lines on the wire ahead of the HTTP 101 on plain-text WebSocket
+ * ports.  Queuing it means the hold applies, and once the handshake
+ * completes the notices are delivered as proper WebSocket frames.  For
+ * ordinary plain IRC ports the sendQ is flushed immediately, so the
+ * behaviour there is unchanged.
+ */
 #define sendheader(c, r) \
-   ssl_send(c, HeaderMessages[(r)].message, HeaderMessages[(r)].length)
-#else
-#define sendheader(c, r) \
-   send(cli_fd(c), HeaderMessages[(r)].message, HeaderMessages[(r)].length, 0)
-#endif /* USE_SSL */
+   do { sendrawto_one((c), "%s", HeaderMessages[(r)]); \
+        send_queued(c); } while (0)
 
 /** Enumeration of IAuth connection flags. */
 enum IAuthFlag
 {
   IAUTH_BLOCKED,                        /**< socket buffer full */
   IAUTH_CLOSING,                        /**< candidate to be disposed */
+  IAUTH_SPAWN_UNDO,                     /**< a failed spawn is deleting its
+                                         * sockets: no automatic respawn */
   /* The following flags are controlled by iauth's "O" options command. */
   IAUTH_ADDLINFO,                       /**< Send additional info
                                          * (password and username). */
@@ -195,9 +213,16 @@ struct IAuth {
   char i_errbuf[BUFSIZE+1];             /**< partial unprocessed error line */
   char *i_version;                      /**< iauth version string */
   struct SLink *i_config;               /**< configuration string list */
+  struct SLink *i_config_tail;          /**< tail of config list for O(1) append */
+  unsigned int i_config_count;          /**< number of config entries */
   struct SLink *i_stats;                /**< statistics string list */
+  struct SLink *i_stats_tail;           /**< tail of stats list for O(1) append */
+  unsigned int i_stats_count;           /**< number of stats entries */
+  char i_sasl_mechs[128];               /**< SASL mechanisms supported by IAuth */
   char **i_argv;                        /**< argument list */
   int i_argc;                           /**< number of arguments in argument list */
+  unsigned int i_timeout_count;         /**< consecutive auth timeout counter for circuit breaker */
+  int i_circuit_open;                   /**< 1 if circuit breaker is tripped (bypassing IAUTH_REQUIRED) */
 };
 
 /** Return whether flag \a flag is set on \a iauth. */
@@ -418,6 +443,12 @@ static void auth_loc_timeout_callback(struct Event* ev)
     auth = (struct AuthRequest*) t_data(ev_timer(ev));
     cptr = auth->client;
 
+    /* Client was freed (e.g. bouncer alias conversion) - clean up orphaned auth */
+    if (!cptr) {
+      destroy_auth_request(auth);
+      return;
+    }
+
     if (!cli_loc(cptr))
       return;
 
@@ -431,9 +462,11 @@ static void auth_loc_timeout_callback(struct Event* ev)
 static void auth_complete_sasl(struct Client *client)
 {
   if (IsSASLComplete(client) && cli_saslaccount(client)[0]) {
-    if (cli_saslacccreate(client))
-      cli_user(client)->acc_create = cli_saslacccreate(client);
+    /* The login's own timestamp (0 for a Keycloak login), never one left
+     * by an earlier login of this connection. */
+    cli_user(client)->acc_create = cli_saslacccreate(client);
     ircd_strncpy(cli_user(client)->account, cli_saslaccount(client), ACCOUNTLEN + 1);
+    ircd_strncpy(cli_user(client)->kc_id, cli_saslkcid(client), sizeof(cli_user(client)->kc_id));
     SetAccount(client);
   }
 
@@ -505,6 +538,25 @@ static int check_auth_finished(struct AuthRequest *auth)
     {
       Debug((DEBUG_INFO, "Auth %p [%d] still has flag %d", auth,
              cli_fd(auth->client), flag));
+      /* DIAGNOSTIC: SASL-then-stall investigation.  When a SASL'd
+       * client gets 900/903 but never receives 001, we're returning 0
+       * from here with one of the AR_* PENDING flags still set.
+       * Promote to INFO when the auth has been alive >5s so we see it
+       * under minimal logging.  flag values: 0=AUTH(ident), 1=DNS,
+       * 2=CAP, 3=NEEDS_PONG, 4=NEEDS_USER, 5=NEEDS_NICK, 6=SASL. */
+      if (cli_firsttime(cptr) > 0
+          && CurrentTime - cli_firsttime(cptr) > 5) {
+        log_write(LS_USER, L_INFO, 0,
+                  "check_auth_finished: auth %p (fd %d, nick=%s, "
+                  "acct=%s) BLOCKED on flag %d after %ds — "
+                  "SASL-stall diagnostic",
+                  (void*)auth, cli_fd(cptr),
+                  cli_name(cptr)[0] ? cli_name(cptr) : "*",
+                  (cli_user(cptr) && cli_user(cptr)->account[0])
+                    ? cli_user(cptr)->account : "*",
+                  (int)flag,
+                  (int)(CurrentTime - cli_firsttime(cptr)));
+      }
       return 0;
     }
 
@@ -530,6 +582,34 @@ static int check_auth_finished(struct AuthRequest *auth)
   /* Finish off SASL. */
   if (IsUserPort(auth->client))
     auth_complete_sasl(auth->client);
+
+  /* Resolve deferred bouncer nick collision.
+   * If SASL set an account matching the nick holder's account, accept
+   * the nick (register_user will do ghost revive or alias creation).
+   * Otherwise send ERR_NICKNAMEINUSE and wait for a new NICK. */
+  if (auth->deferred_nick[0]) {
+    struct Client *holder = FindClient(auth->deferred_nick);
+    if (holder && IsAccount(auth->client)
+        && (IsBouncerHold(holder) || bounce_get_session(holder)
+            || (IsAccount(holder) && bounce_has_sessions(cli_account(holder))))
+        && 0 == ircd_strcmp(cli_user(holder)->account,
+                            cli_user(auth->client)->account)) {
+      /* Same account — set cli_name but don't add to hash (holder owns it).
+       * register_user() will do ghost revive or alias creation. */
+      strcpy(cli_name(auth->client), auth->deferred_nick);
+    } else if (!holder) {
+      /* Nick holder gone during auth — nick is free, claim it */
+      strcpy(cli_name(auth->client), auth->deferred_nick);
+      hAddClient(auth->client);
+    } else {
+      /* Different account, no SASL, or nick now held by non-bouncer */
+      send_reply(auth->client, ERR_NICKNAMEINUSE, auth->deferred_nick);
+      FlagSet(&auth->flags, AR_NEEDS_NICK);
+      auth->deferred_nick[0] = '\0';
+      return 0;
+    }
+    auth->deferred_nick[0] = '\0';
+  }
 
   /* If appropriate, do preliminary assignment to connection class. */
   if (IsUserPort(auth->client)
@@ -566,6 +646,71 @@ static int check_auth_finished(struct AuthRequest *auth)
     FlagSet(&auth->flags, AR_PASSWORD_CHECKED);
   }
 
+  /* Check if native DNSBL lookup is done. */
+  if (FlagHas(&auth->flags, AR_DNSBL_PENDING))
+  {
+    Debug((DEBUG_INFO, "Auth %p [%d] still has flag AR_DNSBL_PENDING", auth,
+           cli_fd(auth->client)));
+    if (cli_firsttime(cptr) > 0 && CurrentTime - cli_firsttime(cptr) > 5) {
+      log_write(LS_USER, L_INFO, 0,
+                "check_auth_finished: auth %p BLOCKED on AR_DNSBL_PENDING "
+                "after %ds (fd %d, nick=%s, acct=%s) — SASL-stall diag",
+                (void*)auth, (int)(CurrentTime - cli_firsttime(cptr)),
+                cli_fd(cptr),
+                cli_name(cptr)[0] ? cli_name(cptr) : "*",
+                (cli_user(cptr) && cli_user(cptr)->account[0])
+                  ? cli_user(cptr)->account : "*");
+    }
+    return 0;
+  }
+
+  /* Check DNSBL result and reject if blocked. */
+  if (IsUserPort(auth->client) && auth->dnsbl_request)
+  {
+    enum DNSBLAction action;
+    const char *mark;
+    int blocked = dnsbl_result(auth->client, auth->dnsbl_request, &action, &mark);
+
+    if (action == DNSBL_ACT_WHITELIST)
+    {
+      /* Native DNSBL whitelist hit - exempt client from all connection blocks */
+      SetDNSBLExempt(auth->client);
+      Debug((DEBUG_DNS, "DNSBL: Client %s whitelisted, setting exempt flag",
+             cli_name(auth->client)));
+    }
+    else if (blocked && action == DNSBL_ACT_BLOCK_ALL)
+    {
+      ServerStats->is_ref++;
+      sendto_opmask_butone(0, SNO_GLINE, "DNSBL blocked connection from %s (%s@%s) [%s]",
+                           cli_name(auth->client),
+                           IsIdented(auth->client) ? cli_username(auth->client) : "unknown",
+                           cli_sockhost(auth->client),
+                           ircd_ntoa(&cli_ip(auth->client)));
+      send_reply(auth->client, SND_EXPLICIT | ERR_YOUREBANNEDCREEP,
+                 ":%s", feature_str(FEAT_DNSBL_BLOCKMSG));
+      return exit_client(auth->client, auth->client, &me, "DNSBL blocked");
+    }
+    else if (blocked && action == DNSBL_ACT_BLOCK_ANON && EmptyString(cli_user(auth->client)->account))
+    {
+      /* Block anonymous - will be checked again after auth */
+      ServerStats->is_ref++;
+      sendto_opmask_butone(0, SNO_GLINE, "DNSBL blocked anonymous connection from %s (%s@%s) [%s]",
+                           cli_name(auth->client),
+                           IsIdented(auth->client) ? cli_username(auth->client) : "unknown",
+                           cli_sockhost(auth->client),
+                           ircd_ntoa(&cli_ip(auth->client)));
+      send_reply(auth->client, SND_EXPLICIT | ERR_YOUREBANNEDCREEP,
+                 ":%s (Log in to connect)", feature_str(FEAT_DNSBL_BLOCKMSG));
+      return exit_client(auth->client, auth->client, &me, "DNSBL blocked (anonymous)");
+    }
+    else if (action == DNSBL_ACT_MARK && mark)
+    {
+      /* Apply the mark to the client */
+      add_mark(auth->client, mark);
+      SetMarked(auth->client);
+    }
+  }
+
   /* Check if iauth is done. */
   if (FlagHas(&auth->flags, AR_IAUTH_PENDING))
   {
@@ -586,6 +731,16 @@ static int check_auth_finished(struct AuthRequest *auth)
 
     Debug((DEBUG_INFO, "Auth %p [%d] still has flag %d", auth,
            cli_fd(auth->client), AR_IAUTH_PENDING));
+    if (cli_firsttime(cptr) > 0 && CurrentTime - cli_firsttime(cptr) > 5) {
+      log_write(LS_USER, L_INFO, 0,
+                "check_auth_finished: auth %p BLOCKED on AR_IAUTH_PENDING "
+                "after %ds (fd %d, nick=%s, acct=%s) — SASL-stall diag",
+                (void*)auth, (int)(CurrentTime - cli_firsttime(cptr)),
+                cli_fd(cptr),
+                cli_name(cptr)[0] ? cli_name(cptr) : "*",
+                (cli_user(cptr) && cli_user(cptr)->account[0])
+                  ? cli_user(cptr)->account : "*");
+    }
     return 0;
   }
   else
@@ -593,10 +748,74 @@ static int check_auth_finished(struct AuthRequest *auth)
 
   if (IsUserPort(auth->client))
   {
+    Debug((DEBUG_INFO, "check_auth_finished: completing auth for %p (fd %d), cli_name='%s'",
+           (void*)auth->client, cli_fd(auth->client), cli_name(auth->client)));
+    authtoken_note_pass(auth->client);   /* validator PASS survives registration */
     memset(cli_passwd(auth->client), 0, sizeof(cli_passwd(auth->client)));
     res = auth_set_username(auth);
-    if (res == 0)
-      res = register_user(auth->client, auth->client);
+    if (res == 0) {
+      /* Defer registration during burst when this would create a
+       * fresh standalone primary that races peer's in-flight N for
+       * the same account at a non-bouncer-aware peer (which would
+       * KILL on same-user@host collision before the BX-aware ring
+       * could converge).  D.2 at-N-time handles BX-aware peers, but
+       * register_user broadcasts N network-wide synchronously — that
+       * N reaches legacy peers before any gate releases.  The defer
+       * holds register_user until burst settles; bounce_auto_resume
+       * then attaches as alias if peer already has the primary.
+       *
+       * Surface a NOTICE so the client knows SASL succeeded and we're
+       * waiting for burst-settle, not hung. */
+      if (IsAccount(auth->client) && bounce_enabled_for(auth->client)
+          && bounce_burst_in_progress()
+          && bounce_defer_registration(auth->client) == 0) {
+        /* The wait from here is the server's, not the client's: a full
+         * CONNECTTIMEOUT for it, as register_user()'s own defer gives
+         * (register_user_unwind()); a re-defer by the drain keeps this
+         * clock, so the wait stays bounded.  Without it a login that
+         * spent most of its window in CAP/SASL met "Registration Timeout"
+         * part-way through a long netburst (W3 12c-2b carry, Minor 4). */
+        cli_firsttime(auth->client) = CurrentTime;
+        sendrawto_one(auth->client,
+                      "NOTICE * :*** Bouncer: SASL complete, waiting "
+                      "for burst convergence before registration "
+                      "(usually <30s)");
+        res = 0;
+      } else {
+        /* register_user() can exit the client (SASL-required class, alias
+         * attach failure, duplicate account session, no nickname, wrong
+         * NICK direction, host throttle — s_user.c:427/596/609/640/783/806).
+         * Its teardown deliberately NULLs cli_connect (list.c:446/461/465)
+         * so MyConnect() on a freed Client reads false instead of dangling.
+         * cli_fd() is con_fd(cli_connect(cli)), so touching cptr after the
+         * call reads through NULL: that is the SIGSEGV at 0x23e0
+         * (offsetof(Connection,con_socket) 9128 + offsetof(Socket,s_fd) 56).
+         * Capture the fd up front; never deref cptr after register_user.
+         *
+         * The `if (res == 0) destroy_auth_request(auth)` tail below is safe
+         * only because THIS call passes the same client as both cptr and
+         * sptr: exit_client() returns CPTR_KILLED when cptr == victim and 0
+         * otherwise (s_misc.c:244), so every exiting path above returns
+         * non-zero here and the tail is skipped — which matters because the
+         * client's own teardown already freed this auth request
+         * (list.c:336-337).  If this call is ever changed to pass distinct
+         * cptr/sptr, an exiting path would return 0 and double-free it. */
+        int diag_fd = cli_fd(cptr);
+
+        log_write(LS_USER, L_INFO, 0,
+                  "check_auth_finished: calling register_user for %p "
+                  "(fd %d, nick=%s, acct=%s) — SASL-stall diag entry",
+                  (void*)auth, diag_fd,
+                  cli_name(cptr)[0] ? cli_name(cptr) : "*",
+                  (cli_user(cptr) && cli_user(cptr)->account[0])
+                    ? cli_user(cptr)->account : "*");
+        res = register_user(auth->client, auth->client);
+        log_write(LS_USER, L_INFO, 0,
+                  "check_auth_finished: register_user returned %d for %p "
+                  "(fd %d) — SASL-stall diag exit",
+                  res, (void*)auth, diag_fd);
+      }
+    }
   }
   else
     res = 0;
@@ -697,6 +916,14 @@ static int preregister_user(struct Client *cptr)
     if (IsIPChecked(cptr))
       IPcheck_connect_fail(cptr, 0);
     return exit_client(cptr, cptr, &me, "Unknown error -- Try again");
+  case ACR_SASL_UNAVAILABLE:
+    sendto_opmask_butone_ratelimited(0, SNO_UNAUTH, &last_too_many1,
+                                     "Connection from %s rejected: class %s requires SASL but services unavailable.",
+                                     get_client_name(cptr, SHOW_IP),
+                                     get_client_class(cptr));
+    ++ServerStats->is_ref;
+    return exit_client(cptr, cptr, &me,
+                       "SASL authentication required but temporarily unavailable - try again later");
   }
   return 0;
 }
@@ -911,6 +1138,11 @@ void destroy_auth_request(struct AuthRequest* auth)
     delete_resolver_queries(auth);
   }
 
+  if (FlagHas(&auth->flags, AR_DNSBL_PENDING) || auth->dnsbl_request) {
+    dnsbl_cancel(auth->dnsbl_request);
+    auth->dnsbl_request = NULL;
+  }
+
   if (-1 < s_fd(&auth->socket)) {
     close(s_fd(&auth->socket));
     socket_del(&auth->socket);
@@ -923,9 +1155,50 @@ void destroy_auth_request(struct AuthRequest* auth)
   if (t_active(&auth->loctimeout))
     timer_del(&auth->loctimeout);
 
-  cli_auth(auth->client) = NULL;
+  if (auth->client)
+    cli_auth(auth->client) = NULL;
+
+  /* Defensive check: detect double-free using prev as a "on freelist" marker.
+   * We set prev to a magic value when adding to freelist, and clear it when
+   * allocating. If prev already has the magic value, this is a double-free. */
+#define AUTH_FREELIST_MARKER ((struct AuthRequest*)0xDEADBEEF)
+  if (auth->prev == AUTH_FREELIST_MARKER) {
+    log_write(LS_SYSTEM, L_CRIT, 0,
+              "BUG: Double-free of auth %p detected! Already on freelist.",
+              (void*)auth);
+    return; /* Don't corrupt the freelist further */
+  }
+  auth->prev = AUTH_FREELIST_MARKER;
+
   auth->next = auth_freelist;
   auth_freelist = auth;
+#undef AUTH_FREELIST_MARKER
+}
+
+/** Detach a client from its auth request.
+ * Sets the auth request's client pointer to NULL so that
+ * destroy_auth_request() won't dereference freed memory.
+ * Used when the Client is freed before auth cleanup (e.g.,
+ * bouncer alias conversion).
+ * @param[in] auth The auth request to detach from its client.
+ */
+void auth_detach_client(struct AuthRequest *auth)
+{
+  if (auth)
+    auth->client = NULL;
+}
+
+/** Called when DNSBL lookup completes for a client.
+ * @param[in] auth The auth request whose DNSBL lookup is complete.
+ */
+void auth_dnsbl_complete(struct AuthRequest *auth)
+{
+  if (!auth || !auth->client)
+    return;
+
+  Debug((DEBUG_DNS, "DNSBL: Lookup complete for client %p", auth->client));
+  FlagClr(&auth->flags, AR_DNSBL_PENDING);
+  check_auth_finished(auth);
 }
 
 /** Handle a 'ping' (authorization) timeout for a client.
@@ -965,11 +1238,52 @@ int auth_ping_timeout(struct Client *cptr)
   if (FlagHas(&auth->flags, AR_IAUTH_PENDING)) {
     if (IAuthHas(iauth, IAUTH_REQUIRED)
         && !FlagHas(&auth->flags, AR_IAUTH_SOFT_DONE)) {
-      sendheader(cptr, REPORT_FAIL_IAUTH);
-      return exit_client_msg(cptr, cptr, &me, "Authorization Timeout");
+      /* Circuit breaker: track consecutive timeouts. */
+      if (iauth)
+        iauth->i_timeout_count++;
+
+      /* Check if circuit breaker should trip. */
+      if (iauth && !iauth->i_circuit_open &&
+          iauth->i_timeout_count >= IAUTH_CIRCUIT_BREAKER_THRESHOLD) {
+        iauth->i_circuit_open = 1;
+        log_write(LS_IAUTH, L_WARNING, 0,
+                  "IAuth circuit breaker tripped after %u timeouts - "
+                  "bypassing IAUTH_REQUIRED",
+                  iauth->i_timeout_count);
+        sendto_opmask_butone(NULL, SNO_AUTH,
+                             "IAuth circuit breaker OPEN: bypassing "
+                             "IAUTH_REQUIRED after %u consecutive timeouts",
+                             iauth->i_timeout_count);
+      }
+
+      /* If circuit is open, allow client through instead of killing. */
+      if (!iauth || !iauth->i_circuit_open) {
+        sendheader(cptr, REPORT_FAIL_IAUTH);
+        return exit_client_msg(cptr, cptr, &me, "Authorization Timeout");
+      }
+      /* Circuit open: let client proceed despite timeout. */
     }
     sendto_iauth(cptr, "T");
     FlagClr(&auth->flags, AR_IAUTH_PENDING);
+    return check_auth_finished(auth);
+  }
+
+  /* Check for native DNSBL timeout.  The DNSBL is advisory (it blocks known-
+   * bad sources); if the lookup has not completed by the registration
+   * timeout, cancel it and let the client proceed rather than blocking
+   * registration indefinitely.  Without this branch AR_DNSBL_PENDING (which
+   * is past AR_LAST_SCAN, so the scan loop above never clears it) falls
+   * through to the assert() below and abort()s on a --enable-debug build. */
+  if (FlagHas(&auth->flags, AR_DNSBL_PENDING)) {
+    if (auth->dnsbl_request) {
+      dnsbl_cancel(auth->dnsbl_request);
+      auth->dnsbl_request = NULL;
+    }
+    FlagClr(&auth->flags, AR_DNSBL_PENDING);
+    log_write(LS_USER, L_INFO, 0,
+              "auth_ping_timeout: native DNSBL lookup did not complete for %s; "
+              "proceeding without it",
+              cli_name(cptr)[0] ? cli_name(cptr) : "*");
     return check_auth_finished(auth);
   }
 
@@ -991,6 +1305,12 @@ static void auth_timeout_callback(struct Event* ev)
   auth = (struct AuthRequest*) t_data(ev_timer(ev));
 
   if (ev_type(ev) == ET_EXPIRE) {
+    /* Client was freed (e.g. bouncer alias conversion) — just clean up */
+    if (!auth->client) {
+      destroy_auth_request(auth);
+      return;
+    }
+
     /* Report the timeout in the log. */
     log_write(LS_RESOLVER, L_INFO, 0, "Registration timeout %s",
               get_client_name(auth->client, HIDE_IP));
@@ -1112,6 +1432,10 @@ static void start_auth_query(struct AuthRequest* auth)
     if (IsUserPort(auth->client))
       sendheader(auth->client, REPORT_FAIL_ID);
     close(fd);
+    /* Nothing is registered (a refused socket_add() leaves the socket
+     * inactive): the teardown must neither close this number again nor
+     * socket_del() it. */
+    s_fd(&auth->socket) = -1;
     return;
   }
 
@@ -1131,7 +1455,7 @@ static void start_dns_query(struct AuthRequest *auth)
   }
 
   if (irc_in_addr_is_loopback(&cli_ip(auth->client))) {
-    strcpy(cli_sockhost(auth->client), cli_name(&me));
+    ircd_strncpy(cli_sockhost(auth->client), cli_name(&me), HOSTLEN + 1);
     sendto_iauth(auth->client, "N %s", cli_sockhost(auth->client));
     return;
   }
@@ -1171,22 +1495,49 @@ void start_auth(struct Client* client)
   assert(0 != client);
   Debug((DEBUG_INFO, "Beginning auth request on client %p", client));
 
-  /* Register with event handlers. */
+  /* Register with event handlers.  The socket's event interest is
+   * add_connection's: readable from registration, and while a TLS
+   * handshake is pending whatever OpenSSL asks for (writable interest
+   * armed there must survive this call). */
   cli_lasttime(client) = CurrentTime;
   cli_since(client) = CurrentTime;
   if (cli_fd(client) > HighestFd)
     HighestFd = cli_fd(client);
   LocalClientArray[cli_fd(client)] = client;
-  socket_events(&(cli_socket(client)), SOCK_ACTION_SET | SOCK_EVENT_READABLE);
 
   /* Allocate the AuthRequest. */
+#define AUTH_FREELIST_MARKER ((struct AuthRequest*)0xDEADBEEF)
   auth = auth_freelist;
-  if (auth)
-      auth_freelist = auth->next;
-  else
+  if (auth) {
+      /* Defensive check: detect freelist corruption */
+      if (auth->next == auth) {
+        log_write(LS_SYSTEM, L_CRIT, 0,
+                  "BUG: Auth freelist has self-cycle! Allocating fresh auth.");
+        auth = MyMalloc(sizeof(*auth));
+        /* Don't touch auth_freelist - it's corrupted */
+      } else if (auth->prev != AUTH_FREELIST_MARKER) {
+        log_write(LS_SYSTEM, L_CRIT, 0,
+                  "BUG: Auth %p from freelist missing marker (prev=%p)! "
+                  "Possible corruption. Allocating fresh auth.",
+                  (void*)auth, (void*)auth->prev);
+        auth = MyMalloc(sizeof(*auth));
+        /* Don't touch auth_freelist - it's corrupted */
+      } else if (t_active(&auth->timeout) || t_active(&auth->loctimeout)) {
+        log_write(LS_SYSTEM, L_CRIT, 0,
+                  "BUG: Auth from freelist has active timer! timeout=%d loc=%d. "
+                  "Allocating fresh auth.",
+                  t_active(&auth->timeout), t_active(&auth->loctimeout));
+        auth = MyMalloc(sizeof(*auth));
+        /* Don't touch auth_freelist - it's corrupted */
+      } else {
+        auth_freelist = auth->next;
+      }
+  } else {
       auth = MyMalloc(sizeof(*auth));
+  }
+#undef AUTH_FREELIST_MARKER
   assert(0 != auth);
-  memset(auth, 0, sizeof(*auth));
+  memset(auth, 0, sizeof(*auth));  /* Clears prev, removing freelist marker */
   auth->client = client;
   cli_auth(client) = auth;
   s_fd(&auth->socket) = -1;
@@ -1220,6 +1571,12 @@ void start_auth(struct Client* client)
 
   /* Try to start ident lookup. */
   start_auth_query(auth);
+
+  /* Try to start native DNSBL lookup. */
+  if (IsUserPort(client) && dnsbl_check(client, &auth->dnsbl_request)) {
+    Debug((DEBUG_DNS, "DNSBL: Started check for client %p", client));
+    FlagSet(&auth->flags, AR_DNSBL_PENDING);
+  }
 
   /* Add client to GlobalClientList. */
   add_client_to_list(client);
@@ -1287,12 +1644,19 @@ int auth_set_user(struct AuthRequest *auth, const char *username, const char *ho
 int auth_set_nick(struct AuthRequest *auth, const char *nickname)
 {
   assert(auth != NULL);
+  auth->deferred_nick[0] = '\0';
   FlagClr(&auth->flags, AR_NEEDS_NICK);
   /*
    * If the client hasn't gotten a cookie-ping yet,
    * choose a cookie and send it. -record!jegelhof@cloud9.net
+   *
+   * Skip for clients that did CAP negotiation — the bidirectional
+   * CAP LS/REQ/ACK/END exchange already proves connectivity, and
+   * the cookie PING breaks pre-registration command flows (metadata
+   * before-connect, etc.) where the client expects burst immediately
+   * after CAP END without an intermediate PING/PONG handshake.
    */
-  if (!auth->cookie) {
+  if (!auth->cookie && !FlagHas(&auth->flags, AR_CAP_DONE) && !FlagHas(&auth->flags, AR_CAP_PENDING)) {
     do {
       auth->cookie = ircrandom();
     } while (!auth->cookie);
@@ -1301,6 +1665,34 @@ int auth_set_nick(struct AuthRequest *auth, const char *nickname)
   }
   if (IAuthHas(iauth, IAUTH_UNDERNET))
     sendto_iauth(auth->client, "n %s", nickname);
+  return check_auth_finished(auth);
+}
+
+/** Defer a nick that collides with a bouncer ghost.
+ * Instead of rejecting immediately with ERR_NICKNAMEINUSE, store the
+ * nick and clear AR_NEEDS_NICK so registration can proceed after SASL.
+ * Resolution happens in check_auth_finished() before register_user().
+ * @param[in] auth Authorization request for client.
+ * @param[in] nickname Client's requested nickname (collides with ghost).
+ * @return Zero if client should be kept, CPTR_KILLED if rejected.
+ */
+int auth_defer_nick(struct AuthRequest *auth, const char *nickname)
+{
+  assert(auth != NULL);
+  ircd_strncpy(auth->deferred_nick, nickname, NICKLEN);
+  FlagClr(&auth->flags, AR_NEEDS_NICK);
+
+  if (!auth->cookie && !FlagHas(&auth->flags, AR_CAP_DONE) && !FlagHas(&auth->flags, AR_CAP_PENDING)) {
+    do {
+      auth->cookie = ircrandom();
+    } while (!auth->cookie);
+    sendrawto_one(auth->client, "PING :%u", auth->cookie);
+    FlagSet(&auth->flags, AR_NEEDS_PONG);
+  }
+
+  if (IAuthHas(iauth, IAUTH_UNDERNET))
+    sendto_iauth(auth->client, "n %s", nickname);
+
   return check_auth_finished(auth);
 }
 
@@ -1390,8 +1782,10 @@ void auth_send_event(const char *event, const char *paramstring)
     sendto_iauth(NULL, "e %s%s%s", event, (paramstring ? " :" : ""), (paramstring ? paramstring : ""));
 }
 
-/** Send exit notification for \a cptr to iauth.
- * @param[in] cptr Client who is exiting.
+/** Send exit notification for \a cptr to iauth: "<cli_fd> D".
+ * close_connection() sends it as a user connection's socket closes,
+ * while cli_fd is still the socket's descriptor.
+ * @param[in] cptr Client whose socket is closing.
  */
 void auth_send_exit(struct Client *cptr)
 {
@@ -1430,7 +1824,42 @@ int auth_cap_done(struct AuthRequest *auth)
 {
   assert(auth != NULL);
   FlagClr(&auth->flags, AR_CAP_PENDING);
+  FlagSet(&auth->flags, AR_CAP_DONE);
   return check_auth_finished(auth);
+}
+
+/** Mark that SASL authentication has started.
+ * This blocks authorization until auth_sasl_done() is called.
+ * @param[in] auth Authorization request for client.
+ */
+void auth_sasl_start(struct AuthRequest *auth)
+{
+  assert(auth != NULL);
+  FlagSet(&auth->flags, AR_SASL_PENDING);
+}
+
+/** Mark that SASL authentication has completed (success, fail, or abort).
+ * This unblocks authorization if auth_sasl_start() was called.
+ * @param[in] auth Authorization request for client.
+ * @return Zero if client should be kept, CPTR_KILLED if rejected.
+ */
+int auth_sasl_done(struct AuthRequest *auth)
+{
+  assert(auth != NULL);
+  FlagClr(&auth->flags, AR_SASL_PENDING);
+  return check_auth_finished(auth);
+}
+
+/** Drop the SASL hold without re-checking registration.
+ * For callers that already run inside check_auth_finished() (the
+ * abort in auth_complete_sasl()) or while the client is being torn
+ * down (exit_client()), where resuming registration would be wrong.
+ * @param[in] auth Authorization request for client.
+ */
+void auth_sasl_clear(struct AuthRequest *auth)
+{
+  assert(auth != NULL);
+  FlagClr(&auth->flags, AR_SASL_PENDING);
 }
 
 /** Check if IAuth is configured to handle SASL authentication.
@@ -1439,6 +1868,18 @@ int auth_cap_done(struct AuthRequest *auth)
 int auth_iauth_handles_sasl(void)
 {
   return IAuthHas(iauth, IAUTH_SASL);
+}
+
+/** Get the SASL mechanisms advertised by IAuth.
+ * @return Comma-separated mechanism list, or NULL if none.
+ */
+const char *auth_iauth_sasl_mechs(void)
+{
+  if (!iauth || !IAuthHas(iauth, IAUTH_SASL))
+    return NULL;
+  if (iauth->i_sasl_mechs[0] == '\0')
+    return NULL;
+  return iauth->i_sasl_mechs;
 }
 
 /** Send SASL authentication start to IAuth.
@@ -1486,6 +1927,18 @@ int auth_send_sasl_data(struct Client *cptr, const char *data)
   return sendto_iauth(cptr, "a :%s", data);
 }
 
+/** Send SASL abort to IAuth.
+ * @param[in] cptr Client aborting SASL.
+ * @return Non-zero on success, zero on failure.
+ */
+int auth_send_sasl_abort(struct Client *cptr)
+{
+  if (!IAuthHas(iauth, IAUTH_SASL))
+    return 0;
+
+  return sendto_iauth(cptr, "A X");
+}
+
 /** Attempt to spawn the process for an IAuth instance.
  * @param[in] iauth IAuth descriptor.
  * @param[in] automatic If non-zero, apply sanity checks against
@@ -1495,9 +1948,10 @@ int auth_send_sasl_data(struct Client *cptr, const char *data)
 int iauth_do_spawn(struct IAuth *iauth, int automatic)
 {
   pid_t cpid;
-  int s_io[2];
-  int s_err[2];
+  int s_io[2] = { -1, -1 };
+  int s_err[2] = { -1, -1 };
   int res;
+  const char *step;
 
   if (automatic && CurrentTime - iauth->started < 5)
   {
@@ -1509,70 +1963,49 @@ int iauth_do_spawn(struct IAuth *iauth, int automatic)
   iauth->started = CurrentTime;
 
   /* Attempt to allocate a pair of sockets. */
-  res = os_socketpair(s_io);
-  if (res) {
+  if (os_socketpair(s_io)) {
     res = errno;
-    Debug((DEBUG_INFO, "Unable to create IAuth socketpair: %s", strerror(res)));
-    return res;
+    step = "create IAuth socketpair";
+    s_io[0] = s_io[1] = -1;
+    goto failed;
   }
 
   /* Mark the parent's side of the pair (element 0) as non-blocking. */
-  res = os_set_nonblocking(s_io[0]);
-  if (!res) {
+  if (!os_set_nonblocking(s_io[0])) {
     res = errno;
-    Debug((DEBUG_INFO, "Unable to make IAuth socket non-blocking: %s", strerror(res)));
-    close(s_io[1]);
-    close(s_io[0]);
-    return res;
+    step = "make IAuth socket non-blocking";
+    goto failed;
   }
 
   /* Initialize the socket structure to talk to the child. */
-  res = socket_add(i_socket(iauth), iauth_sock_callback, iauth,
-                   SS_CONNECTED, SOCK_EVENT_READABLE, s_io[0]);
-  if (!res) {
+  if (!socket_add(i_socket(iauth), iauth_sock_callback, iauth,
+                  SS_CONNECTED, SOCK_EVENT_READABLE, s_io[0])) {
     res = errno;
-    Debug((DEBUG_INFO, "Unable to register IAuth socket: %s", strerror(res)));
-    close(s_io[1]);
-    close(s_io[0]);
-    return res;
+    step = "register IAuth socket";
+    goto failed;
   }
 
   /* Allocate another pair for stderr. */
-  res = os_socketpair(s_err);
-  if (res) {
+  if (os_socketpair(s_err)) {
     res = errno;
-    Debug((DEBUG_INFO, "Unable to create IAuth stderr: %s", strerror(res)));
-    socket_del(i_socket(iauth));
-    close(s_io[1]);
-    close(s_io[0]);
-    return res;
+    step = "create IAuth stderr";
+    s_err[0] = s_err[1] = -1;
+    goto failed;
   }
 
   /* Mark parent side of this pair non-blocking, too. */
-  res = os_set_nonblocking(s_err[0]);
-  if (!res) {
+  if (!os_set_nonblocking(s_err[0])) {
     res = errno;
-    Debug((DEBUG_INFO, "Unable to make IAuth stderr non-blocking: %s", strerror(res)));
-    close(s_err[1]);
-    close(s_err[0]);
-    socket_del(i_socket(iauth));
-    close(s_io[1]);
-    close(s_io[0]);
-    return res;
+    step = "make IAuth stderr non-blocking";
+    goto failed;
   }
 
   /* And set up i_stderr(iauth). */
-  res = socket_add(i_stderr(iauth), iauth_stderr_callback, iauth,
-                   SS_CONNECTED, SOCK_EVENT_READABLE, s_err[0]);
-  if (!res) {
+  if (!socket_add(i_stderr(iauth), iauth_stderr_callback, iauth,
+                  SS_CONNECTED, SOCK_EVENT_READABLE, s_err[0])) {
     res = errno;
-    Debug((DEBUG_INFO, "Unable to register IAuth stderr: %s", strerror(res)));
-    close(s_err[1]);
-    close(s_err[0]);
-    socket_del(i_socket(iauth));
-    close(s_io[1]);
-    close(s_io[0]);
-    return res;
+    step = "register IAuth stderr";
+    goto failed;
   }
 
   /* Attempt to fork a child process. */
@@ -1580,14 +2013,8 @@ int iauth_do_spawn(struct IAuth *iauth, int automatic)
   if (cpid < 0) {
     /* Error forking the child, still in parent. */
     res = errno;
-    Debug((DEBUG_INFO, "Unable to fork IAuth child: %s", strerror(res)));
-    socket_del(i_stderr(iauth));
-    close(s_err[1]);
-    close(s_err[0]);
-    socket_del(i_socket(iauth));
-    close(s_io[1]);
-    close(s_io[0]);
-    return res;
+    step = "fork IAuth child";
+    goto failed;
   }
 
   if (cpid > 0) {
@@ -1617,6 +2044,44 @@ int iauth_do_spawn(struct IAuth *iauth, int automatic)
 
   /* If we got here, something was seriously wrong. */
   exit(EXIT_FAILURE);
+
+failed:
+  /* Say so: IAuth stays down (clients register without it) until a rehash
+   * spawns it again.  An engine other than epoll may refuse a registration
+   * without setting errno. */
+  log_write(LS_IAUTH, L_ERROR, 0, "IAuth spawn failed: unable to %s: %s",
+            step, res ? strerror(res) : "no error code");
+  sendto_opmask_butone(NULL, SNO_AUTH, "IAuth spawn failed: unable to %s: %s; "
+                       "IAuth is down until a rehash",
+                       step, res ? strerror(res) : "no error code");
+
+  /* A spawn that fails part-way leaves nothing behind.  Each socket
+   * registered so far is deleted while its descriptor is still open, so
+   * the engine unregisters that descriptor and not a later owner of the
+   * number.  Then the ends that exist are closed, and neither socket keeps
+   * a number: i_GetConnected() is false, a rehash spawns afresh, and
+   * iauth_disconnect() finds nothing to close.  A refused socket is not
+   * active and is not deleted.  The deletes run the sockets' ET_DESTROY
+   * callbacks, whose automatic respawn must not run for this failure (the
+   * 5-second guard would only refuse it, as "IAuth crashed fast"):
+   * IAUTH_SPAWN_UNDO keeps them from it. */
+  IAuthSet(iauth, IAUTH_SPAWN_UNDO);
+  if (s_active(i_stderr(iauth)))
+    socket_del(i_stderr(iauth));
+  if (s_active(i_socket(iauth)))
+    socket_del(i_socket(iauth));
+  IAuthClr(iauth, IAUTH_SPAWN_UNDO);
+  if (s_err[1] >= 0)
+    close(s_err[1]);
+  if (s_err[0] >= 0)
+    close(s_err[0]);
+  if (s_io[1] >= 0)
+    close(s_io[1]);
+  if (s_io[0] >= 0)
+    close(s_io[0]);
+  s_fd(i_stderr(iauth)) = -1;
+  s_fd(i_socket(iauth)) = -1;
+  return res ? res : -1;          /* a failure, even without an errno */
 }
 
 /** Restart an %IAuth program.
@@ -1633,6 +2098,10 @@ int auth_restart(void)
   /* Need to initialize a new connection. */
   iauthnew = MyCalloc(1, sizeof(*iauthnew));
   msgq_init(i_sendQ(iauthnew));
+  /* No descriptors yet (0 is someone else's): until a spawn registers
+   * them, i_GetConnected() is false and iauth_disconnect() leaves them. */
+  s_fd(i_socket(iauthnew)) = -1;
+  s_fd(i_stderr(iauthnew)) = -1;
   /* Populate iauth's argv array. */
   iauthnew->i_argv = MyCalloc(iauth->i_argc + 1, sizeof(iauthnew->i_argv[0]));
   for (ii = 0; ii < iauth->i_argc; ++ii)
@@ -1684,6 +2153,8 @@ int auth_spawn(int argc, char *argv[])
   /* Need to initialize a new connection. */
   iauth = MyCalloc(1, sizeof(*iauth));
   msgq_init(i_sendQ(iauth));
+  s_fd(i_socket(iauth)) = -1;   /* no descriptors yet: as in auth_restart() */
+  s_fd(i_stderr(iauth)) = -1;
   /* Populate iauth's argv array. */
   iauth->i_argv = MyCalloc(argc + 1, sizeof(iauth->i_argv[0]));
   for (ii = 0; ii < argc; ++ii)
@@ -1709,22 +2180,53 @@ void auth_mark_closing(void)
  */
 static void iauth_disconnect(struct IAuth *iauth)
 {
+  int ii;
+  int released = 0;
+  struct Client *cli;
+  struct AuthRequest *auth;
+
   if (iauth == NULL)
     return;
 
-  /* Close error socket. */
+  /* Close both sockets.  A socket_del() can respawn IAuth: when the other
+   * socket is no longer active and we are not closing, the ET_DESTROY
+   * callback calls iauth_do_spawn(), which registers this same Socket
+   * again, with the new child's descriptor, before socket_del() returns
+   * (outside the socket's own callbacks the destroy is not deferred).  So
+   * clear s_fd only if the socket still reads as deleted (GEN_DESTROY).
+   * Comparing numbers cannot tell: socketpair() reuses the number just
+   * closed. */
   if (s_fd(i_stderr(iauth)) != -1) {
     close(s_fd(i_stderr(iauth)));
     socket_del(i_stderr(iauth));
-    s_fd(i_stderr(iauth)) = -1;
+    if (i_stderr(iauth)->s_header.gh_flags & GEN_DESTROY)
+      s_fd(i_stderr(iauth)) = -1;
   }
 
-  /* Close main socket. */
   if (s_fd(i_socket(iauth)) != -1) {
     close(s_fd(i_socket(iauth)));
     socket_del(i_socket(iauth));
-    s_fd(i_socket(iauth)) = -1;
+    if (i_socket(iauth)->s_header.gh_flags & GEN_DESTROY)
+      s_fd(i_socket(iauth)) = -1;
   }
+
+  /* Release any clients stuck waiting for IAuth response. */
+  for (ii = 0; ii <= HighestFd; ii++) {
+    cli = LocalClientArray[ii];
+    if (!cli || !(auth = cli_auth(cli)))
+      continue;
+    if (FlagHas(&auth->flags, AR_IAUTH_PENDING)) {
+      FlagClr(&auth->flags, AR_IAUTH_PENDING);
+      released++;
+      /* Try to complete registration now that IAuth is gone. */
+      check_auth_finished(auth);
+    }
+  }
+
+  if (released > 0)
+    sendto_opmask_butone(NULL, SNO_AUTH,
+                         "IAuth disconnected: released %d pending client(s)",
+                         released);
 }
 
 /** Close all %IAuth connections marked as closing. */
@@ -1732,7 +2234,31 @@ void auth_close_unused(void)
 {
   if (IAuthHas(iauth, IAUTH_CLOSING)) {
     int ii;
+    struct SLink *node, *next;
+
     iauth_disconnect(iauth);
+
+    /* Free version string */
+    MyFree(iauth->i_version);
+    iauth->i_version = NULL;
+
+    /* Free config list */
+    for (node = iauth->i_config; node; node = next) {
+      next = node->next;
+      MyFree(node->value.cp);
+      free_link(node);
+    }
+    iauth->i_config = NULL;
+
+    /* Free stats list */
+    for (node = iauth->i_stats; node; node = next) {
+      next = node->next;
+      MyFree(node->value.cp);
+      free_link(node);
+    }
+    iauth->i_stats = NULL;
+
+    /* Free argv */
     if (iauth->i_argv) {
       for (ii = 0; iauth->i_argv[ii]; ++ii)
         MyFree(iauth->i_argv[ii]);
@@ -1834,9 +2360,17 @@ static int iauth_cmd_snotice(struct IAuth *iauth, struct Client *cli,
 static int iauth_cmd_debuglevel(struct IAuth *iauth, struct Client *cli,
 				int parc, char **params)
 {
-  int new_level;
+  int new_level = 0;
 
-  new_level = parc > 0 ? atoi(params[0]) : 0;
+  if (parc > 0 && params[0]) {
+    char *endptr;
+    long val;
+    errno = 0;
+    val = strtol(params[0], &endptr, 10);
+    /* Accept the value if it parsed successfully and fits in int range */
+    if (errno != ERANGE && endptr != params[0] && val >= 0 && val <= INT_MAX)
+      new_level = (int)val;
+  }
   if (i_debug(iauth) > 0 || new_level > 0) {
     /* The "ia_dbg" name is borrowed from (IRCnet) ircd. */
     sendto_opmask_butone(NULL, SNO_AUTH, "ia_dbg = %d", new_level);
@@ -1960,6 +2494,8 @@ static int iauth_cmd_newconfig(struct IAuth *iauth, struct Client *cli,
 
   head = iauth->i_config;
   iauth->i_config = NULL;
+  iauth->i_config_tail = NULL;
+  iauth->i_config_count = 0;
   for (; head; head = next) {
     next = head->next;
     MyFree(head->value.cp);
@@ -1981,14 +2517,25 @@ static int iauth_cmd_config(struct IAuth *iauth, struct Client *cli,
 {
   struct SLink *node;
 
-  if (iauth->i_config) {
-    for (node = iauth->i_config; node->next; node = node->next) ;
-    node = node->next = make_link();
-  } else {
-    node = iauth->i_config = make_link();
+  /* Enforce limit to prevent DoS from misbehaving IAuth */
+  if (iauth->i_config_count >= IAUTH_LIST_MAX) {
+    log_write(LS_IAUTH, L_WARNING, 0,
+              "IAuth config list limit reached (%u entries)", IAUTH_LIST_MAX);
+    return 0;
   }
+
+  node = make_link();
   node->value.cp = paste_params(parc, params);
   node->next = 0; /* must be explicitly cleared */
+
+  /* Use tail pointer for O(1) append */
+  if (iauth->i_config_tail) {
+    iauth->i_config_tail->next = node;
+  } else {
+    iauth->i_config = node;
+  }
+  iauth->i_config_tail = node;
+  iauth->i_config_count++;
   return 0;
 }
 
@@ -2007,6 +2554,8 @@ static int iauth_cmd_newstats(struct IAuth *iauth, struct Client *cli,
 
   head = iauth->i_stats;
   iauth->i_stats = NULL;
+  iauth->i_stats_tail = NULL;
+  iauth->i_stats_count = 0;
   for (; head; head = next) {
     next = head->next;
     MyFree(head->value.cp);
@@ -2027,14 +2576,26 @@ static int iauth_cmd_stats(struct IAuth *iauth, struct Client *cli,
 			   int parc, char **params)
 {
   struct SLink *node;
-  if (iauth->i_stats) {
-    for (node = iauth->i_stats; node->next; node = node->next) ;
-    node = node->next = make_link();
-  } else {
-    node = iauth->i_stats = make_link();
+
+  /* Enforce limit to prevent DoS from misbehaving IAuth */
+  if (iauth->i_stats_count >= IAUTH_LIST_MAX) {
+    log_write(LS_IAUTH, L_WARNING, 0,
+              "IAuth stats list limit reached (%u entries)", IAUTH_LIST_MAX);
+    return 0;
   }
+
+  node = make_link();
   node->value.cp = paste_params(parc, params);
   node->next = 0; /* must be explicitly cleared */
+
+  /* Use tail pointer for O(1) append */
+  if (iauth->i_stats_tail) {
+    iauth->i_stats_tail->next = node;
+  } else {
+    iauth->i_stats = node;
+  }
+  iauth->i_stats_tail = node;
+  iauth->i_stats_count++;
   return 0;
 }
 
@@ -2051,6 +2612,10 @@ static int iauth_cmd_username_forced(struct IAuth *iauth, struct Client *cli,
   assert(cli_auth(cli) != NULL);
   FlagClr(&cli_auth(cli)->flags, AR_AUTH_PENDING);
   if (!EmptyString(params[0])) {
+    /* Log forced username change for audit trail. */
+    log_write(LS_IAUTH, L_INFO, 0,
+              "IAuth forced username for %s: %s",
+              cli_sock_ip(cli), params[0]);
     ircd_strncpy(cli_username(cli), params[0], USERLEN + 1);
     SetGotId(cli);
     FlagSet(&cli_auth(cli)->flags, AR_IAUTH_USERNAME);
@@ -2131,6 +2696,11 @@ static int iauth_cmd_hostname(struct IAuth *iauth, struct Client *cli,
     SetIPSpoofed(cli);
   }
 
+  /* Log the hostname change for audit trail. */
+  log_write(LS_IAUTH, L_INFO, 0,
+            "IAuth changed hostname for %s from %s to %s",
+            cli_sock_ip(cli), cli_sockhost(cli), params[0]);
+
   /* Set hostname from params. */
   ircd_strncpy(cli_sockhost(cli), params[0], HOSTLEN + 1);
   /* If we have gotten here, the user is in a "hurry" state and has
@@ -2191,6 +2761,11 @@ static int iauth_cmd_ip_address(struct IAuth *iauth, struct Client *cli,
     IPcheck_connect_fail(cli, 1);
     ClearIPChecked(cli);
   }
+
+  /* Log the IP change for audit trail. */
+  log_write(LS_IAUTH, L_INFO, 0,
+            "IAuth changed IP for client from %s to %s",
+            ircd_ntoa(&cli_ip(cli)), params[0]);
 
   /* Update the IP and charge them as a remote connect. */
   memcpy(&cli_ip(cli), &addr, sizeof(cli_ip(cli)));
@@ -2272,9 +2847,25 @@ static int iauth_cmd_done_client(struct IAuth *iauth, struct Client *cli,
 {
   static time_t warn_time;
 
+  Debug((DEBUG_INFO, "iauth_cmd_done_client: cli=%p fd=%d cli_name='%s'",
+         (void*)cli, cli_fd(cli), cli_name(cli)));
+
   /* Clear iauth pending flag. */
   assert(cli_auth(cli) != NULL);
   FlagClr(&cli_auth(cli)->flags, AR_IAUTH_PENDING);
+
+  /* Reset circuit breaker on successful IAuth response. */
+  if (iauth && iauth->i_timeout_count > 0) {
+    if (iauth->i_circuit_open) {
+      log_write(LS_IAUTH, L_INFO, 0,
+                "IAuth circuit breaker reset - IAuth responding again");
+      sendto_opmask_butone(NULL, SNO_AUTH,
+                           "IAuth circuit breaker CLOSED: IAuth responding "
+                           "normally again");
+    }
+    iauth->i_timeout_count = 0;
+    iauth->i_circuit_open = 0;
+  }
 
   /* If a connection class was specified (and usable), assign the client to it. */
   if (!EmptyString(params[0])) {
@@ -2294,6 +2885,10 @@ static int iauth_cmd_done_client(struct IAuth *iauth, struct Client *cli,
         return exit_client(cli, cli, &me,
                            "Sorry, your connection class is full - try "
                            "again later or try another server");
+      case ACR_SASL_UNAVAILABLE:
+        ++ServerStats->is_ref;
+        return exit_client(cli, cli, &me,
+                           "SASL authentication required but temporarily unavailable - try again later");
       default:
         log_write(LS_IAUTH, L_ERROR, 0, "IAuth: Unexpected AuthorizationCheckResult %d from attach_conf()", acr);
         break;
@@ -2331,12 +2926,16 @@ static int iauth_cmd_done_account(struct IAuth *iauth, struct Client *cli,
     sendto_iauth(cli, "E Invalid :Account parameter too long");
     return 0;
   }
-  /* If account has a creation timestamp, use it. */
+  /* If account has a creation timestamp, use it -- and only it: without
+   * one, none, not what an earlier login of this connection left.  IAuth
+   * carries no Keycloak id either. */
   assert(cli_user(cli) != NULL);
   if (params[0][len] == ':') {
     cli_user(cli)->acc_create = strtoul(params[0] + len + 1, NULL, 10);
     params[0][len] = '\0';
-  }
+  } else
+    cli_user(cli)->acc_create = 0;
+  cli_user(cli)->kc_id[0] = '\0';
 
   /* Copy account name to User structure. */
   ircd_strncpy(cli_user(cli)->account, params[0], ACCOUNTLEN + 1);
@@ -2356,6 +2955,19 @@ static int iauth_cmd_done_account(struct IAuth *iauth, struct Client *cli,
 static int iauth_cmd_kill(struct IAuth *iauth, struct Client *cli,
 			  int parc, char **params)
 {
+  /* Check if client is exempt due to native DNSBL whitelist */
+  if (IsDNSBLExempt(cli))
+  {
+    Debug((DEBUG_INFO, "IAuth kill for %s blocked by DNSBL whitelist exemption",
+           cli_name(cli)));
+    sendto_opmask_butone(0, SNO_AUTH,
+      "IAuth kill for %s blocked (DNSBL whitelisted)",
+      cli_name(cli));
+    if (cli_auth(cli))
+      FlagClr(&cli_auth(cli)->flags, AR_IAUTH_PENDING);
+    return 0;
+  }
+
   if (cli_auth(cli))
     FlagClr(&cli_auth(cli)->flags, AR_IAUTH_PENDING);
   if (EmptyString(params[0]))
@@ -2391,6 +3003,8 @@ static int iauth_cmd_mark(struct IAuth *iauth, struct Client *cli,
     ircd_strncpy(cli_version(cli), params[1], VERSIONLEN + 1);
   } else if (!ircd_strcmp(params[0], MARK_SSLCLIFP)) {
     ircd_strncpy(cli_sslclifp(cli), params[1], BUFSIZE + 1);
+  } else if (!ircd_strcmp(params[0], MARK_SSLCLIEXP)) {
+    cli_sslcliexp(cli) = strtoul(params[1], NULL, 10);
   } else if (!ircd_strcmp(params[0], MARK_KILL)) {
     ircd_strncpy(cli_killmark(cli), params[1], BUFSIZE + 1);
   } else if (!ircd_strcmp(params[0], MARK_MARK) || !ircd_strcmp(params[0], MARK_DNSBL_DATA)) {
@@ -2552,6 +3166,11 @@ static int iauth_cmd_sasl_fail(struct IAuth *iauth, struct Client *cli,
                                int parc, char **params)
 {
   send_reply(cli, ERR_SASLFAIL, EmptyString(params[0]) ? "" : params[0]);
+
+  /* Unblock registration if SASL was holding it */
+  if (cli_auth(cli))
+    return auth_sasl_done(cli_auth(cli));
+
   return 0;
 }
 
@@ -2569,6 +3188,48 @@ static int iauth_cmd_sasl_mechs(struct IAuth *iauth, struct Client *cli,
     return 0;
 
   send_reply(cli, ERR_SASLMECHS, params[0]);
+  return 0;
+}
+
+/** Handle global SASL mechanism broadcast from IAuth.
+ * Stores the mechanism list for use in CAP LS when services is unavailable.
+ * @param[in] iauth IAuth connection context.
+ * @param[in] cli Ignored (no client context).
+ * @param[in] parc Number of parameters (1).
+ * @param[in] params Comma-separated mechanism list (e.g. "PLAIN").
+ * @return Zero.
+ */
+static int iauth_cmd_sasl_global_mechs(struct IAuth *iauth, struct Client *cli,
+                                        int parc, char **params)
+{
+  const char *old_mechs = iauth->i_sasl_mechs[0] ? iauth->i_sasl_mechs : NULL;
+
+  if (EmptyString(params[0])) {
+    iauth->i_sasl_mechs[0] = '\0';
+
+    /* If IAUTH was the active mechanism source, clear global mechs.
+     * Compare against what's currently advertised to avoid clearing
+     * mechanisms that services set. */
+    if (old_mechs) {
+      const char *current = get_sasl_mechanisms();
+      if (current && strcmp(current, old_mechs) == 0) {
+        log_write(LS_SYSTEM, L_INFO, 0,
+                  "IAuth SASL mechanisms withdrawn (no healthy providers)");
+        set_sasl_mechanisms(NULL);
+      }
+    }
+    return 0;
+  }
+
+  ircd_strncpy(iauth->i_sasl_mechs, params[0], sizeof(iauth->i_sasl_mechs) - 1);
+  iauth->i_sasl_mechs[sizeof(iauth->i_sasl_mechs) - 1] = '\0';
+
+  log_write(LS_SYSTEM, L_INFO, 0, "IAuth SASL mechanisms: %s", iauth->i_sasl_mechs);
+
+  /* If services hasn't set mechanisms yet, use IAUTH's list for CAP LS */
+  if (!get_sasl_mechanisms())
+    set_sasl_mechanisms(iauth->i_sasl_mechs);
+
   return 0;
 }
 
@@ -2591,6 +3252,10 @@ static int iauth_cmd_sasl_done(struct IAuth *iauth, struct Client *cli,
   /* Cancel SASL timeout */
   if (t_active(&cli_sasltimeout(cli)))
     timer_del(&cli_sasltimeout(cli));
+
+  /* Unblock registration if SASL was holding it */
+  if (cli_auth(cli))
+    return auth_sasl_done(cli_auth(cli));
 
   return 0;
 }
@@ -2619,6 +3284,7 @@ static void iauth_parse(struct IAuth *iauth, char *message)
   case 'A': handler = iauth_cmd_config; has_cli = 0; break;
   case 's': handler = iauth_cmd_newstats; has_cli = 0; break;
   case 'S': handler = iauth_cmd_stats; has_cli = 0; break;
+  case 'W': handler = iauth_cmd_sasl_global_mechs; has_cli = 0; break;
   case 'X': handler = iauth_cmd_xquery; has_cli = 0; break;
   case 'o': handler = iauth_cmd_username_forced; has_cli = 1; break;
   case 'U': handler = iauth_cmd_username_good; has_cli = 1; break;
@@ -2675,14 +3341,21 @@ static void iauth_parse(struct IAuth *iauth, char *message)
     handler(iauth, NULL, parc, params);
   } else {
     /* Try to find the client associated with the request. */
-    id = strtol(params[0], NULL, 10);
+    char *endptr;
+    errno = 0;
+    /* params[0] is NULL when the line has no parameters. */
+    id = (parc >= 3) ? strtol(params[0], &endptr, 10) : 0;
     if (parc < 3)
       sendto_iauth(NULL, "E Missing :Need <id> <ip> <port>");
-    else if (id < 0 || id > HighestFd || !(cli = LocalClientArray[id]))
+    else if (errno == ERANGE || endptr == params[0] || (*endptr && !IsSpace(*endptr)))
+      /* Invalid client ID format. */
+      sendto_iauth(NULL, "E BadId :[%s] is not a valid client id", params[0]);
+    else if (id < 0 || id > HighestFd || !(cli = LocalClientArray[id])) {
       /* Client no longer exists (or never existed). */
+      Debug((DEBUG_INFO, "iauth_parse: Gone fd=%d (no client)", id));
       sendto_iauth(NULL, "E Gone :[%s %s %s]", params[0], params[1],
 		   params[2]);
-    else if ((!(auth = cli_auth(cli)) ||
+    } else if ((!(auth = cli_auth(cli)) ||
 	      !FlagHas(&auth->flags, AR_IAUTH_PENDING)) &&
 	     has_cli == 1)
       /* Client is done with IAuth checks. */
@@ -2690,22 +3363,37 @@ static void iauth_parse(struct IAuth *iauth, char *message)
     else {
       struct irc_sockaddr addr;
       int res;
+      long port_val;
+      char *port_end;
 
       /* Parse IP address and port number from parameters */
       res = ipmask_parse(params[1], &addr.addr, NULL);
-      addr.port = strtol(params[2], NULL, 10);
+      errno = 0;
+      port_val = strtol(params[2], &port_end, 10);
+      if (errno == ERANGE || port_end == params[2] ||
+          (*port_end && !IsSpace(*port_end)) ||
+          port_val < 0 || port_val > 65535) {
+        sendto_iauth(cli, "E BadPort :[%s] is not a valid port", params[2]);
+      }
+      else {
+        addr.port = (unsigned short)port_val;
 
-      /* Check IP address and port number against expected. */
-      if (0 == res ||
-	  (irc_in_addr_cmp(&addr.addr, &cli_ip(cli)) &&
-           irc_in_addr_cmp(&addr.addr, &cli_connectip(cli))) ||
-	  (auth && addr.port != auth->port))
-	/* Report mismatch to iauth. */
-	sendto_iauth(cli, "E Mismatch :[%s] != [%s]", params[1],
-		     ircd_ntoa(&cli_ip(cli)));
-      else if (handler(iauth, cli, parc - 3, params + 3) > 0)
-	/* Handler indicated a possible state change. */
-	check_auth_finished(auth);
+        /* Check IP address and port number against expected. */
+        if (0 == res ||
+            (irc_in_addr_cmp(&addr.addr, &cli_ip(cli)) &&
+             irc_in_addr_cmp(&addr.addr, &cli_connectip(cli))) ||
+            (auth && addr.port != auth->port)) {
+          /* Report mismatch to iauth. */
+          Debug((DEBUG_INFO, "iauth_parse: MISMATCH for fd %d cli=%p cli_name='%s' "
+                 "iauth_port=%hu auth_port=%hu",
+                 cli_fd(cli), (void*)cli, cli_name(cli),
+                 addr.port, auth ? auth->port : 0));
+          sendto_iauth(cli, "E Mismatch :[%s] != [%s]", params[1],
+                       ircd_ntoa(&cli_ip(cli)));
+        } else if (handler(iauth, cli, parc - 3, params + 3) > 0)
+          /* Handler indicated a possible state change. */
+          check_auth_finished(auth);
+      }
     }
   }
 }
@@ -2734,7 +3422,7 @@ static void iauth_read(struct IAuth *iauth)
   /* Parse each complete line. */
   for (sol = readbuf; (eol = strchr(sol, '\n')) != NULL; sol = eol + 1) {
     *eol = '\0';
-    if (*(eol - 1) == '\r') /* take out carriage returns, too... */
+    if (eol > sol && *(eol - 1) == '\r') /* take out carriage returns, too... */
       *(eol - 1) = '\0';
 
     /* If spammy debug, send the message to opers. */
@@ -2747,8 +3435,12 @@ static void iauth_read(struct IAuth *iauth)
 
   /* Put unused data back into connection's buffer. */
   iauth->i_count = strlen(sol);
-  if (iauth->i_count > BUFSIZE)
+  if (iauth->i_count > BUFSIZE) {
+    log_write(LS_IAUTH, L_WARNING, 0,
+              "IAuth partial line truncated: %u > %u bytes",
+              iauth->i_count, BUFSIZE);
     iauth->i_count = BUFSIZE;
+  }
   memcpy(iauth->i_buffer, sol, iauth->i_count);
 }
 
@@ -2766,7 +3458,8 @@ static void iauth_sock_callback(struct Event *ev)
 
   switch (ev_type(ev)) {
   case ET_DESTROY:
-    if (!IAuthHas(iauth, IAUTH_CLOSING) && !s_active(i_stderr(iauth)))
+    if (!IAuthHas(iauth, IAUTH_CLOSING) && !IAuthHas(iauth, IAUTH_SPAWN_UNDO)
+        && !s_active(i_stderr(iauth)))
       iauth_do_spawn(iauth, 1);
     break;
   case ET_READ:
@@ -2777,10 +3470,13 @@ static void iauth_sock_callback(struct Event *ev)
     iauth_write(iauth);
     break;
   case ET_ERROR:
+    if (s_fd(ev_socket(ev)) == -1)
+      break; /* already disconnected */
     log_write(LS_IAUTH, L_ERROR, 0, "IAuth socket error: %s", strerror(ev_data(ev)));
     /* and fall through to the ET_EOF case */
   case ET_EOF:
-    iauth_disconnect(iauth);
+    if (s_fd(ev_socket(ev)) != -1)
+      iauth_disconnect(iauth);
     break;
   default:
     assert(0 && "Unrecognized event type");
@@ -2811,7 +3507,7 @@ static void iauth_read_stderr(struct IAuth *iauth)
   /* Send each complete line to SNO_AUTH. */
   for (sol = readbuf; (eol = strchr(sol, '\n')) != NULL; sol = eol + 1) {
     *eol = '\0';
-    if (*(eol - 1) == '\r') /* take out carriage returns, too... */
+    if (eol > sol && *(eol - 1) == '\r') /* take out carriage returns, too... */
       *(eol - 1) = '\0';
     Debug((DEBUG_ERROR, "IAuth error: %s", sol));
     log_write(LS_IAUTH, L_ERROR, 0, "IAuth error: %s", sol);
@@ -2820,8 +3516,12 @@ static void iauth_read_stderr(struct IAuth *iauth)
 
   /* Put unused data back into connection's buffer. */
   iauth->i_errcount = strlen(sol);
-  if (iauth->i_errcount > BUFSIZE)
+  if (iauth->i_errcount > BUFSIZE) {
+    log_write(LS_IAUTH, L_WARNING, 0,
+              "IAuth stderr line truncated: %u > %u bytes",
+              iauth->i_errcount, BUFSIZE);
     iauth->i_errcount = BUFSIZE;
+  }
   memcpy(iauth->i_errbuf, sol, iauth->i_errcount);
 }
 
@@ -2839,17 +3539,21 @@ static void iauth_stderr_callback(struct Event *ev)
 
   switch (ev_type(ev)) {
   case ET_DESTROY:
-    if (!IAuthHas(iauth, IAUTH_CLOSING) && !s_active(i_socket(iauth)))
+    if (!IAuthHas(iauth, IAUTH_CLOSING) && !IAuthHas(iauth, IAUTH_SPAWN_UNDO)
+        && !s_active(i_socket(iauth)))
       iauth_do_spawn(iauth, 1);
     break;
   case ET_READ:
     iauth_read_stderr(iauth);
     break;
   case ET_ERROR:
+    if (s_fd(ev_socket(ev)) == -1)
+      break; /* already disconnected */
     log_write(LS_IAUTH, L_ERROR, 0, "IAuth stderr error: %s", strerror(ev_data(ev)));
     /* and fall through to the ET_EOF case */
   case ET_EOF:
-    iauth_disconnect(iauth);
+    if (s_fd(ev_socket(ev)) != -1)
+      iauth_disconnect(iauth);
     break;
   default:
     assert(0 && "Unrecognized event type");

@@ -218,6 +218,34 @@ do_shun(struct Client *cptr, struct Client *sptr, struct Shun *shun)
             continue;
         Debug((DEBUG_DEBUG,"Matched!"));
       } else { /* Host/IP shun */
+        /* Defer when the client's username isn't known yet (pre-USER
+         * mid-registration — cli_user is allocated by make_user on
+         * first input, but cli_user->username[] isn't populated until
+         * the USER command is parsed in register_user).  We can't
+         * evaluate the ident half of a user@host mask without it; any
+         * guard on the *shape* of sh_user (`starts with *', `looks
+         * specific', etc.) leaves edge cases broken (`?*', `?bob',
+         * `*foo' which is "ends with foo" not "matches anything",
+         * etc.) — so the rule is just "defer unless we know the mask
+         * matches any ident."
+         *
+         * The only safe known-match-any shortcut is the literal
+         * single bare `*' — explicitly check sh_user[0]=='*' &&
+         * sh_user[1]=='\0' so patterns that start with star but have
+         * trailing chars (e.g. `*foo') don't short-circuit.  This
+         * preserves Jobe's original intent (a `*@host' shun applies
+         * pre-USER, useful when no identd is running) while closing
+         * the false-positive class where a `bob@*' shun previously
+         * fired for any mid-registration client.
+         *
+         * Post-registration shun_lookup invoked from m_privmsg/etc.
+         * re-evaluates the shun once the client's USER lands, so the
+         * deferral has no enforcement consequence — the only
+         * artefact it suppresses is the spurious SNO_GLINE "Shun
+         * active for ..." oper notice for the wrong user. */
+        if (!*(cli_user(acptr)->username)
+            && !(shun->sh_user[0] == '*' && shun->sh_user[1] == '\0'))
+          continue;
         if (*(cli_user(acptr)->username) &&
             match(shun->sh_user, (cli_user(acptr))->username) != 0)
           continue;
@@ -236,6 +264,57 @@ do_shun(struct Client *cptr, struct Client *sptr, struct Shun *shun)
       }
 
       /* ok, here's one that got Shunned */
+
+      /* Diagnostic: print which field actually matched, so opers can
+       * tell at-a-glance whether the shun hit cli_sockhost (DNS PTR or
+       * IAuth override), the raw IP, the realname, or the CTCP version.
+       * Pinned-down troubleshooting tool — without this, a spurious
+       * "Shun active for [@IP]" notice is unattributable to a specific
+       * field, which has cost us hours of investigation in the past.
+       * Logged at INFO so it lands in the regular ircd log; not sent to
+       * opers (the existing SNO_GLINE notice below already handles
+       * oper visibility, and we don't want to spam the snomask with
+       * field details on every match). */
+      {
+        const char *matched = "?";
+        const char *matched_val = "";
+        if (ShunIsRealName(shun)) {
+          matched = "cli_info";
+          matched_val = cli_info(acptr);
+        } else if (ShunIsVersion(shun)) {
+          matched = "cli_version";
+          matched_val = cli_version(acptr);
+        } else if (ShunIsIpMask(shun)) {
+          matched = "cli_ip(ipmask)";
+          matched_val = ircd_ntoa(&cli_ip(acptr));
+        } else {
+          /* Non-IPmask host shun.  Disambiguate sockhost-vs-IP. */
+          if (match(shun->sh_host, cli_sockhost(acptr)) == 0) {
+            matched = "cli_sockhost";
+            matched_val = cli_sockhost(acptr);
+          } else {
+            matched = "ircd_ntoa(cli_ip)";
+            matched_val = ircd_ntoa(&cli_ip(acptr));
+          }
+        }
+        log_write(LS_GLINE, L_INFO, 0,
+                  "Shun match: mask=%s reason=%s "
+                  "victim=%s!%s@%s ip=%s sockhost=%s host=%s realhost=%s "
+                  "matched_via=%s matched_value=%s",
+                  shun->sh_host ? shun->sh_host : "?",
+                  shun->sh_reason ? shun->sh_reason : "?",
+                  cli_name(acptr) ? cli_name(acptr) : "(noname)",
+                  (cli_user(acptr) && cli_user(acptr)->username[0])
+                    ? cli_user(acptr)->username : "(nouser)",
+                  cli_user(acptr) ? cli_user(acptr)->host : "(nouser)",
+                  ircd_ntoa(&cli_ip(acptr)),
+                  cli_sockhost(acptr) ? cli_sockhost(acptr) : "(null)",
+                  cli_user(acptr) ? cli_user(acptr)->host : "(nouser)",
+                  cli_user(acptr) ? cli_user(acptr)->realhost : "(nouser)",
+                  matched,
+                  matched_val ? matched_val : "(null)");
+      }
+
       if (!feature_bool(FEAT_HIS_SHUN_REASON))
         sendcmdto_one(&me, CMD_NOTICE, acptr, "%C :You are shunned: %s", acptr,
              shun->sh_reason);

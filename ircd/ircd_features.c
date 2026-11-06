@@ -23,12 +23,18 @@
 #include "config.h"
 
 #include "ircd_features.h"
+#include "handlers.h"
+#include "chathistory_presence.h"
+#include "capab.h"	/* send_cap_notify */
 #include "channel.h"	/* list_set_default */
 #include "class.h"
+#include "authtoken.h"
 #include "client.h"
 #include "hash.h"
+#include "history.h"
 #include "ircd.h"
 #include "ircd_alloc.h"
+#include "ircd_compress.h"
 #include "ircd_geoip.h"
 #include "ircd_log.h"
 #include "ircd_reply.h"
@@ -48,7 +54,11 @@
 #include "send.h"
 #include "struct.h"
 #include "sys.h"    /* FALSE bleah */
+#include "webpush.h"
 #include "whowas.h"	/* whowas_realloc */
+#include "gitsync.h"
+#include "bouncer_session.h"
+#include "sasl_auth.h"
 
 /* #include <assert.h> -- Now using assert in ircd_log.h */
 #include <stdlib.h>
@@ -234,9 +244,7 @@ feature_notify_oplevels(void)
   else
    ClearOpLevels(&me);
 
-  /* "be,AkU,Ll,aCcDdiMmNnOpQRrSsTtZz" */
-
-  ircd_snprintf(0, cmodebuf, BUFSIZE, "b%s,%sk%s,Ll,aCcDdiMmNnOpQRrSsTtZz",
+  ircd_snprintf(0, cmodebuf, BUFSIZE, "b%s,%sk%s,Ll,aCcDdHiMmNnOPpQRrSsTtZz",
                 feature_bool(FEAT_EXCEPTS) ? "e" : "",
                 feature_bool(FEAT_OPLEVELS) ? "A" : "",
                 feature_bool(FEAT_OPLEVELS) ? "U" : "");
@@ -267,9 +275,7 @@ feature_notify_excepts(void)
     del_isupport("MAXEXCEPTS");
   }
 
-  /* "be,AkU,Ll,aCcDdiMmNnOpQRrSsTtZz" */
-
-  ircd_snprintf(0, cmodebuf, BUFSIZE, "b%s,%sk%s,Ll,aCcDdiMmNnOpQRrSsTtZz",
+  ircd_snprintf(0, cmodebuf, BUFSIZE, "b%s,%sk%s,Ll,aCcDdHiMmNnOPpQRrSsTtZz",
                 feature_bool(FEAT_EXCEPTS) ? "e" : "",
                 feature_bool(FEAT_OPLEVELS) ? "A" : "",
                 feature_bool(FEAT_OPLEVELS) ? "U" : "");
@@ -334,7 +340,24 @@ set_isupport_extbans(void)
     if (feature_bool(FEAT_EXTBAN_M))
       strcat(imaxlist, "M");
 
-    add_isupport_s("EXTBANS", imaxlist);
+    /* EXTBAN (singular) is the canonical ISUPPORT token name, predating
+     * the IRCv3 working group. Our previous EXTBANS (plural) was an
+     * idiosyncratic spelling that only clients written specifically
+     * against this codebase would have parsed; mainstream clients have
+     * always been reading EXTBAN. */
+    add_isupport_s("EXTBAN", imaxlist);
+    del_isupport("EXTBANS");
+
+    /* IRCv3 account-extban (ratified 2026-03-18, #587):
+     * Servers publishing ACCOUNTEXTBAN MUST also publish EXTBAN.
+     * Value is the comma-separated list of extban-type names that
+     * match against account names; for us that's just 'a'. */
+    if (feature_bool(FEAT_EXTBAN_a))
+      add_isupport_s("ACCOUNTEXTBAN", "a");
+    else
+      del_isupport("ACCOUNTEXTBAN");
+  } else {
+    del_isupport("ACCOUNTEXTBAN");
   }
 }
 
@@ -431,6 +454,461 @@ set_isupport_network(void)
 {
     add_isupport_s("NETWORK", feature_str(FEAT_NETWORK));
 }
+
+/** Set draft/ICON from FEAT_NETWORK_ICON.  Empty value removes the
+ * token so clients don't see a meaningless `draft/ICON=` advert.
+ * Without this notify callback wired on the feature, a runtime
+ * `/SET NETWORK_ICON ...` would update the in-memory feature value
+ * but the cached ISUPPORT line (built once at init_conf time in
+ * register_user → send_supported) would stay stale until a
+ * /REHASH — which itself re-reads ircd.conf and would clobber the
+ * /SET-only value if it isn't also in the conf. */
+static void
+set_isupport_network_icon(void)
+{
+    const char *icon_url = feature_str(FEAT_NETWORK_ICON);
+    if (icon_url && *icon_url)
+        add_isupport_s("draft/ICON", icon_url);
+    else
+        del_isupport("draft/ICON");
+}
+
+/** Set UTF8ONLY from FEAT_UTF8ONLY.  The token is value-less — its
+ * mere presence in RPL_ISUPPORT signals UTF-8 enforcement.  Empty
+ * (feature false) removes the token. */
+static void
+set_isupport_utf8only(void)
+{
+    if (feature_bool(FEAT_UTF8ONLY))
+        add_isupport("UTF8ONLY");
+    else
+        del_isupport("UTF8ONLY");
+}
+
+/** Set CLIENTTAGDENY from FEAT_CLIENTTAGDENY.  IRCv3 token
+ * advertising blocked client-only tag patterns; empty value
+ * removes the advert. */
+static void
+set_isupport_clienttagdeny(void)
+{
+    /* #600: "Servers MUST NOT advertise the same tag twice in the
+     * list, negated or otherwise."  Sanitize the operator string:
+     * exact duplicates dropped; when a tag appears both negated and
+     * plain, only the negated form survives (matching the evaluator,
+     * where negation wins). */
+    const char *deny_list = feature_str(FEAT_CLIENTTAGDENY);
+    static char clean[BUFSIZE];
+    char work[BUFSIZE];
+    char haystack[BUFSIZE + 2];
+    char *saveptr = NULL;
+    char *tok;
+
+    if (!deny_list || !*deny_list) {
+        del_isupport("CLIENTTAGDENY");
+        return;
+    }
+
+    ircd_strncpy(work, deny_list, sizeof(work));
+    clean[0] = '\0';
+    for (tok = strtok_r(work, ",", &saveptr); tok;
+         tok = strtok_r(NULL, ",", &saveptr)) {
+        const char *name = (*tok == '-') ? tok + 1 : tok;
+        char probe_neg[520], probe_plain[520];
+        size_t cur;
+        if (!*name)
+            continue;
+        ircd_snprintf(0, probe_neg, sizeof(probe_neg), ",-%s,", name);
+        ircd_snprintf(0, probe_plain, sizeof(probe_plain), ",%s,", name);
+        ircd_snprintf(0, haystack, sizeof(haystack), ",%s,", clean);
+        if (strstr(haystack, probe_neg))
+            continue;   /* negated form already advertised */
+        if (strstr(haystack, probe_plain)) {
+            if (*tok == '-') {
+                /* plain form emitted earlier; negation must win */
+                char *hit = strstr(clean, probe_plain + 1);
+                while (hit && hit != clean && hit[-1] != ',')
+                    hit = strstr(hit + 1, probe_plain + 1);
+                if (hit && strlen(clean) + 2 < sizeof(clean)) {
+                    memmove(hit + 1, hit, strlen(hit) + 1);
+                    *hit = '-';
+                }
+            }
+            continue;
+        }
+        cur = strlen(clean);
+        if (cur + strlen(tok) + 2 >= sizeof(clean))
+            break;
+        if (cur) {
+            clean[cur++] = ',';
+            clean[cur] = '\0';
+        }
+        memcpy(clean + cur, tok, strlen(tok) + 1);
+    }
+
+    if (clean[0])
+        add_isupport_s("CLIENTTAGDENY", clean);
+    else
+        del_isupport("CLIENTTAGDENY");
+}
+
+#ifdef USE_ZSTD
+/** Update compression threshold from feature. */
+static void
+feature_notify_compress_threshold(void)
+{
+    compress_set_threshold((size_t)feature_int(FEAT_COMPRESS_THRESHOLD));
+}
+
+/** Update compression level from feature. */
+static void
+feature_notify_compress_level(void)
+{
+    compress_set_level(feature_int(FEAT_COMPRESS_LEVEL));
+}
+#endif /* USE_ZSTD */
+
+/* Forward declarations for mutual dependency */
+static void feature_notify_chathistory_caps(void);
+static void feature_notify_multiline(void);
+
+/** Notify clients when CAP_draft_multiline feature flag changes.
+ * Sends CAP NEW with parameters when enabled, CAP DEL when disabled.
+ */
+static void
+feature_notify_cap_multiline(void)
+{
+  if (feature_bool(FEAT_CAP_draft_multiline)) {
+    /* Cap enabled - send CAP NEW with current parameters */
+    feature_notify_multiline();
+  } else {
+    /* Cap disabled - send CAP DEL */
+    send_cap_notify("draft/multiline", 0, NULL);
+    log_write(LS_SYSTEM, L_INFO, 0,
+              "multiline: capability disabled, sent CAP DEL to cap-notify clients");
+  }
+}
+
+/** Notify clients when CAP_draft_chathistory feature flag changes.
+ * Sends CAP NEW with parameters when enabled, CAP DEL when disabled.
+ */
+static void
+feature_notify_cap_chathistory(void)
+{
+  if (feature_bool(FEAT_CAP_draft_chathistory)) {
+    /* Cap enabled - send CAP NEW with current parameters */
+    feature_notify_chathistory_caps();
+  } else {
+    /* Cap disabled - send CAP DEL */
+    send_cap_notify("draft/chathistory", 0, NULL);
+    log_write(LS_SYSTEM, L_INFO, 0,
+              "chathistory: capability disabled, sent CAP DEL to cap-notify clients");
+  }
+}
+
+/** Notify clients when a simple CAP feature flag changes (no parameters).
+ * Helper macro to generate callbacks for caps without parameters.
+ * Uses featname for C identifier (function name) and capname for the CAP string.
+ */
+#define DEFINE_CAP_NOTIFY(capname, featname) \
+static void feature_notify_cap_##featname(void) { \
+  if (feature_bool(FEAT_CAP_##featname)) { \
+    send_cap_notify(capname, 1, NULL); \
+    log_write(LS_SYSTEM, L_INFO, 0, \
+              capname ": capability enabled, sent CAP NEW to cap-notify clients"); \
+  } else { \
+    send_cap_notify(capname, 0, NULL); \
+    log_write(LS_SYSTEM, L_INFO, 0, \
+              capname ": capability disabled, sent CAP DEL to cap-notify clients"); \
+  } \
+}
+
+/* Generate notify functions for simple caps (no parameters) */
+/** draft/authtoken: CAP NEW only makes sense with a configured service. */
+static void feature_notify_cap_draft_authtoken(void)
+{
+  if (feature_bool(FEAT_CAP_draft_authtoken)) {
+    if (authtoken_service_count())
+      send_cap_notify("draft/authtoken", 1, NULL);
+  } else
+    send_cap_notify("draft/authtoken", 0, NULL);
+}
+
+DEFINE_CAP_NOTIFY("multi-prefix", multi_prefix)
+DEFINE_CAP_NOTIFY("soju.im/search", soju_search)
+DEFINE_CAP_NOTIFY("userhost-in-names", userhost_in_names)
+DEFINE_CAP_NOTIFY("extended-join", extended_join)
+DEFINE_CAP_NOTIFY("away-notify", away_notify)
+DEFINE_CAP_NOTIFY("account-notify", account_notify)
+DEFINE_CAP_NOTIFY("cap-notify", cap_notify)
+DEFINE_CAP_NOTIFY("server-time", server_time)
+DEFINE_CAP_NOTIFY("echo-message", echo_message)
+DEFINE_CAP_NOTIFY("account-tag", account_tag)
+DEFINE_CAP_NOTIFY("draft/oper-tag", oper_tag)
+DEFINE_CAP_NOTIFY("chghost", chghost)
+DEFINE_CAP_NOTIFY("invite-notify", invite_notify)
+DEFINE_CAP_NOTIFY("labeled-response", labeled_response)
+DEFINE_CAP_NOTIFY("batch", batch)
+DEFINE_CAP_NOTIFY("setname", setname)
+DEFINE_CAP_NOTIFY("standard-replies", standard_replies)
+DEFINE_CAP_NOTIFY("message-tags", message_tags)
+DEFINE_CAP_NOTIFY("no-implicit-names", no_implicit_names)
+DEFINE_CAP_NOTIFY("draft/extended-isupport", draft_extended_isupport)
+DEFINE_CAP_NOTIFY("draft/pre-away", draft_pre_away)
+DEFINE_CAP_NOTIFY("draft/event-playback", draft_event_playback)
+DEFINE_CAP_NOTIFY("draft/message-redaction", draft_message_redaction)
+DEFINE_CAP_NOTIFY("draft/read-marker", draft_read_marker)
+DEFINE_CAP_NOTIFY("draft/channel-rename", draft_channel_rename)
+DEFINE_CAP_NOTIFY("evilnet/channel-relocate", evilnet_channel_relocate)
+DEFINE_CAP_NOTIFY("draft/metadata-2", draft_metadata_2)
+DEFINE_CAP_NOTIFY("draft/bouncer", draft_bouncer)
+DEFINE_CAP_NOTIFY("draft/persistence", draft_persistence)
+DEFINE_CAP_NOTIFY("tls", tls)
+
+/** Notify clients when STS feature flag changes.
+ * STS has parameters: port, duration, and optionally preload.
+ */
+static void
+feature_notify_cap_sts(void)
+{
+  char valbuf[64];
+
+  if (feature_bool(FEAT_CAP_sts)) {
+    /* Cap enabled - send CAP NEW with STS parameters */
+    if (feature_bool(FEAT_STS_PRELOAD)) {
+      ircd_snprintf(0, valbuf, sizeof(valbuf), "port=%d,duration=%d,preload",
+                    feature_int(FEAT_STS_PORT),
+                    feature_int(FEAT_STS_DURATION));
+    } else {
+      ircd_snprintf(0, valbuf, sizeof(valbuf), "port=%d,duration=%d",
+                    feature_int(FEAT_STS_PORT),
+                    feature_int(FEAT_STS_DURATION));
+    }
+    send_cap_notify("sts", 1, valbuf);
+    log_write(LS_SYSTEM, L_INFO, 0,
+              "sts: capability enabled (%s), sent CAP NEW to cap-notify clients",
+              valbuf);
+  } else {
+    /* Cap disabled - send CAP DEL */
+    send_cap_notify("sts", 0, NULL);
+    log_write(LS_SYSTEM, L_INFO, 0,
+              "sts: capability disabled, sent CAP DEL to cap-notify clients");
+  }
+}
+
+/** Notify peer servers of chathistory retention change (CH A R).
+ * Called when CHATHISTORY_RETENTION is modified via SET or REHASH.
+ * Only sends if we're a storage server (CHATHISTORY_STORE enabled).
+ */
+/** Notify handler for FEAT_CHATHISTORY_STRICT_PRESENCE.  A runtime
+ * flip to ON leaves every pre-existing membership without an open
+ * presence interval (the join hook early-returns while the feature is
+ * off), hiding all history from current members until they part and
+ * rejoin.  Backfill open intervals for everyone present now.  Guarded
+ * for the conf-parse-time firing (no channels exist yet). */
+static void
+feature_notify_strict_presence(void)
+{
+  if (!feature_bool(FEAT_CHATHISTORY_STRICT_PRESENCE))
+    return;
+  if (!cli_serv(&me))
+    return;
+  if (!presence_account_store_ready()) {
+    /* SET at runtime without the metadata env: every authenticated
+     * user would see empty history.  Refuse, loudly (2026-09-06). */
+    static const char *const off[] = { "CHATHISTORY_STRICT_PRESENCE", "FALSE" };
+    log_write(LS_CONFIG, L_ERROR, 0,
+              "CHATHISTORY_STRICT_PRESENCE refused: the metadata database "
+              "(CAP_draft_metadata_2) is not available for account presence");
+    sendto_opmask_butone(0, SNO_OLDSNO,
+                         "CHATHISTORY_STRICT_PRESENCE refused: metadata database "
+                         "not available for account presence records");
+    feature_set(NULL, off, 2);
+    return;
+  }
+  presence_backfill_now();
+}
+
+static void
+feature_notify_chathistory_retention(void)
+{
+  int retention;
+
+  /* Only advertise retention changes if we're a storage server */
+  if (!feature_bool(FEAT_CHATHISTORY_STORE))
+    return;
+
+  retention = feature_int(FEAT_CHATHISTORY_RETENTION);
+
+  /* feature_set fires this notify during initial conf parse from
+   * init_conf() -- but make_server(&me) hasn't run yet, so
+   * cli_serv(&me) is NULL and sendcmdto_serv_butone_v3 walks a NULL
+   * down-link list and SIGSEGVs.  Hit by `ircd -k` (conf check) and
+   * by any normal start where the conf value differs from the
+   * compiled-in default.  Skip the broadcast pre-server-init; the
+   * post-init burst path (CH A S/R at server_estab time) handles
+   * advertising the configured retention to peers when links come up. */
+  if (!cli_serv(&me))
+    return;
+
+  /* Age-out under the new cutoff: a pass at the next trim tick (a
+   * shorter retention drains in slices, never in one go). */
+  history_trim_kick();
+
+  log_write(LS_SYSTEM, L_INFO, 0,
+            "chathistory: retention changed to %d days", retention);
+
+  /* Peers hear the coverage this retention gives (CH A R), when it
+   * changed: a coverage floor inside retention bounds it either way. */
+  chathistory_coverage_changed();
+
+  /* Also notify clients via cap-notify */
+  feature_notify_chathistory_caps();
+}
+
+/** Notify clients with cap-notify of multiline parameter changes.
+ * Called when MULTILINE_MAX_BYTES or MULTILINE_MAX_LINES is modified.
+ * Sends CAP NEW draft/multiline=max-bytes=X,max-lines=Y to all clients
+ * that have negotiated cap-notify.
+ */
+static void
+feature_notify_multiline(void)
+{
+  char valbuf[64];
+
+  /* Only notify if multiline capability is enabled */
+  if (!feature_bool(FEAT_CAP_draft_multiline))
+    return;
+
+  ircd_snprintf(0, valbuf, sizeof(valbuf), "max-bytes=%d,max-lines=%d",
+                feature_int(FEAT_MULTILINE_MAX_BYTES),
+                feature_int(FEAT_MULTILINE_MAX_LINES));
+
+  send_cap_notify("draft/multiline", 1, valbuf);
+
+  log_write(LS_SYSTEM, L_INFO, 0,
+            "multiline: parameters changed to %s, notified cap-notify clients",
+            valbuf);
+}
+
+/** Notify clients with cap-notify of chathistory parameter changes.
+ * Called when CHATHISTORY_MAX, CHATHISTORY_RETENTION, or CHATHISTORY_PRIVATE
+ * is modified. Sends CAP NEW draft/chathistory=limit=X,retention=Xd[,pm].
+ */
+static void
+feature_notify_chathistory_caps(void)
+{
+  char valbuf[64];
+  int retention_days;
+
+  /* Only notify if chathistory capability is enabled */
+  if (!feature_bool(FEAT_CAP_draft_chathistory))
+    return;
+
+  ircd_snprintf(0, valbuf, sizeof(valbuf), "%d",
+                feature_int(FEAT_CHATHISTORY_MAX));
+
+  send_cap_notify("draft/chathistory", 1, valbuf);
+
+  /* Keep ISUPPORT CHATHISTORY (and the fork's CHATHISTORYRETENTION,
+   * seconds, storage servers only) in sync and push to clients with
+   * draft/extended-isupport. */
+  add_isupport_i("CHATHISTORY", feature_int(FEAT_CHATHISTORY_MAX));
+  chathistory_update_retention_isupport(0);   /* widest over the reachable stores */
+  send_isupport_update();
+
+  log_write(LS_SYSTEM, L_INFO, 0,
+            "chathistory: parameters changed to %s, notified cap-notify clients",
+            valbuf);
+}
+
+/** Handle FEAT_WEBPUSH_VAPID_PRIVKEY change.
+ * Re-runs webpush_setup() which now checks the config key first,
+ * falling back to LMDB then generation.
+ */
+static void
+feature_notify_webpush_vapid_privkey(void)
+{
+  webpush_setup();
+}
+
+/** Handle FEAT_METADATA_PURGE_FREQUENCY change — re-arm the
+ * metadata cache purge timer at the new cadence.
+ */
+static void
+feature_notify_metadata_purge_frequency(void)
+{
+  metadata_purge_restart_timer();
+}
+
+/** Handle FEAT_CHATHISTORY_MAINTENANCE_INTERVAL change — re-arm the
+ * history purge / maintenance timer at the new cadence.
+ */
+static void
+feature_notify_chathistory_maintenance_interval(void)
+{
+  history_purge_restart_timer();
+}
+
+/** Handle FEAT_CHATHISTORY_TRIM_SLICE_MS change — the longest trim slice
+ * so far (STATS chathistory "max") was measured under the old budget.
+ */
+static void
+feature_notify_chathistory_trim_slice_ms(void)
+{
+  history_trim_slice_budget_changed();
+}
+
+/** Handle FEAT_BOUNCER_PERSIST_INTERVAL change — re-arm the dirty-persist
+ * timer to fire at the new interval (no-op if no sessions are dirty).
+ */
+static void
+feature_notify_bouncer_persist_interval(void)
+{
+  bounce_dirty_persist_restart_timer();
+}
+
+/** Handle FEAT_BOUNCER_RESTORE_CRASH_WINDOW change -- re-arm (or fire) the
+ * timer that marks this start settled for the crash-loop breaker.
+ */
+static void
+feature_notify_bouncer_restore_crash_window(void)
+{
+  bounce_restore_crash_window_changed();
+}
+
+#ifdef USE_LIBKC
+/** Handle FEAT_SASL_HEALTH_INTERVAL change — re-arm the Keycloak
+ * health retry timer at the new cadence (no-op if Keycloak is healthy).
+ */
+static void
+feature_notify_sasl_health_interval(void)
+{
+  sasl_health_restart_timer();
+}
+#endif /* USE_LIBKC */
+
+#ifdef USE_LIBGIT2
+/** Handle FEAT_GITSYNC_ENABLE change — start or stop the periodic
+ * gitsync timer to match the new value.
+ */
+static void
+feature_notify_gitsync_enable(void)
+{
+  if (feature_bool(FEAT_GITSYNC_ENABLE))
+    gitsync_start_timer();
+  else
+    gitsync_stop_timer();
+}
+
+/** Handle FEAT_GITSYNC_INTERVAL change — re-arm the periodic
+ * gitsync timer so the new interval takes effect without a restart.
+ */
+static void
+feature_notify_gitsync_interval(void)
+{
+  gitsync_restart_timer();
+}
+#endif /* USE_LIBGIT2 */
 
 /** Sets a feature to the given value.
  * @param[in] from Client trying to set parameters.
@@ -531,6 +1009,9 @@ static struct FeatureDesc {
   F_B(HUB, 0, 0, feature_notify_hub),
   F_B(WALLOPS_OPER_ONLY, 0, 0, 0),
   F_B(NODNS, 0, 0, 0),
+  F_B(TCP_NODELAY_C2S, 0, 0, 0),
+  F_B(TCP_NODELAY_S2S, 0, 0, 0),
+  F_B(FLUSH_ULINE_IMMEDIATE, 0, 1, 0),
   F_N(RANDOM_SEED, FEAT_NODISP, random_seed_set, 0, 0, 0, 0, 0, 0),
   F_S(DEFAULT_LIST_PARAM, FEAT_NULL, 0, list_set_default),
   F_I(NICKNAMEHISTORYLENGTH, 0, 800, whowas_realloc),
@@ -564,6 +1045,9 @@ static struct FeatureDesc {
   F_I(IPCHECK_CLONE_LIMIT, 0, 4, 0),
   F_I(IPCHECK_CLONE_PERIOD, 0, 40, 0),
   F_I(IPCHECK_CLONE_DELAY, 0, 600, 0),
+  F_B(IPCHECK_COUNT_REFUSALS, 0, 1, 0),
+  F_I(IPCHECK_SASL_REFUND, 0, 0, 0),
+  F_I(IPCHECK_SASL_REFUND_PERIOD, 0, 600, 0),
   F_I(CHANNELLEN, 0, 200, set_isupport_channellen),
 
   /* Some misc. default paths */
@@ -575,6 +1059,8 @@ static struct FeatureDesc {
   F_I(TOS_SERVER, 0, 0x08, 0),
   F_I(TOS_CLIENT, 0, 0x08, 0),
   F_I(POLLS_PER_LOOP, 0, 200, 0),
+  F_I(THREAD_POOL_SIZE, 0, 4, 0),
+  F_B(ASYNC_LOGGING, 0, 0, 0),
   F_I(IRCD_RES_RETRIES, 0, 2, 0),
   F_I(IRCD_RES_TIMEOUT, 0, 4, 0),
   F_I(AUTH_TIMEOUT, 0, 9, 0),
@@ -640,6 +1126,9 @@ static struct FeatureDesc {
   F_S(NETWORK, 0, "Nefarious", set_isupport_network),
   F_S(URL_CLIENTS, 0, "http://www.ircreviews.org/clients/", 0),
   F_S(URLREG, 0, "http://sourceforge.net/projects/evilnet/", 0),
+  F_S(NETWORK_ICON, 0, "", set_isupport_network_icon),
+  F_B(UTF8ONLY, 0, 0, set_isupport_utf8only),
+  F_B(UTF8ONLY_STRICT, 0, 0, 0),
 
   /* Nefarious FEAT_'s */
   F_B(CHECK, 0, 1, 0),
@@ -686,6 +1175,7 @@ static struct FeatureDesc {
   F_B(LIST_SHOWMODES_OPERONLY, 0, 0, 0),
   F_S(LIST_PRIVATE_CHANNELS, FEAT_NULL, 0, 0),
   F_I(MAXWATCHS, 0, 128, set_isupport_watchs),
+  F_I(NICKDELAY, 0, 30, 0),
   F_B(HIS_STATS_Z, 0, 1, 0),
   F_I(SASL_TIMEOUT, 0, 10, 0),
   F_B(NOMULTITARGETS, 0, 0, 0),
@@ -693,6 +1183,34 @@ static struct FeatureDesc {
   F_B(HIS_IRCOPS_SERVERS, 0, 1, 0),
   F_B(SASL_SENDHOST, 0, 1, 0),
   F_B(SASL_AUTOHIDEHOST, 0, 1, 0),
+  F_S(SASL_DEFAULT_MECHANISMS, 0, "", 0),
+  F_B(SASL_LOCAL, 0, 0, 0),
+  F_S(SASL_LOCAL_MECHANISMS, 0, "PLAIN,OAUTHBEARER", 0),
+  F_S(SASL_TRUSTED_AUTHZID, FEAT_NULL, 0, 0),
+  F_S(KEYCLOAK_URL, 0, "", 0),
+  F_S(KEYCLOAK_REALM, 0, "master", 0),
+  F_S(KEYCLOAK_CLIENT_ID, 0, "", 0),
+  F_S(KEYCLOAK_CLIENT_SECRET, FEAT_NODISP, "", 0),
+  F_S(KEYCLOAK_ISSUER, 0, "", 0),
+  F_S(KEYCLOAK_ALLOWED_CLIENTS, 0, "", 0),
+  F_B(KEYCLOAK_INSECURE_TOKEN_VALIDATION, 0, 0, 0),
+  F_I(SASL_NEGCACHE_TTL, 0, 60, 0),
+  F_I(SASL_POSCACHE_TTL, 0, 300, 0),
+#ifdef USE_LIBKC
+  F_I(SASL_HEALTH_INTERVAL, 0, 30, feature_notify_sasl_health_interval),
+#else
+  F_I(SASL_HEALTH_INTERVAL, 0, 30, 0),
+#endif
+  F_I(WEBHOOK_PORT, 0, 0, 0),
+  F_S(WEBHOOK_SECRET, FEAT_NODISP, "", 0),
+  F_B(WEBHOOK_KILL_ON_DISABLE, 0, 0, 0),
+  F_I(WEBHOOK_EVENTLOG_SIZE, 0, 1024, 0),      /* applied-events log entries (webhook plan 4) */
+  F_I(WEBHOOK_EVENTLOG_WINDOW, 0, 86400, 0),   /* seconds of it a newly linked peer is caught up on */
+  /* Default OFF: deauth (AC U) propagates correctly network-wide, a
+   * local-only kill does not.  Forced network-wide disconnect needs its
+   * own design -- see the open design item in
+   * .claude/para/projects/2026-09-22-bouncer-deauth-correctness.md */
+  F_B(WEBHOOK_KILL_ON_DELETE, 0, 0, 0),
   F_I(SNOMASK_DEFAULT, 0, SNO_DEFAULT, 0),
   F_I(SNOMASK_OPERDEFAULT, 0, SNO_OPERDEFAULT, 0),
   F_S(TPATH, FEAT_CASE | FEAT_MYOPER, "ircd.tune", 0),
@@ -783,25 +1301,238 @@ static struct FeatureDesc {
   F_B(SSL_NOSSLV3, 0, 1, 0),
   F_B(SSL_NOTLSV1, 0, 1, 0),
   F_S(SSL_CIPHERS, FEAT_NULL, 0, 0),
+  F_B(CERT_EXPIRY_TRACKING, 0, 1, 0),
 
   /* ZLINE FEAT_'s */
   F_B(DISABLE_ZLINES, 0, 0, 0),
   F_B(HIS_ZLINE_REASON, 0, 0, 0),
   F_I(ZLINEMAXUSERCOUNT, 0, 20, 0),
 
-  /* CAP FEAT_'s */
-  F_B(CAP_multi_prefix, 0, 1, 0),
-  F_B(CAP_userhost_in_names, 0, 1, 0),
-  F_B(CAP_extended_join, 0, 1, 0),
-  F_B(CAP_away_notify, 0, 1, 0),
-  F_B(CAP_account_notify, 0, 1, 0),
-  F_B(CAP_sasl, 0, 1, 0),
+  /* CAP FEAT_'s - notify callbacks send CAP NEW/DEL on rehash */
+  F_B(CAP_multi_prefix, 0, 1, feature_notify_cap_multi_prefix),
+  F_B(CAP_userhost_in_names, 0, 1, feature_notify_cap_userhost_in_names),
+  F_B(CAP_extended_join, 0, 1, feature_notify_cap_extended_join),
+  F_B(CAP_away_notify, 0, 1, feature_notify_cap_away_notify),
+  F_B(CAP_account_notify, 0, 1, feature_notify_cap_account_notify),
+  F_B(CAP_sasl, 0, 1, 0),  /* SASL has special handling via services link */
+  F_B(CAP_cap_notify, 0, 1, feature_notify_cap_cap_notify),
+  F_B(CAP_server_time, 0, 1, feature_notify_cap_server_time),
+  F_B(CAP_echo_message, 0, 1, feature_notify_cap_echo_message),
+  F_B(CAP_account_tag, 0, 1, feature_notify_cap_account_tag),
+  F_B(CAP_oper_tag, 0, 1, feature_notify_cap_oper_tag),
+  /* Disclose the opername as the draft/oper tag value.  OFF: the bare
+   * tag signals oper status without identifying which oper. */
+  F_B(OPERTAG_VALUE, 0, 0, 0),
+  F_B(CAP_chghost, 0, 1, feature_notify_cap_chghost),
+  F_B(CAP_invite_notify, 0, 1, feature_notify_cap_invite_notify),
+  F_B(CAP_labeled_response, 0, 1, feature_notify_cap_labeled_response),
+  F_B(CAP_batch, 0, 1, feature_notify_cap_batch),
+  F_B(CAP_setname, 0, 1, feature_notify_cap_setname),
+  F_B(SETNAME_STRICT_LENGTH, 0, 0, 0),
+  F_B(CAP_standard_replies, 0, 1, feature_notify_cap_standard_replies),
+  F_B(CAP_message_tags, 0, 1, feature_notify_cap_message_tags),
+  F_S(CLIENTTAGDENY, FEAT_NULL, 0, set_isupport_clienttagdeny),
+  F_B(CAP_no_implicit_names, 0, 1, feature_notify_cap_no_implicit_names),
+  F_A(CAP_draft_no_implicit_names, CAP_no_implicit_names),
+  F_B(CAP_draft_extended_isupport, 0, 1, feature_notify_cap_draft_extended_isupport),
+  F_B(CAP_draft_pre_away, 0, 1, feature_notify_cap_draft_pre_away),
+  F_B(CAP_draft_multiline, 0, 1, feature_notify_cap_multiline),
+  F_B(CAP_draft_chathistory, 0, 1, feature_notify_cap_chathistory),
+  F_B(CAP_soju_search, 0, 1, feature_notify_cap_soju_search),
+  F_B(CAP_draft_event_playback, 0, 0, feature_notify_cap_draft_event_playback),
+  F_B(CAP_draft_message_redaction, 0, 0, feature_notify_cap_draft_message_redaction),
+  F_B(CAP_draft_account_registration, 0, 0, feature_notify_cap_accountreg),
+  /* REGISTER policy: when on, accounts are created with emailVerified=false
+   * plus a VERIFY_EMAIL required action and Keycloak mails a verification
+   * link; an email address then becomes mandatory on REGISTER.  The notify
+   * hook rebuilds the draft/account-registration CAP value (email-required)
+   * so a rehash cannot leave a stale advertisement behind. */
+  F_B(REGISTER_VERIFY_EMAIL, 0, 0, feature_notify_accountreg_capvalue),
+  /* Cross-connection REGISTER throttle (register_throttle.c, consulted by
+   * m_register.c): LIMIT counted attempts per PERIOD seconds per client
+   * IP (/64 for IPv6), plus a server-wide GLOBAL backstop per PERIOD.
+   * 0 disables that limiter; attempts are counted, not successes; opers
+   * bypass.  Defaults are meant for an exposed network -- the testnet bed
+   * pins LIMIT/GLOBAL to 0 in its confs. */
+  F_I(POSTREG_GRACE, 0, 20, 0),
+  F_I(REGISTER_THROTTLE_LIMIT, 0, 3, 0),
+  F_I(REGISTER_THROTTLE_PERIOD, 0, 3600, 0),
+  F_I(REGISTER_THROTTLE_GLOBAL, 0, 60, 0),
+  /* Off by default: only a services build that disambiguates RENAME
+   * requests from account-stamp notifications on the AC 'R' subcommand
+   * (see the protocol-history comment in m_rename.c) should have this
+   * enabled. */
+  F_B(RENAME_SERVICES, 0, 0, 0),
+  /* relocation mode -- renames move only the issuer and +F users;
+   * see docs/specs/channel-relocate.md in the testnet repo */
+  F_B(RENAME_CONSENT, 0, 0, 0),
+  F_I(RELOCATE_GRACE, 0, 900, 0),
+  F_B(CAP_draft_read_marker, 0, 0, feature_notify_cap_draft_read_marker),
+  F_B(CAP_draft_channel_rename, 0, 0, feature_notify_cap_draft_channel_rename),
+  /* Advertised whenever the build supports it; the RENAME_CONSENT feature
+   * gates the relocation BEHAVIOR, not the cap -- negotiating this cap
+   * alone is harmless. */
+  F_B(CAP_evilnet_channel_relocate, 0, 0, feature_notify_cap_evilnet_channel_relocate),
+  F_B(CAP_draft_metadata_2, 0, 0, feature_notify_cap_draft_metadata_2),
+  F_B(CAP_draft_webpush, 0, 0, 0),  /* webpush has special handling via VAPID key */
+  /* draft/authtoken: advertised only while an Authtoken{} service exists */
+  F_B(CAP_draft_authtoken, 0, 1, feature_notify_cap_draft_authtoken),
+  F_I(AUTHTOKEN_EXPIRE, 0, 600, 0),   /* seconds a generated token stays valid */
+  F_I(AUTHTOKEN_MAX, 0, 4096, 0),     /* outstanding tokens per server */
+  F_S(WEBPUSH_DB, 0, "webpush", 0),
+  F_B(WEBPUSH_DB_AUTOGROW, 0, 1, 0),
+  F_S(WEBPUSH_VAPID_PRIVKEY, 0, "", feature_notify_webpush_vapid_privkey),
+  F_B(WEBPUSH_NOTIFY, 0, 1, 0),
+  F_I(WEBPUSH_COOLDOWN, 0, 60, 0),
+  F_I(WEBPUSH_EXPIRE, 0, 7776000, 0),  /* 90 days since the last REGISTER; 0 disables the sweep */
+  F_I(WEBPUSH_MAX_REGISTRATIONS, 0, 30, 0), /* endpoints per account; 0 = unlimited */
+  F_B(WEBPUSH_HIGHLIGHTS, 0, 1, 0),
+  F_I(WEBPUSH_KEY_ROTATE, 0, 7776000, 0), /* 90 days between VAPID key rotations; 0 = never */
+  F_I(WEBPUSH_IDLE, 0, 900, 0), /* a connection attends while it spoke within this many seconds; 0 = held/away only */
+  F_I(WEBPUSH_MULTILINE_LINES, 0, 8, 0), /* lines of a multiline message pushed, one notification each; below 1 acts as 1, clamped to at most 64 */
+  F_I(METADATA_MAX_KEYS, 0, 20, 0),
+  F_I(METADATA_MAX_VALUE_BYTES, 0, 300, 0),  /* Limited by 512-byte IRC message size */
+  F_I(METADATA_MAX_SUBS, 0, 50, 0),
+  F_I(METADATA_RATE_LIMIT, 0, 10, 0),
+  F_I(REDACT_WINDOW, 0, 300, 0),
+  F_I(REDACT_OPER_WINDOW, 0, 0, 0),
+  F_B(REDACT_CHANOP_OTHERS, 0, 1, 0),
+  F_I(CHATHISTORY_MAX, 0, 100, feature_notify_chathistory_caps),
+  F_B(CHATHISTORY_PRIVATE, 0, 1, feature_notify_chathistory_caps),
+  F_S(CHATHISTORY_DB, 0, "history", 0),
+  F_B(CHATHISTORY_DB_AUTOGROW, 0, 1, 0),
+  F_B(CHATHISTORY_DB_NOSYNC, 0, 1, 0),
+  F_I(CHATHISTORY_DB_SYNC_INTERVAL, 0, 10, 0),      /* seconds between syncs when nosync enabled */
+  F_I(CHATHISTORY_RETENTION, 0, 7, feature_notify_chathistory_retention),
+  F_B(CHATHISTORY_FEDERATION, 0, 1, 0),
+  F_I(CHATHISTORY_TIMEOUT, 0, 5, 0),
+  F_B(CHATHISTORY_STRICT_TIMESTAMPS, 0, 0, 0),
+  F_B(CHATHISTORY_STORE, 0, 1, feature_notify_chathistory_caps),   /* CHATHISTORYRETENTION token follows the store */
+  F_B(CHATHISTORY_WRITE_FORWARD, 0, 1, 0),
+  F_B(CHATHISTORY_STORE_REGISTERED, 0, 1, 0),
+  F_I(CHATHISTORY_HIGH_WATERMARK, 0, 85, 0),
+  F_I(CHATHISTORY_LOW_WATERMARK, 0, 75, 0),
+  F_I(CHATHISTORY_MAINTENANCE_INTERVAL, 0, 300, feature_notify_chathistory_maintenance_interval),
+  F_I(CHATHISTORY_EVICT_BATCH_SIZE, 0, 1000, 0),
+
+  F_B(CHATHISTORY_OPS_OVERRIDE, 0, 0, 0), /* :full bypass for channel ops -- default OFF (was on by oversight; grant deliberately per network) */
+  F_B(CHATHISTORY_USER_QUOTA, 0, 1, 0),      /* Enable per-user quotas */
+  F_I(CHATHISTORY_USER_QUOTA_PCT, 0, 10, 0), /* Max % of channel history per user */
+  F_I(CHATHISTORY_TRIM_SLICE_MS, 0, 15, feature_notify_chathistory_trim_slice_ms),  /* Main-loop ms one trim slice may take (clamped 1..1000) */
+  F_B(CHATHISTORY_REQUIRE_AUTH, 0, 0, 0),   /* Require auth for channel history (non-+H) — default off so unauthed/ephemeral clients can use CHATHISTORY out of the box; Afternet sets this to 1 in ircd.conf */
+  F_B(CHATHISTORY_STRICT_PRESENCE, 0, 0, feature_notify_strict_presence), /* Filter chathistory to caller's presence windows (strict mode) */
+  F_I(CHATHISTORY_PRESENCE_MAX_INTERVALS, 0, 64, 0), /* Per-(anchor,channel) cap on retained presence intervals; oldest evicted FIFO when exceeded */
+  F_I(EPHEMERAL_HISTORY_BYTES, 0, 65536, 0), /* Per-Client byte cap on the ephemeral↔ephemeral PM ring (64KB default) */
+  F_I(MULTILINE_MAX_BYTES, 0, 16384, feature_notify_multiline),
+  F_I(MULTILINE_MAX_LINES, 0, 100, feature_notify_multiline),
+  /* Multiline cooldown: percent of (base + total_bytes/bytes_per_sec) seconds
+   * applied as a multiline-only cooldown at BATCH -close.  50 = "half the raw
+   * cooldown is enforced" (default, livable).  100 = full cost.  0 = no
+   * cooldown (free pass, dangerous). */
+  F_I(MULTILINE_COOLDOWN_DISCOUNT, 0, 50, 0),
+  F_I(MULTILINE_LEGACY_THRESHOLD, 0, 3, 0),
+  F_I(MULTILINE_LEGACY_MAX_LINES, 0, 5, 0),
+  F_B(MULTILINE_FALLBACK_NOTIFY, 0, 1, 0),
+  /* Network-wide multiline buffer sizing — see s2s-multiline-limits plan.
+   * CEILING: hard cap on receive buffer growth, regardless of what peers
+   * advertise via ML burst (defends against misconfigured/hostile servers).
+   * LINES_CEILING: same for line count.
+   * SHRINK_DELAY: lazy shrink window after a peer SQUITs / lowers limit;
+   * grow is immediate, shrink is delayed to absorb netflaps. */
+  F_I(MULTILINE_BUFFER_CEILING,       0, 65536, 0),
+  F_I(MULTILINE_BUFFER_LINES_CEILING, 0, 1000,  0),
+  F_I(MULTILINE_BUFFER_SHRINK_DELAY,  0, 1800,  0),
+  F_I(BATCH_RATE_LIMIT, 0, 10, 0),
+  F_I(CLIENT_BATCH_TIMEOUT, 0, 30, 0),
+  F_B(WEBSOCKET, 0, 1, 0),
+  F_A(DRAFT_WEBSOCKET, WEBSOCKET),
+  F_S(WEBSOCKET_ORIGIN, 0, "", 0),
+  F_I(WEBSOCKET_PING_INTERVAL, 0, 30, 0),
+  F_B(MSGID, 0, 1, 0),
+  F_B(P10_MESSAGE_TAGS, 0, 0, 0),
+  F_S(AWAY_STAR_MSG, FEAT_NULL, "Away", 0),
+  F_I(HLC_MAX_FORWARD_MS, 0, 60000, 0),
+  F_I(AWAY_THROTTLE, 0, 0, 0),
+  F_B(METADATA_BURST, 0, 1, 0),
+  F_S(METADATA_DB, 0, "metadata", 0),
+  F_B(METADATA_DB_AUTOGROW, 0, 1, 0),
+  F_B(METADATA_DB_NORDAHEAD, 0, 1, 0),
+  F_I(METADATA_CACHE_TTL, 0, 14400, 0),
+  F_I(METADATA_PURGE_FREQUENCY, 0, 3600, feature_notify_metadata_purge_frequency),
+  F_I(METADATA_TOMBSTONE_TTL, 0, 2592000, 0), /* 30 days; a D clock row older than this is purged */
+#ifdef USE_ZSTD
+  F_I(COMPRESS_THRESHOLD, 0, 256, feature_notify_compress_threshold),
+  F_I(COMPRESS_LEVEL, 0, 3, feature_notify_compress_level),
+#endif
+  /* Bouncer */
+  F_B(BOUNCER_ENABLE, 0, 0, 0),
+  F_I(BOUNCER_MAX_SESSIONS, 0, 1, 0),         /* 1 session per account (single-server) */
+  F_I(BOUNCER_SESSION_HOLD, 0, 14400, 0),    /* 4 hours */
+  F_I(BOUNCER_TOKEN_EXPIRY, 0, 86400, 0),    /* 24 hours */
+  F_B(BOUNCER_DEFAULT_HOLD, 0, 1, 0),
+  F_B(BOUNCER_AUTO_RESUME, 0, 1, 0),
+  F_B(BOUNCER_AUTO_REPLAY, 0, 1, 0),
+  F_I(BOUNCER_AUTO_REPLAY_LIMIT, 0, 100, 0),
+  F_I(REPLAY_SENDQ_THRESHOLD, 0, 50, 0),
+  F_B(BOUNCER_REQUIRE_TLS, 0, 1, 0),
+  F_I(BOUNCER_MAX_HOLD, 0, 1209600, 0),      /* 14 days */
+  F_I(BOUNCER_HOLD_DECAY_PERCENT, 0, 50, 0), /* decay starts at 50% of hold */
+  F_B(BOUNCER_PERSIST, 0, 0, 0),             /* persist sessions across restarts */
+  F_I(BOUNCER_PERSIST_INTERVAL, 0, 5, feature_notify_bouncer_persist_interval), /* periodic persist interval (seconds) */
+  F_I(BOUNCER_RESTORE_CRASH_WINDOW, 0, 600, feature_notify_bouncer_restore_crash_window), /* a start that dies sooner after restoring sessions does not get them back at the next (seconds; 0: off) */
+  F_B(CAP_draft_bouncer, 0, 1, feature_notify_cap_draft_bouncer),
+  F_B(CAP_draft_persistence, 0, 1, feature_notify_cap_draft_persistence),
+  F_I(HISTORY_MAP_SIZE_MB, 0, 1024, 0),
 #ifdef USE_SSL
-  F_B(CAP_tls, 0, 1, 0),
+  F_B(CAP_tls, 0, 0, feature_notify_cap_tls), /* deprecated by IRCv3 (STS replaces it); STARTTLS is refused while off */
+  F_B(CAP_sts, 0, 0, feature_notify_cap_sts),
+  F_I(STS_PORT, 0, 6697, feature_notify_cap_sts),
+  F_I(STS_DURATION, 0, 2592000, feature_notify_cap_sts),  /* 30 days in seconds */
+  F_B(STS_PRELOAD, 0, 0, feature_notify_cap_sts),
 #endif
 
   F_B(UPING_ENABLE, FEAT_READ, 1, 0),
   F_I(UPING_PORT, FEAT_READ, UDP_PORT, 0),
+
+  /* Paste service (multiline HTTP fallback) — bind/port/enable come from
+   * Port { paste = yes; ssl = yes; } blocks, not features. */
+  F_I(PASTE_TTL, 0, 14400, 0),              /* 4 hours - ephemeral */
+  F_I(PASTE_MAX_SIZE, 0, 65536, 0),         /* 64KB max paste */
+  F_I(PASTE_MAX_ENTRIES, 0, 100000, 0),
+  F_S(PASTE_URL_BASE, 0, "", 0),            /* empty = use server name + port */
+  F_I(PASTE_MAX_CONNECTIONS, 0, 64, 0),     /* concurrent HTTP connections */
+  F_I(PASTE_REQUEST_TIMEOUT, 0, 30, 0),     /* seconds before killing slow clients */
+  F_I(PASTE_MAX_REQUEST_SIZE, 0, 4096, 0),  /* max HTTP request size */
+  F_I(PASTE_RATE_LIMIT, 0, 60, 0),          /* max requests per IP per minute */
+  F_I(PASTE_COMPRESS_THRESHOLD, 0, 128, 0), /* min bytes before compressing */
+  F_I(PASTE_COMPRESS_LEVEL, 0, 3, 0),       /* zstd level (1-19, default 3) */
+
+  /* Native DNSBL FEAT_'s */
+  F_B(NATIVE_DNSBL, 0, 0, 0),
+  F_I(DNSBL_TIMEOUT, 0, 5, 0),
+  F_I(DNSBL_CACHETIME, 0, 86400, 0),
+  F_S(DNSBL_BLOCKMSG, 0, "Your IP is listed in a DNS blacklist", 0),
+
+#ifdef USE_LIBGIT2
+  /* GitSync FEAT_'s */
+#ifdef USE_LIBGIT2
+  F_B(GITSYNC_ENABLE, 0, 0, feature_notify_gitsync_enable),
+  F_I(GITSYNC_INTERVAL, 0, 300, feature_notify_gitsync_interval),
+#else
+  F_B(GITSYNC_ENABLE, 0, 0, 0),
+  F_I(GITSYNC_INTERVAL, 0, 300, 0),
+#endif
+  F_S(GITSYNC_REPOSITORY, 0, "", 0),
+  F_S(GITSYNC_BRANCH, 0, "master", 0),
+  F_S(GITSYNC_SSH_KEY, 0, "", 0),
+  F_S(GITSYNC_LOCAL_PATH, 0, "gitsync", 0),
+  F_S(GITSYNC_CONF_FILE, 0, "gitsync.conf", 0),
+  F_S(GITSYNC_CERT_TAG, 0, "", 0),
+  F_S(GITSYNC_CERT_PATH, 0, "", 0),  /* Cert file path in repo (alternative to blob tag) */
+  F_S(GITSYNC_CERT_FILE, 0, "", 0),  /* Empty = use SSL_CERTFILE */
+  F_S(GITSYNC_HOST_FINGERPRINT, 0, "", 0),  /* SSH host key fingerprint (TOFU) */
+#endif
+  F_I(BOUNCER_MAX_ALIASES, 0, 4, 0),
 
 #undef F_S
 #undef F_B
@@ -1128,11 +1859,27 @@ feature_get(struct Client* from, const char* const* fields, int count)
   return 0;
 }
 
+static int features_loading = 0; /**< True while config file is being parsed */
+
+/** Return whether a config file is currently being parsed.
+ * Feature notify callbacks can use this to defer work until
+ * after all features are set.
+ */
+int feature_conf_loading(void)
+{
+  return features_loading;
+}
+
 /** Called before reading the .conf to clear all dirty marks. */
 void
 feature_unmark(void)
 {
   int i;
+
+  features_loading = 1;
+
+  /* Start batching CAP notify calls for aggregation */
+  cap_notify_begin_batch();
 
   for (i = 0; features[i].type; i++) {
     features[i].flags &= ~FEAT_MARK; /* clear the marks... */
@@ -1181,6 +1928,11 @@ feature_mark(void)
     if (change && features[i].notify)
       (*features[i].notify)(); /* call change notify function */
   }
+
+  features_loading = 0;
+
+  /* Flush aggregated CAP notify messages */
+  cap_notify_flush();
 }
 
 /** Initialize the features subsystem. */

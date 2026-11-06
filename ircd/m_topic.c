@@ -38,9 +38,81 @@
 #include "numeric.h"
 #include "numnicks.h"
 #include "send.h"
+#include "history.h"
+#include "history_trim_codec.h"
 
 /* #include <assert.h> -- Now using assert in ircd_log.h */
 #include <stdlib.h> /* for atoi() */
+#include <sys/time.h>
+#include <time.h>
+
+#ifdef USE_ROCKSDB
+/** Store a TOPIC event in the history database.
+ * @param[in] sptr Client that set the topic.
+ * @param[in] chptr Channel where topic was set.
+ * @param[in] topic The new topic text.
+ */
+static void store_topic_event(struct Client *sptr, struct Channel *chptr,
+                              const char *topic,
+                              const char *broadcast_msgid, uint64_t event_ms)
+{
+  char timestamp[32];
+  char fallback_msgid[64];
+  const char *msgid;
+  char sender[HISTORY_SENDER_LEN];
+  char owner[HTC_OWNER_MAX];
+  const char *account;
+
+  if (!history_is_available())
+    return;
+
+  /* Check if chathistory storage is enabled */
+  if (!feature_bool(FEAT_CHATHISTORY_STORE))
+    return;
+
+  /* Receiver-side storage (see store_kick_event): every server with
+   * the channel stores its own copy; the msgid is unified via the S2S
+   * tag, so federated merges dedup cleanly. */
+
+  /* Check if channel has +P (no storage) mode */
+  if (chptr->mode.exmode & EXMODE_NOSTORAGE)
+    return;
+
+  /* Check if sender has +Y (no storage) user mode */
+  if (IsNoStorage(sptr))
+    return;
+
+  /* Use broadcast msgid so clients can deduplicate */
+  if (broadcast_msgid && broadcast_msgid[0])
+    msgid = broadcast_msgid;
+  else
+    msgid = generate_msgid(fallback_msgid, sizeof(fallback_msgid));
+
+  /* Row time: the event's one time (the S2S tag time the caller already
+   * put on the wire), else the mint time of the msgid chosen above. */
+  history_format_ms(timestamp, sizeof(timestamp),
+                    event_ms ? event_ms : history_event_time_ms(NULL));
+
+  /* Build sender string: nick!user@host */
+  if (cli_user(sptr))
+    ircd_snprintf(0, sender, sizeof(sender), "%s!%s@%s",
+                  cli_name(sptr),
+                  cli_user(sptr)->username,
+                  cli_user(sptr)->host);
+  else
+    ircd_strncpy(sender, cli_name(sptr), sizeof(sender) - 1);
+
+  /* Get account name if logged in */
+  account = (cli_user(sptr) && cli_user(sptr)->account[0])
+            ? cli_user(sptr)->account : NULL;
+  /* The row's trim owner: the client whose account it carries. */
+  history_owner_of(owner, sizeof(owner), sptr);
+
+  /* Store in database */
+  history_store_message(msgid, timestamp, chptr->chname, NULL, sender,
+                        account, HISTORY_TOPIC, topic ? topic : "", NULL, owner);
+}
+#endif /* USE_ROCKSDB */
 
 /** Set a channel topic or report an error.
  * @param[in] sptr Original topic setter.
@@ -77,7 +149,8 @@ static void do_settopic(struct Client *sptr, struct Client *cptr,
        ircd_strncpy((char *)&nick, nicktok, NICKLEN + 1);
    } else {
      memset(chptr->topic_nick, 0, NICKLEN + USERLEN + HOSTLEN + 3);
-     if (feature_bool(FEAT_HOST_IN_TOPIC)) {
+     /* A server (or &his) has no user@host to show. */
+     if (feature_bool(FEAT_HOST_IN_TOPIC) && cli_user(from)) {
        ircd_snprintf(0, chptr->topic_nick, NICKLEN + USERLEN + HOSTLEN + 3, "%s!%s@%s",
                      cli_name(from), cli_user(from)->username, cli_user(from)->host);
      } else {
@@ -86,9 +159,28 @@ static void do_settopic(struct Client *sptr, struct Client *cptr,
      ircd_strncpy((char *)&nick, cli_name(from), NICKLEN + 1);
    }
    chptr->topic_time = ts ? ts : TStime();
+
+   /* Generate or reuse msgid before S2S relay so all servers use the same one */
+   {
+     char topic_msgid[64] = "";
+     uint64_t topic_time_ms = 0;
+     if (newtopic && feature_bool(FEAT_MSGID)) {
+       if (cli_s2s_msgid(cptr)[0]) {
+         ircd_strncpy(topic_msgid, cli_s2s_msgid(cptr), sizeof(topic_msgid));
+         topic_time_ms = cli_s2s_time_ms(cptr);
+       } else
+         generate_msgid(topic_msgid, sizeof(topic_msgid));
+     }
+
    /* Fixed in 2.10.11: Don't propagate local topics */
    if (!IsLocalChannel(chptr->chname))
    {
+     if (topic_msgid[0]) {
+       if (!topic_time_ms)
+         topic_time_ms = history_event_time_ms(NULL);  /* mint time */
+       sendcmdto_set_s2s_tags(topic_time_ms, topic_msgid);
+     }
+     sendcmdto_want_s2s_tags(1);
      if (setter != NULL)
        sendcmdto_serv_butone(sptr, CMD_TOPIC, cptr, "%H %s %Tu %Tu :%s", chptr,
                              chptr->topic_nick, chptr->creationtime,
@@ -107,9 +199,23 @@ static void do_settopic(struct Client *sptr, struct Client *cptr,
      if (member && IsDelayedJoin(member))
        RevealDelayedJoin(member);
 
-     sendcmdto_channel_butserv_butone(from, CMD_TOPIC, chptr, NULL, 0,
-      				       (setter ? "%H :%s (%s)" : "%H :%s%s"),
-                                       chptr, chptr->topic, (setter ? nick : ""));
+     /* Use the same msgid for broadcast and chathistory storage */
+     {
+       if (topic_msgid[0])
+         sendcmdto_set_client_event(topic_msgid, topic_time_ms);
+
+       sendcmdto_channel_butserv_butone(from, CMD_TOPIC, chptr, NULL, 0,
+                                        (setter ? "%H :%s (%s)" : "%H :%s%s"),
+                                        chptr, chptr->topic, (setter ? nick : ""));
+
+       sendcmdto_set_client_msgid(NULL);
+
+#ifdef USE_ROCKSDB
+       /* Store TOPIC event in history — same msgid as broadcast */
+       store_topic_event(sptr, chptr, chptr->topic,
+                         topic_msgid[0] ? topic_msgid : NULL, topic_time_ms);
+#endif
+     }
    }
       /* if this is the same topic as before we send it to the person that
        * set it (so they knew it went through ok), but don't bother sending
@@ -117,6 +223,7 @@ static void do_settopic(struct Client *sptr, struct Client *cptr,
        */
     else if (MyUser(sptr))
       sendcmdto_one(sptr, CMD_TOPIC, sptr, "%H :%s", chptr, chptr->topic);
+   } /* end topic_msgid scope */
 }
 
 /** Handle a local user's attempt to get or set a channel topic.
@@ -143,6 +250,23 @@ int m_topic(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
 
   if (parc > 2) {
     topic = parv[parc - 1];
+
+    /* UTF8ONLY enforcement */
+    if (feature_bool(FEAT_UTF8ONLY) && !string_is_valid_utf8(topic)) {
+      if (feature_bool(FEAT_UTF8ONLY_STRICT)) {
+        send_fail(sptr, "TOPIC", "INVALID_UTF8", NULL,
+                  "Topic contains invalid UTF-8 and was rejected");
+        return 0;
+      }
+      /* Warn mode: sanitize the topic */
+      string_sanitize_utf8(topic);
+      send_warn(sptr, "TOPIC", "INVALID_UTF8", NULL,
+                "Topic contained invalid UTF-8 and was sanitized");
+      if (EmptyString(topic)) {
+        send_reply(sptr, ERR_NOTEXTTOSEND);
+        return 0;
+      }
+    }
 
     hascolor = HasColor(topic);
     if (hascolor)

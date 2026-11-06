@@ -46,14 +46,19 @@
 #include "config.h"
 
 #include "ircd_relay.h"
+#include "capab.h"
 #include "channel.h"
+#include "chathistory_ephemeral.h"
 #include "client.h"
 #include "hash.h"
+#include "history.h"
+#include "history_trim_codec.h"
 #include "ircd.h"
 #include "ircd_chattr.h"
 #include "ircd_features.h"
 #include "ircd_log.h"
 #include "ircd_reply.h"
+#include "ircd_snprintf.h"
 #include "ircd_string.h"
 #include "match.h"
 #include "msg.h"
@@ -63,11 +68,18 @@
 #include "s_misc.h"
 #include "s_user.h"
 #include "send.h"
+#include "metadata.h"
+#include "handlers.h"
+#include "bouncer_session.h"
+#include "forwarded_label.h"
+#include "webpush.h"
 
 /* #include <assert.h> -- Now using assert in ircd_log.h */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/time.h>
+#include <time.h>
 
 /*
  * This file contains message relaying functions for client and server
@@ -76,6 +88,421 @@
  * to be cleaned up a bit. The idea is to factor out the common checks
  * but not introduce any IsOper/IsUser/MyUser/IsServer etc. stuff.
  */
+
+/**
+ * Check and optionally sanitize text for UTF-8 validity (UTF8ONLY enforcement).
+ *
+ * When UTF8ONLY is enabled:
+ * - In strict mode: sends FAIL INVALID_UTF8 and returns 0 (reject message)
+ * - In warn mode: sanitizes text, sends WARN INVALID_UTF8, returns 1 (proceed)
+ *
+ * When UTF8ONLY is disabled, always returns 1.
+ *
+ * @param[in] sptr Client sending the message.
+ * @param[in,out] text Message text (may be modified in warn mode).
+ * @param[in] command Command name for standard reply (e.g., "PRIVMSG").
+ * @return 1 if message should proceed (possibly modified), 0 if rejected.
+ */
+static int check_utf8_text(struct Client *sptr, char *text, const char *command)
+{
+  if (!feature_bool(FEAT_UTF8ONLY))
+    return 1;
+
+  if (string_is_valid_utf8(text))
+    return 1;
+
+  /* Invalid UTF-8 detected */
+  if (feature_bool(FEAT_UTF8ONLY_STRICT)) {
+    /* Strict mode: reject the message */
+    send_fail(sptr, command, "INVALID_UTF8", NULL,
+              "Message contains invalid UTF-8 and was rejected");
+    return 0;
+  }
+
+  /* Warn mode: sanitize and proceed */
+  string_sanitize_utf8(text);
+  send_warn(sptr, command, "INVALID_UTF8", NULL,
+            "Message contained invalid UTF-8 and was sanitized");
+  return 1;
+}
+
+/* Effective DM-history identity: account when authenticated, else the
+ * per-connection session id.  NEVER the nick — a nick is reusable and
+ * keying on it lets a later holder read the prior holder's DM history
+ * (F-CH1).  cli_session_id is always populated from make_client
+ * (list.c:247) so the unauth branch never yields "".
+ *
+ * Declared unconditionally in ircd_relay.h and called unconditionally
+ * from replay.c / m_chathistory.c / chathistory_ephemeral.c (none of
+ * which are USE_ROCKSDB-guarded — the ephemeral ring in particular is
+ * explicitly the non-RocksDB storage path), so the definition must
+ * live outside the USE_ROCKSDB block below or a non-RocksDB build
+ * link-fails. */
+static const char *pm_effective_identity(struct Client *cli)
+{
+  if (IsAccount(cli) && cli_user(cli) && cli_user(cli)->account[0])
+    return cli_user(cli)->account;
+  return cli_session_id(cli);
+}
+
+void history_pm_identity(struct Client *cli, char *buf, size_t buflen)
+{
+  ircd_strncpy(buf, pm_effective_identity(cli), buflen);
+}
+
+/* Match the caller's SINGLE effective identity against one pair-key half.
+ * No nick fallback (that reopens F-CH1). */
+int history_pm_identity_matches(struct Client *cli, const char *half, size_t half_len)
+{
+  const char *id = pm_effective_identity(cli);
+  return strlen(id) == half_len && ircd_strncmp(id, half, half_len) == 0;
+}
+
+#ifdef USE_ROCKSDB
+/** Store a channel message in the history database.
+ * Stores the message with the provided msgid and timestamp.
+ * @param[in] sptr Client that sent the message.
+ * @param[in] chptr Target channel.
+ * @param[in] text Message content.
+ * @param[in] type Message type (HISTORY_PRIVMSG or HISTORY_NOTICE).
+ * @param[in] msgid Message ID (same one sent to clients via echo-message).
+ * @param[in] timestamp ISO 8601 timestamp.
+ */
+static void store_channel_history(struct Client *sptr, struct Channel *chptr,
+                                   const char *text, enum HistoryMessageType type,
+                                   const char *msgid, const char *timestamp,
+                                   const char *client_tags)
+{
+  char sender[HISTORY_SENDER_LEN];
+  char owner[HTC_OWNER_MAX];
+  const char *account;
+  int has_local_interest;
+
+  /* WebPush v2: channel-highlight pushes for held members.  PRIVMSG
+   * only (channel NOTICEs are bot noise by design); before the history
+   * gates so pushes don't depend on chathistory storage. */
+  if (type == HISTORY_PRIVMSG)
+    webpush_notify_channel(sptr, chptr, text, msgid, timestamp);
+
+  if (!history_is_available())
+    return;
+
+  /* Check if chathistory storage is enabled */
+  if (!feature_bool(FEAT_CHATHISTORY_STORE)) {
+    /* If write forwarding is enabled, forward to a storage server.
+     * history_forward_encode sentinel-escapes the payload and brackets
+     * the client tags in \x06 so the storage server can split them back
+     * out (process_write_forward) without raw client bytes ever reading
+     * as structure. */
+    if (feature_bool(FEAT_CHATHISTORY_WRITE_FORWARD)) {
+      char tagged_content[(512 + 512) * 2 + 3];
+      history_forward_encode(tagged_content, sizeof(tagged_content),
+                             client_tags, text);
+      forward_history_write(chptr, sptr, msgid, timestamp, type,
+                            tagged_content);
+    }
+    return;
+  }
+
+  /* Determine if we have local interest in this channel:
+   * - Local sender: always interested (our user sent it)
+   * - Remote sender: only if we have local users in channel
+   * This prevents hub servers from storing messages they're just relaying.
+   */
+  if (MyConnect(sptr)) {
+    has_local_interest = 1;
+  } else {
+    struct Membership *member;
+    has_local_interest = 0;
+    for (member = chptr->members; member; member = member->next_member) {
+      if (MyConnect(member->user) || IsMemberAlias(member)) {
+        has_local_interest = 1;
+        break;
+      }
+    }
+  }
+
+  if (!has_local_interest) {
+    /* No local interest - don't store.
+     * STORE servers without users in a channel don't receive messages via P10
+     * relay anyway (P10 only sends to servers with channel members). They rely
+     * on CH W forwarding from non-STORE servers, which handles registered
+     * channel storage in process_write_forward().
+     */
+    return;
+  }
+
+  /* Build sender string: nick!user@host */
+  if (cli_user(sptr))
+    ircd_snprintf(0, sender, sizeof(sender), "%s!%s@%s",
+                  cli_name(sptr),
+                  cli_user(sptr)->username,
+                  cli_user(sptr)->host);
+  else
+    ircd_strncpy(sender, cli_name(sptr), sizeof(sender) - 1);
+
+  /* Get account name if logged in */
+  account = (cli_user(sptr) && cli_user(sptr)->account[0])
+            ? cli_user(sptr)->account : NULL;
+  /* The rows' trim owner: the sender whose account they carry. */
+  history_owner_of(owner, sizeof(owner), sptr);
+
+  /* Check if channel has +P (no storage) mode */
+  if (chptr->mode.exmode & EXMODE_NOSTORAGE)
+    return;
+
+  /* Storage gate: when CHATHISTORY_REQUIRE_AUTH is on, no unauthed
+   * client can ever query — storing into a channel with no authed
+   * member would be dead bytes that nobody can read.  Skip in that
+   * case (unless +H makes the channel public-history).  When
+   * REQUIRE_AUTH is off, store unconditionally — the admin has opted
+   * into open history and unauthed clients may pull these records.
+   * STRICT_PRESENCE only filters at replay, never gates storage. */
+  if (feature_bool(FEAT_CHATHISTORY_REQUIRE_AUTH)
+      && chptr->authusers == 0
+      && !(chptr->mode.exmode & EXMODE_PUBLICHISTORY))
+    return;   /* no content stored; the delivered msgid still resolves
+               * to its mint time intrinsically (2026-09 repack), so no
+               * anchor row is needed.  +Y/opt-out GAPs below are kept
+               * for their visible unavailable-marker role, not
+               * anchoring. */
+
+  /* Check if sender has +Y (no storage) user mode — store gap marker */
+  if (IsNoStorage(sptr)) {
+    history_store_message(msgid, timestamp, chptr->chname, NULL, sender,
+                          account, HISTORY_GAP, "", NULL, owner);
+    return;
+  }
+
+  /* Check if this is a new channel for Layer 1 advertisement */
+  int is_new_channel = (history_has_channel(chptr->chname) == 0);
+
+  /* Store in database */
+  if (history_store_message(msgid, timestamp, chptr->chname, NULL, sender,
+                            account, type, text, client_tags, owner) == 0) {
+    /* Layer 1: Broadcast CH A + if this is the first message in the channel */
+    if (is_new_channel) {
+      broadcast_channel_advertisement(chptr->chname);
+    }
+  }
+}
+
+/** Check if client has opted out of PM history storage.
+ * @param[in] cptr Client to check.
+ * @return 1 if opted out, 0 otherwise.
+ */
+int has_pm_optout(struct Client *cptr)
+{
+  struct MetadataEntry *entry;
+
+  if (!cptr || !IsUser(cptr))
+    return 0;
+
+  entry = metadata_get_client(cptr, "chathistory.pm");
+  if (!entry)
+    return 0;
+
+  /* "0" or empty = opt-out */
+  return (!entry->value || !entry->value[0] || entry->value[0] == '0');
+}
+
+/** Check if PM should be stored between two clients.
+ * Both must be authenticated. Either can opt out via metadata or +y mode.
+ * @param[in] sender Message sender.
+ * @param[in] recipient Message recipient.
+ * @return 1 if should store, 0 otherwise.
+ */
+static int should_store_pm(struct Client *sender, struct Client *recipient)
+{
+  /* At least one party must have an account.  LMDB persistence uses the
+   * account as the anchor, so a fully-ephemeral pair has no durable
+   * identity to key against — storage is skipped (a session-anchored
+   * in-memory ring for ephemeral↔ephemeral PMs is on the deferred list).
+   * Ephemeral↔account conversations are stored under the account's
+   * anchor and remain queryable from both sides via the canonical
+   * nick1:nick2 pair-key. */
+  if (!IsAccount(sender) && !IsAccount(recipient))
+    return 0;
+
+  /* Check opt-out */
+  if (has_pm_optout(sender) || has_pm_optout(recipient))
+    return 0;
+
+  return 1;
+}
+
+/** Store a private (DM) message in the history database.
+ * Uses a consistent target format: sorted pair of nicks as "nick1:nick2".
+ * @param[in] sptr Client that sent the message.
+ * @param[in] acptr Target client.
+ * @param[in] text Message content.
+ * @param[in] type Message type (HISTORY_PRIVMSG or HISTORY_NOTICE).
+ * @param[in] msgid Message ID (same one sent to clients via echo-message).
+ * @param[in] timestamp ISO 8601 timestamp.
+ */
+void store_private_history(struct Client *sptr, struct Client *acptr,
+                                   const char *text, enum HistoryMessageType type,
+                                   const char *msgid, const char *timestamp,
+                                   const char *client_tags)
+{
+  char sender[HISTORY_SENDER_LEN];
+  char target[PM_PAIRKEY_BUFSIZE];  /* identity pair-key */
+  char owner[HTC_OWNER_MAX];
+  const char *account;
+  const char *nick1, *nick2;
+
+  /* WebPush v1 trigger: PM/NOTICE toward a held bouncer session.
+   * Deliberately BEFORE the history feature gates -- push delivery
+   * must not depend on chathistory storage being enabled.  All gating
+   * (hold state, subscriptions, cooldown, FEAT) lives inside. */
+  if (type != HISTORY_TAGMSG)
+    webpush_notify_pm(sptr, acptr, text, type == HISTORY_NOTICE,
+                      msgid, timestamp);
+
+  /* Service traffic is not a conversation: AuthServ's "I recognize you"
+   * and "X authed to your account" notices, and the user's own commands
+   * to a bot (which can carry a password).  Storing them keyed the rows
+   * on the bot's session id -- it has no account -- and put that id in
+   * every user's CHATHISTORY TARGETS.  Servers likewise. */
+  if (IsServer(sptr) || IsServer(acptr)
+      || IsServiceClient(sptr) || IsServiceClient(acptr))
+    return;
+
+  if (!history_is_available())
+    return;
+
+  /* Check if chathistory storage is enabled */
+  if (!feature_bool(FEAT_CHATHISTORY_STORE))
+    return;
+
+  /* Check if private message history is enabled (separate feature) */
+  if (!feature_bool(FEAT_CHATHISTORY_PRIVATE))
+    return;
+
+  /* Opt-out check: honored regardless of which storage backend would
+   * receive the message.  Previously this only gated the LMDB path
+   * below — the ephemeral-ring path skipped past it and stored
+   * unconditionally, leaking PMs that an opted-out party hadn't
+   * consented to keep.  Now: if EITHER party opts out (chathistory.pm
+   * = "0" or "" via metadata), drop storage entirely; for the LMDB
+   * path we still write a gap marker so the conversation pair-key
+   * has a presence-witness, but for the ephemeral path there's no
+   * gap marker concept — we just don't store. */
+  {
+    int either_optout = has_pm_optout(sptr) || has_pm_optout(acptr);
+
+    /* Fully-ephemeral pair: in-memory ring only.  Skip both opt-out
+     * and the LMDB path. */
+    if (!IsAccount(sptr) && !IsAccount(acptr)) {
+      if (feature_bool(FEAT_CHATHISTORY_REQUIRE_AUTH))
+        return;  /* nobody can query an account-less storage anyway */
+      if (either_optout)
+        return;  /* honor opt-out, ephemeral ring receives nothing */
+      chathistory_ephemeral_store_pair(sptr, acptr, text, type, msgid,
+                                        timestamp, client_tags);
+      return;
+    }
+  }
+
+  /* Build sender string: nick!user@host (needed for gap markers below) */
+  if (cli_user(sptr))
+    ircd_snprintf(0, sender, sizeof(sender), "%s!%s@%s",
+                  cli_name(sptr),
+                  cli_user(sptr)->username,
+                  cli_user(sptr)->host);
+  else
+    ircd_strncpy(sender, cli_name(sptr), sizeof(sender) - 1);
+
+  /* Build target as sorted pair for consistent lookups
+   * Format: lowerNick:higherNick (case-insensitive comparison)
+   */
+  {
+    char id_s[S2S_SESSID_BUFSIZE], id_a[S2S_SESSID_BUFSIZE];
+    history_pm_identity(sptr,  id_s, sizeof(id_s));
+    history_pm_identity(acptr, id_a, sizeof(id_a));
+    if (ircd_strcmp(id_s, id_a) < 0) { nick1 = id_s; nick2 = id_a; }
+    else                            { nick1 = id_a; nick2 = id_s; }
+    ircd_snprintf(0, target, sizeof(target), "%s:%s", nick1, nick2);
+  }
+
+  /* Get account name if logged in */
+  account = (cli_user(sptr) && cli_user(sptr)->account[0])
+            ? cli_user(sptr)->account : NULL;
+  /* The rows' trim owner: the sender whose account they carry. */
+  history_owner_of(owner, sizeof(owner), sptr);
+
+  /* Check opt-out — store gap marker if either party opted out
+   * (LMDB path: at least one party authed, so we have an anchor for
+   * the gap marker and a queryable party who can see it). */
+  if (has_pm_optout(sptr) || has_pm_optout(acptr)) {
+    history_store_message(msgid, timestamp, target, cli_name(acptr), sender,
+                          account, HISTORY_GAP, "", NULL, owner);
+    return;
+  }
+
+  /* Check +Y no-storage — store gap marker */
+  if (IsNoStorage(sptr)) {
+    history_store_message(msgid, timestamp, target, cli_name(acptr), sender,
+                          account, HISTORY_GAP, "", NULL, owner);
+    return;
+  }
+
+  /* If either party is ephemeral, embed their session_id as a vendor
+   * tag so the chathistory query path can authorize the ephemeral
+   * party's future history access (Phase 5a — sessid-based participant
+   * check, see check_history_access's PM branch).  Without this tag
+   * the record is queryable only by the authed counterparty; with it
+   * the ephemeral can match their cli_session_id against the stored
+   * tag to prove "I'm the same session as the one that participated."
+   *
+   * Stored as `+evilnet.github.io/sid=<sessid>` in client_tags
+   * (evilnet = the upstream-org vendor namespace, same host as the
+   * evilnet.github.io/bouncer-replay batch; records written before
+   * 2026-08-29 carry the legacy `+afternet.org/sid=` form, which the
+   * auth check still accepts).  Tag is
+   * server-injected and trusted: the whole `+afternet.org/` vendor
+   * namespace is reserved at tag capture (parse.c drops any
+   * client-supplied tag in it via is_reserved_vendor_tag), so the
+   * client_tags appended below cannot carry a forged sid marker and
+   * the auth check can rely on this one. */
+  {
+    char tagbuf[800];
+    size_t pos = 0;
+    const char *eph_sessid = NULL;
+    if (!IsAccount(sptr) && cli_session_id(sptr)[0])
+      eph_sessid = cli_session_id(sptr);
+    else if (!IsAccount(acptr) && cli_session_id(acptr)[0])
+      eph_sessid = cli_session_id(acptr);
+
+    if (eph_sessid)
+      pos += ircd_snprintf(0, tagbuf + pos, sizeof(tagbuf) - pos,
+                           "+evilnet.github.io/sid=%s", eph_sessid);
+
+    /* Both parties' session ids, beside the sender's account: a row is a
+     * message from one SESSION to another, and the naming of the
+     * conversation later may stand a live client in for a stored nick
+     * only when it is the same session (a bouncer primary and its
+     * aliases share the id), never merely the same account -- an account
+     * can be online under several nicks at once.  Stripped on playback
+     * with the sid marker (strip_internal_tags); the vendor namespace is
+     * reserved at tag capture, so a client cannot forge them. */
+    if (cli_session_id(sptr)[0])
+      pos += ircd_snprintf(0, tagbuf + pos, sizeof(tagbuf) - pos,
+                           "%s+evilnet.github.io/ssid=%s", pos ? ";" : "",
+                           cli_session_id(sptr));
+    if (cli_session_id(acptr)[0])
+      pos += ircd_snprintf(0, tagbuf + pos, sizeof(tagbuf) - pos,
+                           "%s+evilnet.github.io/rsid=%s", pos ? ";" : "",
+                           cli_session_id(acptr));
+    if (client_tags && *client_tags)
+      pos += ircd_snprintf(0, tagbuf + pos, sizeof(tagbuf) - pos,
+                           "%s%s", pos ? ";" : "", client_tags);
+    history_store_message(msgid, timestamp, target, cli_name(acptr), sender,
+                          account, type, text, pos ? tagbuf : client_tags,
+                          owner);
+  }
+}
+#endif /* USE_ROCKSDB */
 
 /** Relay a local user's message to a channel.
  * Generates an error if the client cannot send to the channel.
@@ -89,9 +516,30 @@ void relay_channel_message(struct Client* sptr, const char* name, const char* te
   struct Channel* chptr;
   const char* mytext = text;
   const char* ch;
+  char utf8buf[BUFSIZE];
   assert(0 != sptr);
   assert(0 != name);
   assert(0 != text);
+
+  /* UTF8ONLY enforcement */
+  if (feature_bool(FEAT_UTF8ONLY) && !string_is_valid_utf8(text)) {
+    if (feature_bool(FEAT_UTF8ONLY_STRICT)) {
+      send_fail(sptr, "PRIVMSG", "INVALID_UTF8", NULL,
+                "Message contains invalid UTF-8 and was rejected");
+      return;
+    }
+    /* Warn mode: copy, sanitize, and use sanitized version */
+    ircd_strncpy(utf8buf, text, sizeof(utf8buf) - 1);
+    utf8buf[sizeof(utf8buf) - 1] = '\0';
+    string_sanitize_utf8(utf8buf);
+    send_warn(sptr, "PRIVMSG", "INVALID_UTF8", NULL,
+              "Message contained invalid UTF-8 and was sanitized");
+    mytext = utf8buf;
+    if (EmptyString(mytext)) {
+      send_reply(sptr, ERR_NOTEXTTOSEND);
+      return;
+    }
+  }
 
   if (0 == (chptr = FindChannel(name))) {
     send_reply(sptr, ERR_NOSUCHCHANNEL, name);
@@ -136,8 +584,96 @@ void relay_channel_message(struct Client* sptr, const char* name, const char* te
   }
 
   RevealDelayedJoinIfNeeded(sptr, chptr);
-  sendcmdto_channel_butone(sptr, CMD_PRIVATE, chptr, cli_from(sptr),
-			   SKIP_DEAF | SKIP_BURST, text[0], "%H :%s", chptr, mytext);
+
+  /* Generate msgid before channel broadcast so all recipients get the same one */
+  {
+    char msgid[64] = "";
+    char timestamp[32] = "";
+    int need_echo = feature_bool(FEAT_CAP_echo_message) && CapOwnHas(sptr, CAP_ECHOMSG);
+
+#ifdef USE_ROCKSDB
+    if (feature_bool(FEAT_MSGID)) {
+      uint64_t event_ms;
+      /* msgid FIRST: minting advances the HLC, and the row time read
+       * after it is the msgid's own mint time -- the same number the
+       * live @time and the S2S tag carry (one time per message). */
+      generate_msgid(msgid, sizeof(msgid));
+      event_ms = history_event_time_ms(NULL);
+      history_format_ms(timestamp, sizeof(timestamp), event_ms);
+
+      /* Set S2S msgid override so the S2S relay carries the same msgid
+       * that we store locally — prevents federation dedup failures. */
+      sendcmdto_set_s2s_tags(event_ms, msgid);
+    }
+#endif
+
+    /* Set msgid override so channel broadcast includes it in client tags */
+    if (msgid[0])
+      sendcmdto_set_client_event(msgid, history_parse_ms(timestamp));
+
+    /* Alias source rewriting: use primary's numeric for S2S delivery.
+     * When primary is remote, use split S2S delivery: primary numeric for
+     * most servers, alias numeric for the primary's server direction
+     * (to avoid fake direction — the primary's server handles rewriting). */
+    {
+      struct Client *from = sptr;
+      const char *client_tags = cli_client_tags(sptr);
+
+      if (IsBouncerAlias(sptr) && cli_user(sptr)->alias_primary) {
+        if (!MyUser(cli_user(sptr)->alias_primary))
+          sendcmdto_set_alias_source(sptr);
+        from = cli_user(sptr)->alias_primary;
+      }
+
+      if (client_tags && *client_tags) {
+        sendcmdto_channel_butone_with_client_tags(from, CMD_PRIVATE, chptr, cli_from(sptr),
+                           SKIP_DEAF | SKIP_BURST, text[0], client_tags,
+                           "%H :%s", chptr, mytext);
+      } else {
+        sendcmdto_channel_butone(from, CMD_PRIVATE, chptr, cli_from(sptr),
+                                 SKIP_DEAF | SKIP_BURST, text[0], "%H :%s", chptr, mytext);
+      }
+    }
+
+    /* Clear the msgid override after broadcast */
+    sendcmdto_set_client_msgid(NULL);
+
+    /* Echo message back to sender if they have echo-message cap */
+    if (need_echo) {
+      const char *echo_ctags = cli_client_tags(sptr);
+      if (echo_ctags && *echo_ctags && CapOwnHas(sptr, CAP_MSGTAGS)) {
+        /* Include client tags in echo */
+        if (msgid[0])
+          sendcmdto_set_client_event(msgid, history_parse_ms(timestamp));
+        sendcmdto_one_client_tags(sptr, MSG_PRIVATE, sptr, echo_ctags,
+                                  "%H :%s", chptr, mytext);
+        sendcmdto_set_client_msgid(NULL);
+      } else {
+#ifdef USE_ROCKSDB
+        /* Arm the event so the echo's @time is the row's time, not the
+         * clock at send (the composer only honours it while a client
+         * msgid is armed). */
+        if (msgid[0])
+          sendcmdto_set_client_event(msgid, history_parse_ms(timestamp));
+        sendcmdto_one_tags_ext(sptr, CMD_PRIVATE, sptr, msgid,
+                               "%H :%s", chptr, mytext);
+        sendcmdto_set_client_msgid(NULL);
+#else
+        sendcmdto_one_tags(sptr, CMD_PRIVATE, sptr, "%H :%s", chptr, mytext);
+#endif
+      }
+    }
+
+#ifdef USE_ROCKSDB
+    /* Store message in history database for draft/chathistory.
+     * Include client-only tags (+reply, +draft/react) if present. */
+    if (msgid[0]) {
+      const char *store_ctags = cli_client_tags(sptr);
+      store_channel_history(sptr, chptr, mytext, HISTORY_PRIVMSG, msgid, timestamp,
+                            (store_ctags && *store_ctags) ? store_ctags : NULL);
+    }
+#endif
+  }
 }
 
 /** Relay a local user's notice to a channel.
@@ -152,9 +688,28 @@ void relay_channel_notice(struct Client* sptr, const char* name, const char* tex
   struct Channel* chptr;
   const char* mytext = text;
   const char* ch;
+  char utf8buf[BUFSIZE];
   assert(0 != sptr);
   assert(0 != name);
   assert(0 != text);
+
+  /* UTF8ONLY enforcement */
+  if (feature_bool(FEAT_UTF8ONLY) && !string_is_valid_utf8(text)) {
+    if (feature_bool(FEAT_UTF8ONLY_STRICT)) {
+      send_fail(sptr, "NOTICE", "INVALID_UTF8", NULL,
+                "Message contains invalid UTF-8 and was rejected");
+      return;
+    }
+    /* Warn mode: copy, sanitize, and use sanitized version */
+    ircd_strncpy(utf8buf, text, sizeof(utf8buf) - 1);
+    utf8buf[sizeof(utf8buf) - 1] = '\0';
+    string_sanitize_utf8(utf8buf);
+    send_warn(sptr, "NOTICE", "INVALID_UTF8", NULL,
+              "Message contained invalid UTF-8 and was sanitized");
+    mytext = utf8buf;
+    if (EmptyString(mytext))
+      return;
+  }
 
   if (0 == (chptr = FindChannel(name)))
     return;
@@ -190,8 +745,89 @@ void relay_channel_notice(struct Client* sptr, const char* name, const char* tex
   }
 
   RevealDelayedJoinIfNeeded(sptr, chptr);
-  sendcmdto_channel_butone(sptr, CMD_NOTICE, chptr, cli_from(sptr),
-			   SKIP_DEAF | SKIP_BURST, '\0', "%H :%s", chptr, mytext);
+
+  /* Generate msgid before channel broadcast (mirrors relay_channel_message).
+   * Setting S2S msgid override ensures the same msgid is used for both
+   * local storage and S2S relay — prevents federation dedup failures. */
+  {
+    char msgid[64] = "";
+    char timestamp[32] = "";
+    int need_echo = feature_bool(FEAT_CAP_echo_message) && CapOwnHas(sptr, CAP_ECHOMSG);
+
+#ifdef USE_ROCKSDB
+    if (feature_bool(FEAT_MSGID)) {
+      uint64_t event_ms;
+      /* msgid first, then its mint time (see relay_channel_message) */
+      generate_msgid(msgid, sizeof(msgid));
+      event_ms = history_event_time_ms(NULL);
+      history_format_ms(timestamp, sizeof(timestamp), event_ms);
+
+      sendcmdto_set_s2s_tags(event_ms, msgid);
+    }
+#endif
+
+    /* Set msgid override so channel broadcast includes it in client tags */
+    if (msgid[0])
+      sendcmdto_set_client_event(msgid, history_parse_ms(timestamp));
+
+    /* Alias source rewriting (see relay_channel_message) */
+    {
+      struct Client *from = sptr;
+      const char *client_tags = cli_client_tags(sptr);
+
+      if (IsBouncerAlias(sptr) && cli_user(sptr)->alias_primary) {
+        if (!MyUser(cli_user(sptr)->alias_primary))
+          sendcmdto_set_alias_source(sptr);
+        from = cli_user(sptr)->alias_primary;
+      }
+
+      if (client_tags && *client_tags) {
+        sendcmdto_channel_butone_with_client_tags(from, CMD_NOTICE, chptr, cli_from(sptr),
+                           SKIP_DEAF | SKIP_BURST, '\0', client_tags,
+                           "%H :%s", chptr, mytext);
+      } else {
+        sendcmdto_channel_butone(from, CMD_NOTICE, chptr, cli_from(sptr),
+                                 SKIP_DEAF | SKIP_BURST, '\0', "%H :%s", chptr, mytext);
+      }
+    }
+
+    /* Clear the msgid override after broadcast */
+    sendcmdto_set_client_msgid(NULL);
+
+    /* Echo notice back to sender if they have echo-message cap */
+    if (need_echo) {
+      const char *echo_ctags = cli_client_tags(sptr);
+      if (echo_ctags && *echo_ctags && CapOwnHas(sptr, CAP_MSGTAGS)) {
+        if (msgid[0])
+          sendcmdto_set_client_event(msgid, history_parse_ms(timestamp));
+        sendcmdto_one_client_tags(sptr, MSG_NOTICE, sptr, echo_ctags,
+                                  "%H :%s", chptr, mytext);
+        sendcmdto_set_client_msgid(NULL);
+      } else {
+#ifdef USE_ROCKSDB
+        /* Arm the event so the echo's @time is the row's time (see the
+         * PRIVMSG echo above). */
+        if (msgid[0])
+          sendcmdto_set_client_event(msgid, history_parse_ms(timestamp));
+        sendcmdto_one_tags_ext(sptr, CMD_NOTICE, sptr, msgid,
+                               "%H :%s", chptr, mytext);
+        sendcmdto_set_client_msgid(NULL);
+#else
+        sendcmdto_one_tags(sptr, CMD_NOTICE, sptr, "%H :%s", chptr, mytext);
+#endif
+      }
+    }
+
+#ifdef USE_ROCKSDB
+    /* Store notice in history database for draft/chathistory.
+     * Include client-only tags (+reply, +draft/react) if present. */
+    if (msgid[0]) {
+      const char *store_ctags = cli_client_tags(sptr);
+      store_channel_history(sptr, chptr, mytext, HISTORY_NOTICE, msgid, timestamp,
+                            (store_ctags && *store_ctags) ? store_ctags : NULL);
+    }
+#endif
+  }
 }
 
 /** Relay a message to a channel.
@@ -204,6 +840,9 @@ void relay_channel_notice(struct Client* sptr, const char* name, const char* tex
 void server_relay_channel_message(struct Client* sptr, const char* name, const char* text)
 {
   struct Channel* chptr;
+  struct Client *one;
+  const char *client_tags;
+
   assert(0 != sptr);
   assert(0 != name);
   assert(0 != text);
@@ -212,13 +851,79 @@ void server_relay_channel_message(struct Client* sptr, const char* name, const c
     send_reply(sptr, ERR_NOSUCHCHANNEL, name);
     return;
   }
+
+  /* Save alias's server link and client tags before potential rewrite.
+   * For S2S-relayed messages, client tags arrive in the compact-tag
+   * ,C<client_tags> segment, populated by parse_server() into
+   * cli_s2s_client_tags(server_link). cli_client_tags(remote_user) is
+   * always empty since remote users don't go through parse_client(),
+   * so prefer the S2S-incoming form. */
+  one = cli_from(sptr);
+  {
+    const char *s2s_tags = cli_s2s_client_tags(one);
+    client_tags = (s2s_tags && *s2s_tags) ? s2s_tags : cli_client_tags(sptr);
+  }
+
+  /* Unified msgid: if no incoming S2S msgid, mint one (with its mint
+   * time) into the link's stash now so format_s2s_tags() (relay) and
+   * storage both use the same msgid and time.  Handles messages from
+   * legacy servers without P10_MESSAGE_TAGS. */
+  if (feature_bool(FEAT_P10_MESSAGE_TAGS) && one && !cli_s2s_msgid(one)[0])
+    s2s_mint_link_event(one);
+
+  /* Alias source rewriting: use primary's P10 numeric for S2S.
+   * The alias numeric (from BX C) is only known to BX-aware servers.
+   * The primary numeric (from N token) is universally known.
+   * Keep 'one' = alias's server link for echo suppression. */
+  if (IsBouncerAlias(sptr) && cli_user(sptr)->alias_primary) {
+    sendcmdto_set_s2s_cptr(one);  /* Preserve alias's S2S tags */
+    if (!MyUser(cli_user(sptr)->alias_primary))
+      sendcmdto_set_alias_source(sptr);
+    sptr = cli_user(sptr)->alias_primary;
+  }
+
   /*
    * This first: Almost never a server/service
    * Servers may have channel services, need to check for it here
    */
   if (client_can_send_to_channel(sptr, chptr, 1) || IsChannelService(sptr)) {
-    sendcmdto_channel_butone(sptr, CMD_PRIVATE, chptr, cli_from(sptr),
-                            SKIP_DEAF | SKIP_BURST, text[0], "%H :%s", chptr, text);
+    /* Set client msgid override so local clients get msgid tag.
+     * Use S2S msgid if available, otherwise generate one. */
+    char relay_msgid[64] = "";
+    if (feature_bool(FEAT_MSGID)) {
+      const char *s2s_mid = (feature_bool(FEAT_P10_MESSAGE_TAGS) && one
+                             && cli_s2s_msgid(one)[0]) ? cli_s2s_msgid(one) : NULL;
+      if (s2s_mid)
+        ircd_strncpy(relay_msgid, s2s_mid, sizeof(relay_msgid));
+      else
+        generate_msgid(relay_msgid, sizeof(relay_msgid));
+      sendcmdto_set_client_event(relay_msgid, history_event_time_ms(one));
+    }
+
+    if (client_tags && *client_tags) {
+      sendcmdto_channel_butone_with_client_tags(sptr, CMD_PRIVATE, chptr, one,
+                         SKIP_DEAF | SKIP_BURST, text[0], client_tags,
+                         "%H :%s", chptr, text);
+    } else {
+      sendcmdto_channel_butone(sptr, CMD_PRIVATE, chptr, one,
+                               SKIP_DEAF | SKIP_BURST, text[0], "%H :%s", chptr, text);
+    }
+
+    sendcmdto_set_client_msgid(NULL);
+
+#ifdef USE_ROCKSDB
+    /* Store server-relayed message in history database.
+     * Uses the same msgid that was broadcast to clients above, and the
+     * origin's time from the same S2S tag -- the @time this server just
+     * delivered live.  It used to stamp the local wall clock here, so
+     * the row replayed with a different time than it was delivered with. */
+    if (relay_msgid[0]) {
+      char timestamp[32];
+
+      history_format_ms(timestamp, sizeof(timestamp), history_event_time_ms(one));
+      store_channel_history(sptr, chptr, text, HISTORY_PRIVMSG, relay_msgid, timestamp, NULL);
+    }
+#endif
   }
   else
     send_reply(sptr, ERR_CANNOTSENDTOCHAN, chptr->chname);
@@ -234,20 +939,83 @@ void server_relay_channel_message(struct Client* sptr, const char* name, const c
 void server_relay_channel_notice(struct Client* sptr, const char* name, const char* text)
 {
   struct Channel* chptr;
+  struct Client *one;
+  const char *client_tags;
+
   assert(0 != sptr);
   assert(0 != name);
   assert(0 != text);
 
   if (IsLocalChannel(name) || 0 == (chptr = FindChannel(name)))
     return;
+
+  /* Save alias's server link and client tags before potential rewrite.
+   * For S2S-relayed messages, prefer cli_s2s_client_tags(server_link)
+   * — see server_relay_channel_message. */
+  one = cli_from(sptr);
+  {
+    const char *s2s_tags = cli_s2s_client_tags(one);
+    client_tags = (s2s_tags && *s2s_tags) ? s2s_tags : cli_client_tags(sptr);
+  }
+
+  /* Unified msgid (see server_relay_channel_message) */
+  if (feature_bool(FEAT_P10_MESSAGE_TAGS) && one && !cli_s2s_msgid(one)[0])
+    s2s_mint_link_event(one);
+
+  /* Alias source rewriting (see server_relay_channel_message) */
+  if (IsBouncerAlias(sptr) && cli_user(sptr)->alias_primary) {
+    sendcmdto_set_s2s_cptr(one);  /* Preserve alias's S2S tags */
+    if (!MyUser(cli_user(sptr)->alias_primary))
+      sendcmdto_set_alias_source(sptr);
+    sptr = cli_user(sptr)->alias_primary;
+  }
+
   /*
    * This first: Almost never a server/service
-   * Servers may have channel services, need to check for it here
+   * Servers may have channel services, need to check for it here.
+   *
+   * IsServer bypass for +N: server-source NOTICEs are system signals
+   * (multiline truncation, etc.), not user speech.  client_can_send_to_channel
+   * already exempts IsServer from +n/+m/+M/+R/+Z/+O, so exempting +N keeps
+   * +N consistent with the other gating modes.
    */
   if ((client_can_send_to_channel(sptr, chptr, 1) &&
-       !(chptr->mode.exmode & EXMODE_NONOTICES)) || IsChannelService(sptr)) {
-    sendcmdto_channel_butone(sptr, CMD_NOTICE, chptr, cli_from(sptr),
-			     SKIP_DEAF | SKIP_BURST, '\0', "%H :%s", chptr, text);
+       (!(chptr->mode.exmode & EXMODE_NONOTICES) || IsServer(sptr)))
+      || IsChannelService(sptr)) {
+    /* Set client msgid override so local clients get msgid tag. */
+    char relay_msgid[64] = "";
+    if (feature_bool(FEAT_MSGID)) {
+      const char *s2s_mid = (feature_bool(FEAT_P10_MESSAGE_TAGS) && one
+                             && cli_s2s_msgid(one)[0]) ? cli_s2s_msgid(one) : NULL;
+      if (s2s_mid)
+        ircd_strncpy(relay_msgid, s2s_mid, sizeof(relay_msgid));
+      else
+        generate_msgid(relay_msgid, sizeof(relay_msgid));
+      sendcmdto_set_client_event(relay_msgid, history_event_time_ms(one));
+    }
+
+    if (client_tags && *client_tags) {
+      sendcmdto_channel_butone_with_client_tags(sptr, CMD_NOTICE, chptr, one,
+                         SKIP_DEAF | SKIP_BURST, '\0', client_tags,
+                         "%H :%s", chptr, text);
+    } else {
+      sendcmdto_channel_butone(sptr, CMD_NOTICE, chptr, one,
+                               SKIP_DEAF | SKIP_BURST, '\0', "%H :%s", chptr, text);
+    }
+
+    sendcmdto_set_client_msgid(NULL);
+
+#ifdef USE_ROCKSDB
+    /* Store server-relayed notice in history database.
+     * Same msgid and same origin time as the live delivery (see
+     * server_relay_channel_message). */
+    if (relay_msgid[0]) {
+      char timestamp[32];
+
+      history_format_ms(timestamp, sizeof(timestamp), history_event_time_ms(one));
+      store_channel_history(sptr, chptr, text, HISTORY_NOTICE, relay_msgid, timestamp, NULL);
+    }
+#endif
   }
 }
 
@@ -280,7 +1048,21 @@ void relay_directed_message(struct Client* sptr, char* name, char* server, const
    */
   if (!IsMe(acptr))
   {
-    sendcmdto_one(sptr, CMD_PRIVATE, acptr, "%s :%s", name, text);
+    /* Alias source rewrite — emit from the primary numeric so a legacy /
+     * non-BX-aware services server (which was never told about the alias
+     * via BX C) can resolve the source.  Without this, X3 / similar pseudo
+     * targets silently drop commands from a bouncer alias, leaving the
+     * client with no reply (no ERR_SERVICESDOWN, no 421).  Keep the alias
+     * numeric only when the primary's wire direction IS this very server
+     * — sending from primary toward primary's own server would be fake
+     * direction.  Mirrors relay_private_message (~:1200-1206). */
+    struct Client *from = sptr;
+    if (IsBouncerAlias(sptr) && cli_user(sptr)->alias_primary) {
+      from = cli_user(sptr)->alias_primary;
+      if (!MyUser(from) && cli_from(from) == acptr)
+        from = sptr;
+    }
+    sendcmdto_one(from, CMD_PRIVATE, acptr, "%s :%s", name, text);
     return;
   }
   /*
@@ -341,8 +1123,21 @@ void relay_directed_message(struct Client* sptr, char* name, char* server, const
     return;
   }
 
-  if (!(is_silenced(sptr, acptr, 0)))
-    sendcmdto_one(sptr, CMD_PRIVATE, acptr, "%s :%s", name, text);
+  if (!(is_silenced(sptr, acptr, 0))) {
+    /* Alias source rewrite — same pattern as relay_private_message.
+     * acptr is asserted MyUser above, so the !MyConnect guard never
+     * fires; from always resolves to the primary, giving the local
+     * recipient the same source numeric they would see from any other
+     * PM path. */
+    struct Client *from = sptr;
+    if (IsBouncerAlias(sptr) && cli_user(sptr)->alias_primary) {
+      from = cli_user(sptr)->alias_primary;
+      if (!MyUser(from) && !MyConnect(acptr)
+          && cli_from(from) == cli_from(acptr))
+        from = sptr;
+    }
+    sendcmdto_one(from, CMD_PRIVATE, acptr, "%s :%s", name, text);
+  }
 }
 
 /** Relay a directed notice.
@@ -370,7 +1165,17 @@ void relay_directed_notice(struct Client* sptr, char* name, char* server, const 
    * NICK[%host]@server addressed? See if <server> is me first
    */
   if (!IsMe(acptr)) {
-    sendcmdto_one(sptr, CMD_NOTICE, acptr, "%s :%s", name, text);
+    /* Alias source rewrite — see relay_directed_message for the full
+     * rationale.  Without this, NOTICEs from a bouncer alias addressed
+     * to nick@services-server arrive at the service with an unknown
+     * source numeric and get dropped. */
+    struct Client *from = sptr;
+    if (IsBouncerAlias(sptr) && cli_user(sptr)->alias_primary) {
+      from = cli_user(sptr)->alias_primary;
+      if (!MyUser(from) && cli_from(from) == acptr)
+        from = sptr;
+    }
+    sendcmdto_one(from, CMD_NOTICE, acptr, "%s :%s", name, text);
     return;
   }
   /*
@@ -414,8 +1219,17 @@ void relay_directed_notice(struct Client* sptr, char* name, char* server, const 
     return;
   }
 
-  if (!(is_silenced(sptr, acptr, 0)))
-    sendcmdto_one(sptr, CMD_NOTICE, acptr, "%s :%s", name, text);
+  if (!(is_silenced(sptr, acptr, 0))) {
+    /* Alias source rewrite — see relay_directed_message IsMe branch. */
+    struct Client *from = sptr;
+    if (IsBouncerAlias(sptr) && cli_user(sptr)->alias_primary) {
+      from = cli_user(sptr)->alias_primary;
+      if (!MyUser(from) && !MyConnect(acptr)
+          && cli_from(from) == cli_from(acptr))
+        from = sptr;
+    }
+    sendcmdto_one(from, CMD_NOTICE, acptr, "%s :%s", name, text);
+  }
 }
 
 /** Relay a private message from a local user.
@@ -429,10 +1243,34 @@ void relay_directed_notice(struct Client* sptr, char* name, char* server, const 
 void relay_private_message(struct Client* sptr, const char* name, const char* text)
 {
   struct Client* acptr;
+  const char* mytext = text;
+  char utf8buf[BUFSIZE];
+  char pm_msgid[64];
+  char pm_timestamp[32];
 
   assert(0 != sptr);
   assert(0 != name);
   assert(0 != text);
+
+  /* UTF8ONLY enforcement */
+  if (feature_bool(FEAT_UTF8ONLY) && !string_is_valid_utf8(text)) {
+    if (feature_bool(FEAT_UTF8ONLY_STRICT)) {
+      send_fail(sptr, "PRIVMSG", "INVALID_UTF8", NULL,
+                "Message contains invalid UTF-8 and was rejected");
+      return;
+    }
+    /* Warn mode: copy, sanitize, and use sanitized version */
+    ircd_strncpy(utf8buf, text, sizeof(utf8buf) - 1);
+    utf8buf[sizeof(utf8buf) - 1] = '\0';
+    string_sanitize_utf8(utf8buf);
+    send_warn(sptr, "PRIVMSG", "INVALID_UTF8", NULL,
+              "Message contained invalid UTF-8 and was sanitized");
+    mytext = utf8buf;
+    if (EmptyString(mytext)) {
+      send_reply(sptr, ERR_NOTEXTTOSEND);
+      return;
+    }
+  }
 
   if (0 == (acptr = FindUser(name))) {
     send_reply(sptr, ERR_NOSUCHNICK, name);
@@ -471,14 +1309,168 @@ void relay_private_message(struct Client* sptr, const char* name, const char* te
    * send away message if user away
    */
   if (cli_user(acptr) && cli_user(acptr)->away)
-    send_reply(sptr, RPL_AWAY, cli_name(acptr), cli_user(acptr)->away);
+    send_reply(sptr, RPL_AWAY, cli_name(acptr), away_text_for(sptr, cli_user(acptr)->away));
   /*
    * deliver the message
    */
   if (MyUser(acptr))
     add_target(acptr, sptr);
 
-  sendcmdto_one(sptr, CMD_PRIVATE, acptr, "%C :%s", acptr, text);
+  /* Generate shared msgid + timestamp for alias forwarding, echo, and history */
+  pm_msgid[0] = '\0';
+  pm_timestamp[0] = '\0';
+  if (feature_bool(FEAT_MSGID)) {
+    /* msgid first, then its mint time (one time per message) */
+    generate_msgid(pm_msgid, sizeof(pm_msgid));
+    history_format_ms(pm_timestamp, sizeof(pm_timestamp),
+                      history_event_time_ms(NULL));
+  }
+
+  /* Alias source rewriting for S2S legacy compat.
+   * If target is on the primary's server direction, keep alias numeric
+   * (avoids fake direction — server_relay handles rewriting there). */
+  {
+    const char *client_tags = cli_client_tags(sptr);
+    struct Client *from = sptr;
+
+    if (IsBouncerAlias(sptr) && cli_user(sptr)->alias_primary) {
+      from = cli_user(sptr)->alias_primary;
+      /* Keep alias numeric for primary's server direction to avoid fake direction */
+      if (!MyUser(from) && !MyConnect(acptr)
+          && cli_from(from) == cli_from(acptr))
+        from = sptr;
+    }
+
+    if (client_tags && *client_tags && MyConnect(acptr) && CapActive(acptr, CAP_MSGTAGS)) {
+      /* Set msgid override so format_message_tags_with_client includes it */
+      if (pm_msgid[0])
+        sendcmdto_set_client_event(pm_msgid, history_parse_ms(pm_timestamp));
+      sendcmdto_one_client_tags(from, MSG_PRIVATE, acptr, client_tags,
+                                "%C :%s", acptr, mytext);
+      sendcmdto_set_client_msgid(NULL);
+    } else {
+      /* Use tag-aware send so recipient gets server-time/msgid per caps.
+       * For S2S delivery to IRCV3AWARE peers, sendcmdto_one_tags_with_client
+       * also adds the @A...,C<client_tags> compact-tag prefix so the
+       * remote server can forward client-only tags to its local recipient
+       * (per p10-compact-client-tags plan). */
+      /* Locally minted: this message's own id and time ride the wire,
+       * not whatever was last parsed off the destination link -- also
+       * when an alias sends as its remote primary.  A local target takes
+       * the same time on its @time (the client event; a remote target's
+       * send ignores it), cleared right after the send. */
+      if (pm_msgid[0]) {
+        sendcmdto_set_client_event(pm_msgid, history_parse_ms(pm_timestamp));
+        sendcmdto_set_s2s_tags(history_parse_ms(pm_timestamp), pm_msgid);
+      }
+      sendcmdto_one_tags_with_client(from, CMD_PRIVATE, acptr,
+                                     pm_msgid, client_tags,
+                                     "%C :%s", acptr, mytext);
+      sendcmdto_set_client_msgid(NULL);
+    }
+  }
+
+  /* Forward PM to all aliases of the target bouncer primary */
+  bounce_forward_pm_to_aliases(sptr, acptr, NULL, CMD_PRIVATE, mytext,
+                               pm_msgid, history_parse_ms(pm_timestamp),
+                               cli_client_tags(sptr));
+
+  /* The session echo and the sender's own echo carry the event's time
+   * too.  Armed here, apart from the forward (its local sends clear the
+   * client event), and cleared right after the echoes. */
+  if (pm_msgid[0])
+    sendcmdto_set_client_event(pm_msgid, history_parse_ms(pm_timestamp));
+
+  /* Echo outgoing PM to other members of the sender's bouncer session */
+  bounce_echo_pm_to_session(sptr, acptr, CMD_PRIVATE, mytext, pm_msgid);
+
+  /* Echo private message back to sender if they have echo-message cap */
+#ifdef USE_ROCKSDB
+  {
+    int need_echo = feature_bool(FEAT_CAP_echo_message) && CapOwnHas(sptr, CAP_ECHOMSG);
+
+    if (need_echo) {
+      const char *echo_client_tags = cli_client_tags(sptr);
+      if (echo_client_tags && *echo_client_tags && CapActive(sptr, CAP_MSGTAGS)) {
+        /* Include client-only tags in echo per IRCv3 echo-message spec */
+        char echo_tagbuf[4608];
+        int tpos = 0;
+        echo_tagbuf[0] = '@';
+        tpos = 1;
+        /* Client tags first */
+        tpos += snprintf(echo_tagbuf + tpos, sizeof(echo_tagbuf) - tpos, "%s", echo_client_tags);
+        /* Then server tags: label, msgid, time */
+        if (cli_label(sptr)[0] && CapActive(sptr, CAP_LABELEDRESP) && !cli_label_responded(sptr)) {
+          tpos += snprintf(echo_tagbuf + tpos, sizeof(echo_tagbuf) - tpos, ";label=%s", cli_label(sptr));
+          cli_label_responded(sptr) = 1;
+        }
+        if (pm_msgid[0])
+          tpos += snprintf(echo_tagbuf + tpos, sizeof(echo_tagbuf) - tpos, ";msgid=%s", pm_msgid);
+        if (feature_bool(FEAT_CAP_server_time) && CapActive(sptr, CAP_SERVERTIME)) {
+          /* The echo carries the message's one time (the stored row's),
+           * not the wall clock at send. */
+          char iso[40];
+          history_format_iso_ms(iso, sizeof(iso),
+                                pm_timestamp[0] ? history_parse_ms(pm_timestamp)
+                                                : history_event_time_ms(NULL));
+          tpos += snprintf(echo_tagbuf + tpos, sizeof(echo_tagbuf) - tpos,
+                           ";time=%s", iso);
+        }
+        echo_tagbuf[tpos] = '\0';
+        sendrawto_one(sptr, "%s :%s!%s@%s PRIVMSG %C :%s",
+                      echo_tagbuf, cli_name(sptr), cli_user(sptr)->username,
+                      cli_user(sptr)->host, acptr, mytext);
+      } else {
+        sendcmdto_one_tags_ext(sptr, CMD_PRIVATE, sptr, pm_msgid,
+                               "%C :%s", acptr, mytext);
+      }
+    }
+    sendcmdto_set_client_msgid(NULL);
+
+    /* Store private message in history database (if enabled) */
+    if (pm_msgid[0])
+      store_private_history(sptr, acptr, mytext, HISTORY_PRIVMSG, pm_msgid, pm_timestamp,
+                            cli_client_tags(sptr));
+  }
+#else
+  {
+    int need_echo = feature_bool(FEAT_CAP_echo_message) && CapOwnHas(sptr, CAP_ECHOMSG);
+    if (need_echo) {
+      const char *echo_client_tags = cli_client_tags(sptr);
+      if (echo_client_tags && *echo_client_tags && CapActive(sptr, CAP_MSGTAGS)) {
+        char echo_tagbuf[4608];
+        int tpos = 0;
+        echo_tagbuf[0] = '@';
+        tpos = 1;
+        tpos += snprintf(echo_tagbuf + tpos, sizeof(echo_tagbuf) - tpos, "%s", echo_client_tags);
+        if (cli_label(sptr)[0] && CapActive(sptr, CAP_LABELEDRESP) && !cli_label_responded(sptr)) {
+          tpos += snprintf(echo_tagbuf + tpos, sizeof(echo_tagbuf) - tpos, ";label=%s", cli_label(sptr));
+          cli_label_responded(sptr) = 1;
+        }
+        if (pm_msgid[0])
+          tpos += snprintf(echo_tagbuf + tpos, sizeof(echo_tagbuf) - tpos, ";msgid=%s", pm_msgid);
+        if (feature_bool(FEAT_CAP_server_time) && CapActive(sptr, CAP_SERVERTIME)) {
+          /* The echo carries the message's one time (the stored row's),
+           * not the wall clock at send. */
+          char iso[40];
+          history_format_iso_ms(iso, sizeof(iso),
+                                pm_timestamp[0] ? history_parse_ms(pm_timestamp)
+                                                : history_event_time_ms(NULL));
+          tpos += snprintf(echo_tagbuf + tpos, sizeof(echo_tagbuf) - tpos,
+                           ";time=%s", iso);
+        }
+        echo_tagbuf[tpos] = '\0';
+        sendrawto_one(sptr, "%s :%s!%s@%s PRIVMSG %C :%s",
+                      echo_tagbuf, cli_name(sptr), cli_user(sptr)->username,
+                      cli_user(sptr)->host, acptr, mytext);
+      } else {
+        sendcmdto_one_tags_ext(sptr, CMD_PRIVATE, sptr, pm_msgid,
+                               "%C :%s", acptr, mytext);
+      }
+    }
+    sendcmdto_set_client_msgid(NULL);
+  }
+#endif
 }
 
 /** Relay a private notice from a local user.
@@ -492,9 +1484,32 @@ void relay_private_message(struct Client* sptr, const char* name, const char* te
 void relay_private_notice(struct Client* sptr, const char* name, const char* text)
 {
   struct Client* acptr;
+  const char* mytext = text;
+  char utf8buf[BUFSIZE];
+  char pm_msgid[64];
+  char pm_timestamp[32];
+
   assert(0 != sptr);
   assert(0 != name);
   assert(0 != text);
+
+  /* UTF8ONLY enforcement */
+  if (feature_bool(FEAT_UTF8ONLY) && !string_is_valid_utf8(text)) {
+    if (feature_bool(FEAT_UTF8ONLY_STRICT)) {
+      send_fail(sptr, "NOTICE", "INVALID_UTF8", NULL,
+                "Message contains invalid UTF-8 and was rejected");
+      return;
+    }
+    /* Warn mode: copy, sanitize, and use sanitized version */
+    ircd_strncpy(utf8buf, text, sizeof(utf8buf) - 1);
+    utf8buf[sizeof(utf8buf) - 1] = '\0';
+    string_sanitize_utf8(utf8buf);
+    send_warn(sptr, "NOTICE", "INVALID_UTF8", NULL,
+              "Message contained invalid UTF-8 and was sanitized");
+    mytext = utf8buf;
+    if (EmptyString(mytext))
+      return;
+  }
 
   if (0 == (acptr = FindUser(name)))
     return;
@@ -533,7 +1548,91 @@ void relay_private_notice(struct Client* sptr, const char* name, const char* tex
   if (MyUser(acptr))
     add_target(acptr, sptr);
 
-  sendcmdto_one(sptr, CMD_NOTICE, acptr, "%C :%s", acptr, text);
+  /* Generate shared msgid + timestamp for alias forwarding, echo, and history */
+  pm_msgid[0] = '\0';
+  pm_timestamp[0] = '\0';
+  if (feature_bool(FEAT_MSGID)) {
+    /* msgid first, then its mint time (one time per message) */
+    generate_msgid(pm_msgid, sizeof(pm_msgid));
+    history_format_ms(pm_timestamp, sizeof(pm_timestamp),
+                      history_event_time_ms(NULL));
+  }
+
+  /* Alias source rewriting (see relay_private_message) */
+  {
+    const char *client_tags = cli_client_tags(sptr);
+    struct Client *from = sptr;
+
+    if (IsBouncerAlias(sptr) && cli_user(sptr)->alias_primary) {
+      from = cli_user(sptr)->alias_primary;
+      if (!MyUser(from) && !MyConnect(acptr)
+          && cli_from(from) == cli_from(acptr))
+        from = sptr;
+    }
+
+    if (client_tags && *client_tags && MyConnect(acptr) && CapActive(acptr, CAP_MSGTAGS)) {
+      if (pm_msgid[0])
+        sendcmdto_set_client_event(pm_msgid, history_parse_ms(pm_timestamp));
+      sendcmdto_one_client_tags(from, MSG_NOTICE, acptr, client_tags,
+                                "%C :%s", acptr, mytext);
+      sendcmdto_set_client_msgid(NULL);
+    } else {
+      /* Tag-aware send; for S2S to IRCV3AWARE peers also includes
+       * @A...,C<client_tags> compact-tag prefix.  Locally minted: this
+       * message's own id and time ride the wire, not whatever was last
+       * parsed off the destination link -- also when an alias sends as
+       * its remote primary.  A local target takes the same time on its
+       * @time (see relay_private_message). */
+      if (pm_msgid[0]) {
+        sendcmdto_set_client_event(pm_msgid, history_parse_ms(pm_timestamp));
+        sendcmdto_set_s2s_tags(history_parse_ms(pm_timestamp), pm_msgid);
+      }
+      sendcmdto_one_tags_with_client(from, CMD_NOTICE, acptr,
+                                     pm_msgid, client_tags,
+                                     "%C :%s", acptr, mytext);
+      sendcmdto_set_client_msgid(NULL);
+    }
+  }
+
+  /* Forward notice to all aliases of the target bouncer primary */
+  bounce_forward_pm_to_aliases(sptr, acptr, NULL, CMD_NOTICE, mytext,
+                               pm_msgid, history_parse_ms(pm_timestamp),
+                               cli_client_tags(sptr));
+
+  /* The session echo and the sender's own echo carry the event's time
+   * (see relay_private_message). */
+  if (pm_msgid[0])
+    sendcmdto_set_client_event(pm_msgid, history_parse_ms(pm_timestamp));
+
+  /* Echo outgoing notice to other members of the sender's bouncer session */
+  bounce_echo_pm_to_session(sptr, acptr, CMD_NOTICE, mytext, pm_msgid);
+
+  /* Echo private notice back to sender if they have echo-message cap */
+#ifdef USE_ROCKSDB
+  {
+    int need_echo = feature_bool(FEAT_CAP_echo_message) && CapOwnHas(sptr, CAP_ECHOMSG);
+
+    if (need_echo) {
+      sendcmdto_one_tags_ext(sptr, CMD_NOTICE, sptr, pm_msgid,
+                             "%C :%s", acptr, mytext);
+    }
+    sendcmdto_set_client_msgid(NULL);
+
+    /* Store private notice in history database (if enabled) */
+    if (pm_msgid[0])
+      store_private_history(sptr, acptr, mytext, HISTORY_NOTICE, pm_msgid, pm_timestamp,
+                            cli_client_tags(sptr));
+  }
+#else
+  {
+    int need_echo = feature_bool(FEAT_CAP_echo_message) && CapOwnHas(sptr, CAP_ECHOMSG);
+    if (need_echo) {
+      sendcmdto_one_tags_ext(sptr, CMD_NOTICE, sptr, pm_msgid,
+                             "%C :%s", acptr, mytext);
+    }
+    sendcmdto_set_client_msgid(NULL);
+  }
+#endif
 }
 
 /** Relay a private message that arrived from a server.
@@ -545,9 +1644,30 @@ void relay_private_notice(struct Client* sptr, const char* name, const char* tex
 void server_relay_private_message(struct Client* sptr, const char* name, const char* text)
 {
   struct Client* acptr;
+  struct Client* from;
+  const char *client_tags;
+  char pm_msgid[64];
+  char pm_timestamp[32];
+
   assert(0 != sptr);
   assert(0 != name);
   assert(0 != text);
+
+  /* Save alias context before potential rewrite.
+   * For S2S-relayed messages, prefer cli_s2s_client_tags(server_link)
+   * — see server_relay_channel_message. */
+  {
+    struct Client *one = cli_from(sptr);
+    const char *s2s_tags = cli_s2s_client_tags(one);
+    client_tags = (s2s_tags && *s2s_tags) ? s2s_tags : cli_client_tags(sptr);
+  }
+  from = sptr;
+
+  /* Alias source rewriting: use primary's numeric for S2S.
+   * The recipient's server may not understand BX C alias numerics. */
+  if (IsBouncerAlias(sptr) && cli_user(sptr)->alias_primary)
+    from = cli_user(sptr)->alias_primary;
+
   /*
    * nickname addressed?
    */
@@ -557,13 +1677,86 @@ void server_relay_private_message(struct Client* sptr, const char* name, const c
                text);
     return;
   }
-  if (is_silenced(sptr, acptr, 0))
+  if (is_silenced(from, acptr, 0))
     return;
 
   if (MyUser(acptr))
-    add_target(acptr, sptr);
+    add_target(acptr, from);
 
-  sendcmdto_one(sptr, CMD_PRIVATE, acptr, "%C :%s", acptr, text);
+  /* Unified msgid: pre-populate before pm_msgid generation and relay */
+  if (feature_bool(FEAT_P10_MESSAGE_TAGS) && cli_from(sptr)
+      && !cli_s2s_msgid(cli_from(sptr))[0])
+    s2s_mint_link_event(cli_from(sptr));
+
+  /* Generate shared msgid + timestamp for alias forwarding and history.
+   * Prefer S2S msgid for federation dedup — sptr is never reassigned
+   * in PM relay, so cli_from(sptr) still has the incoming S2S tags. */
+  pm_msgid[0] = '\0';
+  pm_timestamp[0] = '\0';
+  if (feature_bool(FEAT_MSGID)) {
+    const char *s2s_mid = NULL;
+
+    if (feature_bool(FEAT_P10_MESSAGE_TAGS) && cli_from(sptr)
+        && cli_s2s_msgid(cli_from(sptr))[0])
+      s2s_mid = cli_s2s_msgid(cli_from(sptr));
+
+    if (s2s_mid)
+      ircd_strncpy(pm_msgid, s2s_mid, sizeof(pm_msgid));
+    else
+      generate_msgid(pm_msgid, sizeof(pm_msgid));
+
+    /* One time per message: the origin's tag time when the msgid came
+     * over the link, else the mint time of the msgid just generated. */
+    history_format_ms(pm_timestamp, sizeof(pm_timestamp),
+                      history_event_time_ms(s2s_mid ? cli_from(sptr) : NULL));
+  }
+
+  /* Per-target direction guard for split S2S delivery:
+   * If target is behind the primary's server direction, keep alias numeric
+   * to avoid fake direction — that server handles rewriting locally. */
+  {
+    struct Client *send_from = from;
+    if (send_from != sptr && !MyUser(send_from) && !MyConnect(acptr)
+        && cli_from(send_from) == cli_from(acptr))
+      send_from = sptr;
+
+    /* Set client msgid so local client gets @msgid= tag */
+    if (pm_msgid[0])
+      sendcmdto_set_client_event(pm_msgid, history_parse_ms(pm_timestamp));
+
+    if (client_tags && *client_tags && MyConnect(acptr) && CapActive(acptr, CAP_MSGTAGS)) {
+      sendcmdto_one_client_tags(send_from, MSG_PRIVATE, acptr, client_tags,
+                                "%C :%s", acptr, text);
+    } else if (MyConnect(acptr)) {
+      sendcmdto_one_tags_ext(send_from, CMD_PRIVATE, acptr, pm_msgid,
+                             "%C :%s", acptr, text);
+    } else {
+      /* Onward relay: the event's own msgid and time ride the wire (an
+       * aware next hop takes them from the tag region, a legacy one gets
+       * the bare line), else the next server mints its own.  With msgids
+       * off, the inbound line's own tags are relayed. */
+      sendcmdto_set_s2s_cptr(cli_from(sptr));
+      if (pm_msgid[0])
+        sendcmdto_set_s2s_tags(history_parse_ms(pm_timestamp), pm_msgid);
+      sendcmdto_one_tags_with_client(send_from, CMD_PRIVATE, acptr,
+                                     pm_msgid, client_tags,
+                                     "%C :%s", acptr, text);
+    }
+
+    sendcmdto_set_client_msgid(NULL);
+  }
+
+  /* Forward PM to all aliases of the target bouncer primary */
+  bounce_forward_pm_to_aliases(sptr, acptr, cli_from(sptr), CMD_PRIVATE, text,
+                               pm_msgid, history_parse_ms(pm_timestamp),
+                               client_tags);
+
+#ifdef USE_ROCKSDB
+  /* Store server-relayed private message in history database (if enabled) */
+  if (pm_msgid[0])
+    store_private_history(from, acptr, text, HISTORY_PRIVMSG, pm_msgid, pm_timestamp,
+                          client_tags);
+#endif
 }
 
 
@@ -576,22 +1769,127 @@ void server_relay_private_message(struct Client* sptr, const char* name, const c
 void server_relay_private_notice(struct Client* sptr, const char* name, const char* text)
 {
   struct Client* acptr;
+  struct Client* from;
+  const char *client_tags;
+  char pm_msgid[64];
+  char pm_timestamp[32];
+
   assert(0 != sptr);
   assert(0 != name);
   assert(0 != text);
+
+  /* Save alias context before potential rewrite.
+   * For S2S-relayed messages, prefer cli_s2s_client_tags(server_link)
+   * — see server_relay_channel_message. */
+  {
+    struct Client *one = cli_from(sptr);
+    const char *s2s_tags = cli_s2s_client_tags(one);
+    client_tags = (s2s_tags && *s2s_tags) ? s2s_tags : cli_client_tags(sptr);
+  }
+  from = sptr;
+
+  /* Alias source rewriting (see server_relay_private_message) */
+  if (IsBouncerAlias(sptr) && cli_user(sptr)->alias_primary)
+    from = cli_user(sptr)->alias_primary;
+
   /*
    * nickname addressed?
    */
   if (0 == (acptr = findNUser(name)) || !IsUser(acptr))
     return;
 
-  if (is_silenced(sptr, acptr, 0))
+  if (is_silenced(from, acptr, 0))
     return;
 
   if (MyUser(acptr))
-    add_target(acptr, sptr);
+    add_target(acptr, from);
 
-  sendcmdto_one(sptr, CMD_NOTICE, acptr, "%C :%s", acptr, text);
+  /* Unified msgid: pre-populate before pm_msgid generation and relay */
+  if (feature_bool(FEAT_P10_MESSAGE_TAGS) && cli_from(sptr)
+      && !cli_s2s_msgid(cli_from(sptr))[0])
+    s2s_mint_link_event(cli_from(sptr));
+
+  /* Generate shared msgid + timestamp (prefer S2S msgid for federation dedup) */
+  pm_msgid[0] = '\0';
+  pm_timestamp[0] = '\0';
+  if (feature_bool(FEAT_MSGID)) {
+    const char *s2s_mid = NULL;
+
+    if (feature_bool(FEAT_P10_MESSAGE_TAGS) && cli_from(sptr)
+        && cli_s2s_msgid(cli_from(sptr))[0])
+      s2s_mid = cli_s2s_msgid(cli_from(sptr));
+
+    if (s2s_mid)
+      ircd_strncpy(pm_msgid, s2s_mid, sizeof(pm_msgid));
+    else
+      generate_msgid(pm_msgid, sizeof(pm_msgid));
+
+    /* One time per message: the origin's tag time when the msgid came
+     * over the link, else the mint time of the msgid just generated. */
+    history_format_ms(pm_timestamp, sizeof(pm_timestamp),
+                      history_event_time_ms(s2s_mid ? cli_from(sptr) : NULL));
+  }
+
+  /* Per-target direction guard (see server_relay_private_message) */
+  {
+    struct Client *send_from = from;
+    int delivered = 0;
+
+    if (send_from != sptr && !MyUser(send_from) && !MyConnect(acptr)
+        && cli_from(send_from) == cli_from(acptr))
+      send_from = sptr;
+
+    /* Set client msgid so local client gets @msgid= tag */
+    if (pm_msgid[0])
+      sendcmdto_set_client_event(pm_msgid, history_parse_ms(pm_timestamp));
+
+    /* Check for forwarded label batch in DRAINING state */
+    if (MyConnect(acptr) && feature_bool(FEAT_CAP_labeled_response)) {
+      const char *incoming_msgid = (cli_from(sptr) && cli_s2s_msgid(cli_from(sptr))[0])
+                                    ? cli_s2s_msgid(cli_from(sptr)) : "";
+      struct ForwardedLabel *fl = fwd_label_find_draining(acptr, incoming_msgid);
+      if (fl) {
+        sendcmdto_set_fwd_batch(fl->fl_batch_id);
+        sendcmdto_one_tags_ext(send_from, CMD_NOTICE, acptr, pm_msgid,
+                               "%C :%s", acptr, text);
+        /* Stay DRAINING -- more trailing messages may follow */
+        delivered = 1;
+      }
+    }
+
+    if (!delivered) {
+      if (client_tags && *client_tags && MyConnect(acptr) && CapActive(acptr, CAP_MSGTAGS)) {
+        sendcmdto_one_client_tags(send_from, MSG_NOTICE, acptr, client_tags,
+                                  "%C :%s", acptr, text);
+      } else if (MyConnect(acptr)) {
+        sendcmdto_one_tags_ext(send_from, CMD_NOTICE, acptr, pm_msgid,
+                               "%C :%s", acptr, text);
+      } else {
+        /* Onward relay under the event's own msgid and time (see
+         * server_relay_private_message). */
+        sendcmdto_set_s2s_cptr(cli_from(sptr));
+        if (pm_msgid[0])
+          sendcmdto_set_s2s_tags(history_parse_ms(pm_timestamp), pm_msgid);
+        sendcmdto_one_tags_with_client(send_from, CMD_NOTICE, acptr,
+                                       pm_msgid, client_tags,
+                                       "%C :%s", acptr, text);
+      }
+    }
+
+    sendcmdto_set_client_msgid(NULL);
+  }
+
+  /* Forward notice to all aliases of the target bouncer primary */
+  bounce_forward_pm_to_aliases(sptr, acptr, cli_from(sptr), CMD_NOTICE, text,
+                               pm_msgid, history_parse_ms(pm_timestamp),
+                               client_tags);
+
+#ifdef USE_ROCKSDB
+  /* Store server-relayed private notice in history database (if enabled) */
+  if (pm_msgid[0])
+    store_private_history(from, acptr, text, HISTORY_NOTICE, pm_msgid, pm_timestamp,
+                          client_tags);
+#endif
 }
 
 /** Relay a masked message from a local user.

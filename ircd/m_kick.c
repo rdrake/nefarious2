@@ -81,20 +81,101 @@
  */
 #include "config.h"
 
+#include "bouncer_session.h"
 #include "channel.h"
 #include "client.h"
 #include "hash.h"
 #include "ircd.h"
 #include "ircd_log.h"
 #include "ircd_reply.h"
+#include "ircd_snprintf.h"
 #include "ircd_string.h"
 #include "msg.h"
 #include "numeric.h"
 #include "numnicks.h"
 #include "send.h"
 #include "ircd_features.h"
+#include "history.h"
+#include "history_trim_codec.h"
+#include "chathistory_presence.h"
 
 /* #include <assert.h> -- Now using assert in ircd_log.h */
+#include <sys/time.h>
+#include <time.h>
+
+#ifdef USE_ROCKSDB
+/** Store a KICK event in the history database.
+ * The message content is formatted as "kicked_nick :reason" per event-playback spec.
+ * @param[in] sptr Client that did the kick.
+ * @param[in] chptr Channel where kick occurred.
+ * @param[in] who Client that was kicked.
+ * @param[in] comment Kick reason.
+ */
+static void store_kick_event(struct Client *sptr, struct Channel *chptr,
+                             struct Client *who, const char *comment,
+                             const char *broadcast_msgid, uint64_t event_ms)
+{
+  char timestamp[32];
+  char fallback_msgid[64];
+  const char *msgid;
+  char sender[HISTORY_SENDER_LEN];
+  char kick_text[512];
+  char owner[HTC_OWNER_MAX];
+  const char *account;
+
+  if (!history_is_available())
+    return;
+
+  /* Check if chathistory storage is enabled */
+  if (!feature_bool(FEAT_CHATHISTORY_STORE))
+    return;
+
+  /* Receiver-side storage: every server with the channel stores its
+   * own copy (same policy as store_channel_history -- the old
+   * MyUser-only gate left remote kicks unstored here, so their
+   * delivered msgids never entered the local index).  Cross-server
+   * duplicates don't arise: each server stores into its own DB, and
+   * federated query merges dedup by the now-shared msgid. */
+
+  /* Check if channel has +P (no storage) mode */
+  if (chptr->mode.exmode & EXMODE_NOSTORAGE)
+    return;
+
+  /* Use broadcast msgid so clients can deduplicate */
+  if (broadcast_msgid && broadcast_msgid[0])
+    msgid = broadcast_msgid;
+  else
+    msgid = generate_msgid(fallback_msgid, sizeof(fallback_msgid));
+
+  /* Row time: the event's one time (the S2S tag time the caller already
+   * put on the wire), else the mint time of the msgid chosen above. */
+  history_format_ms(timestamp, sizeof(timestamp),
+                    event_ms ? event_ms : history_event_time_ms(NULL));
+
+  /* Build sender string: nick!user@host */
+  if (cli_user(sptr))
+    ircd_snprintf(0, sender, sizeof(sender), "%s!%s@%s",
+                  cli_name(sptr),
+                  cli_user(sptr)->username,
+                  cli_user(sptr)->host);
+  else
+    ircd_strncpy(sender, cli_name(sptr), sizeof(sender) - 1);
+
+  /* Get account name if logged in */
+  account = (cli_user(sptr) && cli_user(sptr)->account[0])
+            ? cli_user(sptr)->account : NULL;
+  /* The row's trim owner: the client whose account it carries. */
+  history_owner_of(owner, sizeof(owner), sptr);
+
+  /* Build kick text: "kicked_nick :reason" */
+  ircd_snprintf(0, kick_text, sizeof(kick_text), "%s :%s",
+                cli_name(who), comment ? comment : "");
+
+  /* Store in database */
+  history_store_message(msgid, timestamp, chptr->chname, NULL, sender,
+                        account, HISTORY_KICK, kick_text, NULL, owner);
+}
+#endif /* USE_ROCKSDB */
 
 /*
  * m_kick - generic message handler
@@ -144,6 +225,13 @@ int m_kick(struct Client *cptr, struct Client *sptr, int parc, char *parv[])
   if (!(member = find_member_link(chptr, who)) || IsZombie(member))
     return send_reply(sptr, ERR_USERNOTINCHANNEL, cli_name(who), chptr->chname);
 
+  /* Redirect alias KICK to primary — kicking an alias alone would desync */
+  if (IsMemberAlias(member)) {
+    who = cli_alias_primary(who);
+    if (!who || !(member = find_member_link(chptr, who)) || IsZombie(member))
+      return send_reply(sptr, ERR_USERNOTINCHANNEL, cli_name(who), chptr->chname);
+  }
+
   /* Prevent halfops from kicking ops */
   if (IsChanOp(member) && IsHalfOp(member2) && !IsChanOp(member2))
     return send_reply(sptr, ERR_HALFCANTKICKOP, name);
@@ -164,26 +252,76 @@ int m_kick(struct Client *cptr, struct Client *sptr, int parc, char *parv[])
   else
     comment = parv[0];
 
-  if (!IsLocalChannel(name))
+  /* UTF8ONLY enforcement on kick reason (only if custom comment provided) */
+  if (parc > 3 && comment != parv[0] &&
+      feature_bool(FEAT_UTF8ONLY) && !string_is_valid_utf8(comment)) {
+    if (feature_bool(FEAT_UTF8ONLY_STRICT)) {
+      send_fail(sptr, "KICK", "INVALID_UTF8", NULL,
+                "Kick reason contains invalid UTF-8 and was rejected");
+      return 0;
+    }
+    /* Warn mode: sanitize the kick reason */
+    string_sanitize_utf8(parv[parc - 1]);
+    comment = parv[parc - 1];  /* Re-assign after sanitization */
+    send_warn(sptr, "KICK", "INVALID_UTF8", NULL,
+              "Kick reason contained invalid UTF-8 and was sanitized");
+  }
+
+  /* Unified msgid: reuse the incoming S2S msgid (remote kicks), else
+   * mint -- so every server's delivery, storage and onward relay share
+   * one id instead of a per-hop re-mint. */
+  {
+    char kick_msgid[64] = "";
+    uint64_t kick_ms = 0;
+    if (feature_bool(FEAT_MSGID)) {
+      if (cptr && !MyUser(sptr) && cli_s2s_msgid(cptr)[0])
+        ircd_strncpy(kick_msgid, cli_s2s_msgid(cptr), sizeof(kick_msgid));
+      else
+        generate_msgid(kick_msgid, sizeof(kick_msgid));
+      /* The event's ONE time: the origin's tag time for a relayed kick,
+       * else the mint time.  Row, live @time, S2S @time and the presence
+       * close all use it (audit 2026-09-06 #16). */
+      kick_ms = history_event_time_ms(cptr && !MyUser(sptr) ? cptr : NULL);
+      sendcmdto_set_client_event(kick_msgid, kick_ms);
+    }
+
+  if (!IsLocalChannel(name)) {
+    if (kick_msgid[0])
+      sendcmdto_set_s2s_tags(kick_ms, kick_msgid);
+    sendcmdto_want_s2s_tags(1);
     sendcmdto_serv_butone(sptr, CMD_KICK, cptr, "%H %C :%s", chptr, who,
 			  comment);
+  }
 
-  if (IsDelayedJoin(member)) {
-    /* If it's a delayed join, only send the KICK to the person doing
-     * the kicking and the victim */
-    if (MyUser(who))
-      sendcmdto_one(sptr, CMD_KICK, who, "%H %C :%s", chptr, who, comment);
-    if (CapActive(sptr, CAP_EXTJOIN))
-      sendcmdto_one(who, CMD_JOIN, sptr, "%H %s :%s", chptr, IsAccount(who) ? cli_account(who) : "*",  cli_info(who));
-    else
-      sendcmdto_one(who, CMD_JOIN, sptr, "%H", chptr);
-    sendcmdto_one(sptr, CMD_KICK, sptr, "%H %C :%s", chptr, who, comment);
-    CheckDelayedJoins(chptr);
-  } else
-    sendcmdto_channel_butserv_butone(sptr, CMD_KICK, chptr, NULL, 0, "%H %C :%s", chptr, who,
-                                     comment);
+    if (IsDelayedJoin(member)) {
+      /* If it's a delayed join, only send the KICK to the person doing
+       * the kicking and the victim */
+      if (MyUser(who))
+        sendcmdto_one(sptr, CMD_KICK, who, "%H %C :%s", chptr, who, comment);
+      if (CapRecipientHas(sptr, CAP_EXTJOIN))
+        sendcmdto_one(who, CMD_JOIN, sptr, "%H %s :%s", chptr, IsAccount(who) ? cli_account(who) : "*",  cli_info(who));
+      else
+        sendcmdto_one(who, CMD_JOIN, sptr, "%H", chptr);
+      sendcmdto_one(sptr, CMD_KICK, sptr, "%H %C :%s", chptr, who, comment);
+      CheckDelayedJoins(chptr);
+    } else
+      sendcmdto_channel_butserv_butone(sptr, CMD_KICK, chptr, NULL, 0, "%H %C :%s", chptr, who,
+                                       comment);
+
+    sendcmdto_set_client_msgid(NULL);
+
+#ifdef USE_ROCKSDB
+    /* Store KICK event in history — same msgid as broadcast */
+    store_kick_event(sptr, chptr, who, comment,
+                     kick_msgid[0] ? kick_msgid : NULL, kick_ms);
+#endif
+    /* The victim's presence interval closes at the kick's time, not at
+     * whenever make_zombie's removal happens to run (P2). */
+    presence_set_event_time(kick_msgid[0] ? presence_event_time(kick_msgid, kick_ms) : 0);
+  }
 
   make_zombie(member, who, cptr, sptr, chptr);
+  presence_set_event_time(0);
 
   return 0;
 }
@@ -217,6 +355,10 @@ int ms_kick(struct Client *cptr, struct Client *sptr, int parc, char *parv[])
       !(who = findNUser(parv[2])))
     return 0;
 
+  /* Redirect alias KICK to primary */
+  if (IsBouncerAlias(who) && cli_alias_primary(who))
+    who = cli_alias_primary(who);
+
   /* We go ahead and pass on the KICK for users not on the channel */
   member = find_member_link(chptr, who);
   if (member && IsZombie(member))
@@ -228,7 +370,11 @@ int ms_kick(struct Client *cptr, struct Client *sptr, int parc, char *parv[])
      */
     if (sptr == cli_user(who)->server)
     {
+      /* Presence closes at the KICK's own HLC stamp (the origin's). */
+      presence_set_event_time(presence_event_time(cli_s2s_msgid(cptr),
+                                                  history_event_time_ms(cptr)));
       remove_user_from_channel(who, chptr);
+      presence_set_event_time(0);
     }
     /* Otherwise, we treat zombies like they are not channel members. */
     member = 0;
@@ -273,11 +419,31 @@ int ms_kick(struct Client *cptr, struct Client *sptr, int parc, char *parv[])
       modebuf_flush(&mbuf);
     }
   } else {
-    /* Propagate kick... */
+    /* Reuse incoming S2S msgid or generate new */
+    char kick_msgid[64] = "";
+    uint64_t kick_time_ms = 0;
+    if (feature_bool(FEAT_MSGID)) {
+      if (cli_s2s_msgid(cptr)[0]) {
+        ircd_strncpy(kick_msgid, cli_s2s_msgid(cptr), sizeof(kick_msgid));
+        kick_time_ms = cli_s2s_time_ms(cptr);
+      } else
+        generate_msgid(kick_msgid, sizeof(kick_msgid));
+    }
+
+    /* Propagate kick with consistent S2S msgid... */
+    if (kick_msgid[0]) {
+      if (!kick_time_ms)
+        kick_time_ms = history_event_time_ms(NULL);  /* mint time */
+      sendcmdto_set_s2s_tags(kick_time_ms, kick_msgid);
+    }
+    sendcmdto_want_s2s_tags(1);
     sendcmdto_serv_butone(sptr, CMD_KICK, cptr, "%H %C :%s", chptr, who,
 			  comment);
 
     if (member) { /* and tell the channel about it */
+      if (kick_msgid[0])
+        sendcmdto_set_client_event(kick_msgid, kick_time_ms);
+
       if (IsDelayedJoin(member)) {
         if (MyUser(who))
           sendcmdto_one(IsServer(sptr) ? &his : sptr, CMD_KICK,
@@ -288,7 +454,11 @@ int ms_kick(struct Client *cptr, struct Client *sptr, int parc, char *parv[])
                                          comment);
       }
 
+      sendcmdto_set_client_msgid(NULL);
+
+      presence_set_event_time(kick_msgid[0] ? presence_event_time(kick_msgid, kick_time_ms) : 0);
       make_zombie(member, who, cptr, sptr, chptr);
+      presence_set_event_time(0);
     }
   }
 

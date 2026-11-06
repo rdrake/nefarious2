@@ -84,6 +84,7 @@
 #include "channel.h"
 #include "client.h"
 #include "hash.h"
+#include "history.h"
 #include "ircd.h"
 #include "ircd_alloc.h"
 #include "ircd_features.h"
@@ -121,11 +122,12 @@ netride_modes(int parc, char **parv, const char *curr_key)
       result |= MODE_INVITEONLY;
       break;
     case 'k':
-      if (strcmp(curr_key, *++parv))
+      if (--parc > 0 && strcmp(curr_key, *++parv))
         result |= MODE_KEY;
       break;
     case 'l':
-      ++parv;
+      if (--parc > 0)
+        ++parv;
       break;
     case 'r':
       result |= MODE_REGONLY;
@@ -358,12 +360,23 @@ int ms_burst(struct Client *cptr, struct Client *sptr, int parc, char *parv[])
 
   /* new channel or an older one */
   if (!chptr->creationtime || chptr->creationtime > timestamp) {
+#ifdef USE_ROCKSDB
+    /* Our incarnation lost: the rows we stored for it are not the
+     * surviving channel's history (a channel recreated behind a split;
+     * 2026-09-08).  Prune them now, while we still know which
+     * creationtime they carry. */
+    if (chptr->creationtime)
+      history_purge_incarnation(chptr->chname, chptr->creationtime);
+#endif
     chptr->creationtime = timestamp;
 
     modebuf_init(mbuf = &modebuf, &me, cptr, chptr,
 		 MODEBUF_DEST_CHANNEL | MODEBUF_DEST_NOKEY);
     modebuf_mode(mbuf, MODE_DEL | chptr->mode.mode); /* wipeout modes */
     chptr->mode.mode &= MODE_BURSTADDED | MODE_WASDELJOINS;
+    /* mode.exmode (+H/+P and friends) is deliberately NOT wiped here: a
+     * pre-#114 legacy winner has no letters for the fork-only extended
+     * modes and could not have meant to clear them. */
 
     /* wipeout any limit and keys that are set */
     parse_flags |= (MODE_PARSE_SET | MODE_PARSE_WIPEOUT);
@@ -628,6 +641,11 @@ int ms_burst(struct Client *cptr, struct Client *sptr, int parc, char *parv[])
 	  {
 	    add_user_to_channel(chptr, acptr, current_mode, oplevel);
             if (!(current_mode & CHFL_DELAYED)) {
+              char burst_msgid[64] = "";
+              if (feature_bool(FEAT_MSGID)) {
+                generate_msgid(burst_msgid, sizeof(burst_msgid));
+                sendcmdto_set_client_msgid(burst_msgid);
+              }
               sendcmdto_channel_capab_butserv_butone(acptr, CMD_JOIN, chptr, NULL, 0,
                                                      CAP_NONE, CAP_EXTJOIN, "%H", chptr);
               sendcmdto_channel_capab_butserv_butone(acptr, CMD_JOIN, chptr, NULL, 0,
@@ -638,6 +656,7 @@ int ms_burst(struct Client *cptr, struct Client *sptr, int parc, char *parv[])
                 sendcmdto_channel_capab_butserv_butone(acptr, CMD_AWAY, chptr, NULL, 0,
                                                        CAP_AWAYNOTIFY, CAP_NONE, ":%s",
                                                        cli_user(acptr)->away);
+              sendcmdto_set_client_msgid(NULL);
             }
 	  }
 	  else
@@ -701,12 +720,14 @@ int ms_burst(struct Client *cptr, struct Client *sptr, int parc, char *parv[])
 	if ((member->status & CHFL_VOICE) && !(member->status & CHFL_BURST_ALREADY_VOICED))
 	  modebuf_mode_client(mbuf, MODE_ADD | CHFL_VOICE, member->user, OpLevel(member));
       } else if (parse_flags & MODE_PARSE_WIPEOUT) { /* wipeout old ops */
-	if (member->status & CHFL_CHANOP)
-	  modebuf_mode_client(mbuf, MODE_DEL | CHFL_CHANOP, member->user, OpLevel(member));
-        if (member->status & CHFL_HALFOP)
-          modebuf_mode_client(mbuf, MODE_DEL | CHFL_HALFOP, member->user, OpLevel(member));
-	if (member->status & CHFL_VOICE)
-	  modebuf_mode_client(mbuf, MODE_DEL | CHFL_VOICE, member->user, OpLevel(member));
+	if (!IsMemberAlias(member)) {
+	  if (member->status & CHFL_CHANOP)
+	    modebuf_mode_client(mbuf, MODE_DEL | CHFL_CHANOP, member->user, OpLevel(member));
+	  if (member->status & CHFL_HALFOP)
+	    modebuf_mode_client(mbuf, MODE_DEL | CHFL_HALFOP, member->user, OpLevel(member));
+	  if (member->status & CHFL_VOICE)
+	    modebuf_mode_client(mbuf, MODE_DEL | CHFL_VOICE, member->user, OpLevel(member));
+	}
 	member->status = (member->status
                           & ~(CHFL_CHANNEL_MANAGER | CHFL_CHANOP | CHFL_HALFOP | CHFL_VOICE))
 			 | CHFL_DEOPPED;

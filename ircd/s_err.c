@@ -1376,7 +1376,7 @@ static Numeric replyTable[] = {
 /* 671 */
   { RPL_WHOISSSL, "%s :is connected via SSL", "671" },
 /* 672 */
-  { 0 },
+  { RPL_WHOISWEBSOCKET, "%s :is connected via WebSocket (origin: %s)", "672" },
 /* 673 */
   { 0 },
 /* 674 */
@@ -1491,16 +1491,16 @@ static Numeric replyTable[] = {
   { 0 },
 /* 729 */
   { 0 },
-/* 730 */
-  { 0 },
-/* 731 */
-  { 0 },
-/* 732 */
-  { 0 },
-/* 733 */
-  { 0 },
-/* 734 */
-  { 0 },
+/* 730 - RPL_MONONLINE (MONITOR: targets online) */
+  { RPL_MONONLINE, ":%s", "730" },
+/* 731 - RPL_MONOFFLINE (MONITOR: targets offline) */
+  { RPL_MONOFFLINE, ":%s", "731" },
+/* 732 - RPL_MONLIST (MONITOR: list entry) */
+  { RPL_MONLIST, ":%s", "732" },
+/* 733 - RPL_ENDOFMONLIST (MONITOR: end of list) */
+  { RPL_ENDOFMONLIST, ":End of MONITOR list", "733" },
+/* 734 - ERR_MONLISTFULL (MONITOR: list full) */
+  { ERR_MONLISTFULL, "%d %s :Monitor list is full", "734" },
 /* 735 */
   { 0 },
 /* 736 */
@@ -1551,36 +1551,36 @@ static Numeric replyTable[] = {
   { 0 },
 /* 759 */
   { 0 },
-/* 760 */
-  { 0 },
-/* 761 */
-  { 0 },
-/* 762 */
-  { 0 },
+/* 760 - RPL_WHOISKEYVALUE */
+  { RPL_WHOISKEYVALUE, "%s %s %s :%s", "760" },
+/* 761 - RPL_KEYVALUE (target, key, visibility, value) */
+  { RPL_KEYVALUE, "%s %s %s :%s", "761" },
+/* 762 - RPL_METADATAEND (target) */
+  { RPL_METADATAEND, "%s :end of metadata", "762" },
 /* 763 */
   { 0 },
 /* 764 */
   { 0 },
 /* 765 */
   { 0 },
-/* 766 */
-  { 0 },
+/* 766 - RPL_KEYNOTSET */
+  { RPL_KEYNOTSET, "%s %s :key not set", "766" },
 /* 767 */
   { 0 },
 /* 768 */
   { 0 },
 /* 769 */
   { 0 },
-/* 770 */
-  { 0 },
-/* 771 */
-  { 0 },
-/* 772 */
-  { 0 },
+/* 770 - RPL_METADATASUBOK */
+  { RPL_METADATASUBOK, "%s", "770" },
+/* 771 - RPL_METADATAUNSUBOK */
+  { RPL_METADATAUNSUBOK, "%s", "771" },
+/* 772 - RPL_METADATASUBS */
+  { RPL_METADATASUBS, "%s", "772" },
 /* 773 */
   { 0 },
-/* 774 */
-  { 0 },
+/* 774 - RPL_METADATASYNCLATER */
+  { RPL_METADATASYNCLATER, "%s :sync deferred", "774" },
 /* 775 */
   { 0 },
 /* 776 */
@@ -1836,7 +1836,7 @@ static Numeric replyTable[] = {
 /* 901 */
   { RPL_LOGGEDOUT, "%s!%s@%s :You are now logged out", "901" },
 /* 902 */
-  { 0 },
+  { ERR_NICKLOCKED, ":You must use a nick assigned to you", "902" },
 /* 903 */
   { RPL_SASLSUCCESS, ":SASL authentication successful", "903" },
 /* 904 */
@@ -1984,6 +1984,14 @@ static Numeric replyTable[] = {
 /* 975 */
   { 0 }
 };
+
+/* replyTable is indexed by numeric value: every unused numeric must hold a
+ * { 0 } placeholder, and a new numeric must REPLACE its placeholder -- an
+ * inserted extra line shifts every later numeric and corrupts all lookups
+ * above it (production assert at get_error_numeric, 2026-08-27).  Fail the
+ * build if the table size ever drifts from the numeric space. */
+typedef char replyTable_must_have_one_slot_per_numeric
+    [(sizeof(replyTable) / sizeof(replyTable[0]) == ERR_LASTERROR + 1) ? 1 : -1];
 
 /** Return a pointer to the Numeric for a particular code.
  * @param n %Numeric to look up.

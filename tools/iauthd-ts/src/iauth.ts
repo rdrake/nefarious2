@@ -37,6 +37,7 @@ export class IAuthDaemon {
   private rl: Interface | null = null;
   private authManager: AuthManager | null = null;
   private authInitialized = false;
+  private saslMechsBroadcast: string | null = null; // tracks what we last sent via W
 
   constructor(options: CLIOptions) {
     this.options = options;
@@ -64,6 +65,8 @@ export class IAuthDaemon {
         this.authInitialized = true;
         const info = this.authManager.getProviderInfo();
         this.debug(`Initialized ${info.length} auth provider(s): ${info.map(p => p.name).join(', ')}`);
+        // Broadcast mechanisms now that we know provider health
+        this.updateSaslMechsBroadcast();
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
         this.debug(`Failed to initialize auth manager: ${message}`);
@@ -76,6 +79,36 @@ export class IAuthDaemon {
    */
   private saslEnabled(): boolean {
     return this.authManager !== null && this.authManager.hasProviders();
+  }
+
+  /**
+   * Broadcast or withdraw SASL mechanisms based on provider health.
+   * Sends 'W :PLAIN' when healthy providers exist, 'W :' to clear.
+   * Only sends when the state actually changes.
+   */
+  private updateSaslMechsBroadcast(): void {
+    if (!this.saslEnabled()) {
+      if (this.saslMechsBroadcast !== null) {
+        this.send('W :');
+        this.saslMechsBroadcast = null;
+        this.debug('SASL mechanisms withdrawn (no providers)');
+      }
+      return;
+    }
+
+    const healthy = this.authManager!.hasHealthyProviders();
+    const mechs = healthy ? getSupportedMechanisms().join(',') : null;
+
+    if (mechs !== this.saslMechsBroadcast) {
+      if (mechs) {
+        this.send(`W :${mechs}`);
+        this.debug(`SASL mechanisms broadcast: ${mechs}`);
+      } else {
+        this.send('W :');
+        this.debug('SASL mechanisms withdrawn (no healthy providers)');
+      }
+      this.saslMechsBroadcast = mechs;
+    }
   }
 
   /**
@@ -92,6 +125,18 @@ export class IAuthDaemon {
     if (this.options.verbose || this.options.debug) {
       this.send(`> :${message}`);
     }
+  }
+
+  /**
+   * Always-on stall-investigation diagnostic.
+   * Goes to stderr -> ircd's i_stderr pipe -> LS_IAUTH log channel.
+   * Tagged "iauthdiag" for grep correlation with ircd's
+   * "check_auth_finished BLOCKED on AR_IAUTH_PENDING" line.
+   * SASL-stall investigation only; remove or gate behind a flag
+   * once root cause is fixed.
+   */
+  private diag(message: string): void {
+    process.stderr.write(`iauthdiag ${message}\n`);
   }
 
   /**
@@ -126,11 +171,20 @@ export class IAuthDaemon {
     // Set policy options
     this.send(`O ${this.config.policy}`);
 
+    // Broadcast SASL mechanisms if auth providers are ready and healthy
+    this.updateSaslMechsBroadcast();
+
     // Send configuration
     this.sendNewConfig();
 
     this.debug('Starting up');
     this.sendStats();
+
+    // SASL-stall investigation: log parsed DNSBL config at startup so we can
+    // verify iauthd-ts actually loaded the #IAUTH DNSBL lines from ircd.conf.
+    // Empty list here while ircd.conf has #IAUTH DNSBL = config-parser bug.
+    this.diag(`STARTUP dnsbls=${this.config.dnsbls.length} ` +
+      `[${this.config.dnsbls.map(d => d.server).join(',')}]`);
   }
 
   /**
@@ -217,6 +271,10 @@ export class IAuthDaemon {
 
       case 'D': // Client disconnect
         this.debug(`Client ${source} disconnected.`);
+        // No diag here: D-in for unknown client is the COMMON case after
+        // clientPass deletes the entry, then ircd later emits its own D
+        // at the client's actual exit. The earlier "UNKNOWN" diag fired
+        // on every normal SASL pass - misleading noise, not a desync marker.
         this.deleteClient(source);
         break;
 
@@ -319,10 +377,12 @@ export class IAuthDaemon {
 
     if (this.clients.has(id)) {
       this.debug(`ERROR: Found existing entry for client ${id} (ip=${ip}). Exiting..`);
+      this.diag(`C-DUPLICATE-EXIT id=${id} new-ip=${ip} existing-ip=${this.clients.get(id)?.ip}`);
       process.exit(1);
     }
 
     this.debug(`Adding new entry for client ${id} (ip=${ip})`);
+    // Routine C is silent. Smoking-gun cases (duplicate) emit above.
 
     const client: ClientState = {
       id,
@@ -483,7 +543,25 @@ export class IAuthDaemon {
 
     if (!client) {
       this.debug('ERROR: Got a hurry for a client we aren\'t even holding on to!');
+      this.diag(`H-UNKNOWN id=${id} STALL_RISK map-size=${this.clients.size}`);
       return;
+    }
+
+    let pending = 0;
+    let total = 0;
+    for (const isPending of client.lookups.values()) {
+      total++;
+      if (isPending) pending++;
+    }
+    // Only log H if abnormal:
+    //  - pending lookups (Bug B - ircd is hurrying us but we're still waiting)
+    //  - re-Hurry (hurry-was=1, ircd nudged twice)
+    //  - SYNTHETIC client (created by handleSASLStart from `A` without prior
+    //    `C`; ip='0.0.0.0' port=0). When H fires for one of these, clientPass
+    //    will emit `D 0.0.0.0 0` and ircd's mismatch check rejects -> stall.
+    //    This is the predicted Bug C path.
+    if (pending > 0 || client.hurry || client.ip === '0.0.0.0' || client.port === 0) {
+      this.diag(`H id=${id} ip=${client.ip} port=${client.port} hurry-was=${client.hurry ? 1 : 0} lookups=${pending}/${total} hits=${client.hits.size}${client.ip === '0.0.0.0' ? ' SYNTHETIC' : ''}`);
     }
 
     this.debug(`Handling a hurry on ${id}`);
@@ -547,6 +625,7 @@ export class IAuthDaemon {
    */
   private clientPass(client: ClientState): void {
     this.debug(`Passing client ${client.id} (${client.ip})`);
+    // Routine pass is silent. Smoking-gun emits are above.
 
     // Send marks
     for (const mark of client.marks.keys()) {
@@ -565,6 +644,7 @@ export class IAuthDaemon {
    */
   private clientReject(client: ClientState, reason: string): void {
     this.debug(`Rejecting client ${client.id} (${client.ip}): ${reason}`);
+    this.diag(`k-out id=${client.id} ip=${client.ip} reason=${reason}`);
     this.sendKill(client, reason);
     this.countReject++;
     this.deleteClient(client.id);
@@ -591,6 +671,13 @@ export class IAuthDaemon {
    * Send done message
    */
   private sendDone(client: ClientState): void {
+    // Symptom-detector for the synthetic-client path: a D with ip='0.0.0.0' or
+    // port=0 will fail ircd's mismatch check at s_auth.c:3279 and leave
+    // AR_IAUTH_PENDING set for 60s -> "Authorization Timeout".
+    // This fires on every such emit regardless of upstream path.
+    if (client.ip === '0.0.0.0' || client.port === 0) {
+      this.diag(`D-out SUSPICIOUS id=${client.id} ip=${client.ip} port=${client.port} class=${client.class ?? '-'} STALL_PREDICTED`);
+    }
     if (client.class) {
       this.send(`D ${client.id} ${client.ip} ${client.port} ${client.class}`);
     } else {
@@ -623,6 +710,15 @@ export class IAuthDaemon {
     // Get or create client state
     let client = this.clients.get(id);
     if (!client) {
+      // Predicted Bug C root cause: `A` arrives for an id we never saw a `C`
+      // for. We synthesize a minimal client with ip='0.0.0.0' port=0. When H
+      // later fires for this client, clientPass->sendDone emits
+      // `D <id> 0.0.0.0 0` which ircd rejects via IP/port mismatch
+      // (s_auth.c:3279), leaving AR_IAUTH_PENDING stuck for 60s.
+      // In normal flow, ircd ALWAYS sends C before A. This branch firing is
+      // a state-desync marker: most likely a missed-C-after-respawn race.
+      this.diag(`A-SYNTHETIC id=${id} STALL_RISK map-size=${this.clients.size} ` +
+        `(missed C, will emit D 0.0.0.0 0 -> ircd E Mismatch -> 60s timeout)`);
       // Create minimal client state for SASL-only handling
       // We don't have IP/port from this message, use placeholders
       client = {
@@ -644,6 +740,20 @@ export class IAuthDaemon {
 
     if (!client.sasl) {
       client.sasl = { started: false };
+    }
+
+    // Handle "A X" - SASL abort from client (AUTHENTICATE *)
+    // This has no space, so check it before the space-based parsing
+    if (args === 'X') {
+      this.debug(`SASL abort for ${id}`);
+      // Clean up any pending SASL state
+      if (client.sasl) {
+        client.sasl.started = false;
+        client.sasl.mechanism = undefined;
+        client.sasl.certfp = undefined;
+        client.sasl.hostInfo = undefined;
+      }
+      return;
     }
 
     // Parse: first character is type (S or H), rest is data
@@ -782,6 +892,9 @@ export class IAuthDaemon {
       this.sendSASLFail(client.id);
       this.countSaslFail++;
     }
+
+    // Re-evaluate mechanism broadcast (provider health may have changed)
+    this.updateSaslMechsBroadcast();
   }
 
   /**

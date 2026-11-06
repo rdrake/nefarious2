@@ -29,6 +29,8 @@
 #include "res.h"
 
 /* #include <assert.h> -- Now using assert in ircd_log.h */
+#include <stdio.h>
+#include <stdarg.h>
 #include <string.h>
 #include <sys/types.h>
 #include <netinet/in.h>
@@ -60,6 +62,16 @@ int string_has_wildcards(const char* str)
 /**
  * Check if a given string is a valid UTF-8 encoded string.
  *
+ * This answers the encoding question only.  C0 control characters are valid
+ * UTF-8 and are accepted: IRC carries CTCP delimiters (0x01) and the mIRC
+ * formatting codes (bold 0x02, colour 0x03, reset 0x0F, reverse 0x16,
+ * monospace 0x11, italic 0x1D, strikethrough 0x1E, underline 0x1F) as bare
+ * control bytes, and rejecting them here would strip them from every message.
+ * A caller that wants printable-only text must check for that separately.
+ *
+ * The string ends at its NUL.  For counted bytes that may hold a U+0000
+ * (a WebSocket payload), use string_is_valid_utf8_len().
+ *
  * @param str The string to check.
  * @return 1 if the string is valid UTF-8, 0 otherwise.
  */
@@ -67,23 +79,42 @@ int string_is_valid_utf8(const char * str)
 {
     assert(str != NULL);
 
+    return string_is_valid_utf8_len(str, strlen(str));
+}
 
+/**
+ * Check if \a len bytes are valid UTF-8, as string_is_valid_utf8() checks
+ * a string.  A NUL byte is U+0000, a valid one-byte sequence, and ends
+ * nothing: every byte up to \a len is checked, and none after it is read,
+ * so a sequence that \a len cuts short is invalid.
+ *
+ * @param str The bytes to check.
+ * @param len How many.
+ * @return 1 if they are valid UTF-8, 0 otherwise.
+ */
+int string_is_valid_utf8_len(const char * str, size_t len)
+{
     const unsigned char * bytes = (const unsigned char *)str;
-    while(*bytes)
+    const unsigned char * end;
+
+    assert(str != NULL || len == 0);
+    end = bytes + len;
+
+    while (bytes < end)
     {
-        if( (// ASCII
-             // use bytes[0] <= 0x7F to allow ASCII control characters
-                bytes[0] == 0x09 ||
-                bytes[0] == 0x0A ||
-                bytes[0] == 0x0D ||
-                (0x20 <= bytes[0] && bytes[0] <= 0x7E)
+        size_t left = (size_t)(end - bytes);
+
+        if( (// ASCII: every byte 0x00-0x7F is a well-formed single-byte
+             // sequence, C0 control characters (and U+0000) included.
+                bytes[0] <= 0x7F
             )
         ) {
             bytes += 1;
             continue;
         }
 
-        if( (// non-overlong 2-byte
+        if( left >= 2 &&
+            (// non-overlong 2-byte
                 (0xC2 <= bytes[0] && bytes[0] <= 0xDF) &&
                 (0x80 <= bytes[1] && bytes[1] <= 0xBF)
             )
@@ -92,7 +123,8 @@ int string_is_valid_utf8(const char * str)
             continue;
         }
 
-        if( (// excluding overlongs
+        if( left >= 3 && (
+            (// excluding overlongs
                 bytes[0] == 0xE0 &&
                 (0xA0 <= bytes[1] && bytes[1] <= 0xBF) &&
                 (0x80 <= bytes[2] && bytes[2] <= 0xBF)
@@ -108,13 +140,14 @@ int string_is_valid_utf8(const char * str)
                 bytes[0] == 0xED &&
                 (0x80 <= bytes[1] && bytes[1] <= 0x9F) &&
                 (0x80 <= bytes[2] && bytes[2] <= 0xBF)
-            )
+            ))
         ) {
             bytes += 3;
             continue;
         }
 
-        if( (// planes 1-3
+        if( left >= 4 && (
+            (// planes 1-3
                 bytes[0] == 0xF0 &&
                 (0x90 <= bytes[1] && bytes[1] <= 0xBF) &&
                 (0x80 <= bytes[2] && bytes[2] <= 0xBF) &&
@@ -130,8 +163,8 @@ int string_is_valid_utf8(const char * str)
                 bytes[0] == 0xF4 &&
                 (0x80 <= bytes[1] && bytes[1] <= 0x8F) &&
                 (0x80 <= bytes[2] && bytes[2] <= 0xBF) &&
-           		(0x80 <= bytes[3] && bytes[3] <= 0xBF)
-            )
+                (0x80 <= bytes[3] && bytes[3] <= 0xBF)
+            ))
         ) {
             bytes += 4;
             continue;
@@ -141,7 +174,126 @@ int string_is_valid_utf8(const char * str)
     }
 
     return 1;
-}  
+}
+
+/**
+ * Sanitize a string by replacing invalid UTF-8 sequences with U+FFFD.
+ *
+ * This function walks through the string and replaces any invalid UTF-8
+ * byte sequences with the Unicode replacement character U+FFFD (encoded
+ * as 0xEF 0xBF 0xBD in UTF-8).
+ *
+ * Since U+FFFD is 3 bytes and invalid sequences can be 1 byte, the output
+ * may be longer than input. The function uses a local buffer and copies
+ * back, truncating at a valid UTF-8 boundary if the result is too long.
+ *
+ * The string is modified in place. Caller should ensure str has at least
+ * BUFSIZE bytes available.
+ *
+ * Note that "no modification was needed" is also what callers get when the
+ * invalid bytes lie beyond the working buffer: the scan stops at BUFSIZE
+ * while string_is_valid_utf8() scans the whole string, so a long line whose
+ * only bad byte is near the end validates as invalid yet sanitizes to -1.
+ * Callers must therefore treat -1 as "leave the string and its length
+ * alone", never as a length.
+ *
+ * @param str The string to sanitize (will be modified).
+ * @return Length of sanitized string, or -1 if no modification was needed.
+ */
+int string_sanitize_utf8(char *str)
+{
+    unsigned char *in;
+    unsigned char out[BUFSIZE];
+    unsigned char *outp;
+    size_t outlen;
+    int modified = 0;
+    int seq_len;
+
+    if (!str)
+        return -1;
+
+    in = (unsigned char *)str;
+    outp = out;
+    outlen = 0;
+
+    while (*in && outlen < sizeof(out) - 4)  /* Leave room for U+FFFD + NUL */
+    {
+        seq_len = 0;
+
+        /* ASCII: any byte 0x01-0x7F, C0 control characters included */
+        if (in[0] <= 0x7F)
+        {
+            seq_len = 1;
+        }
+        /* Non-overlong 2-byte */
+        else if ((0xC2 <= in[0] && in[0] <= 0xDF) &&
+                 (0x80 <= in[1] && in[1] <= 0xBF))
+        {
+            seq_len = 2;
+        }
+        /* 3-byte sequences */
+        else if ((in[0] == 0xE0 &&
+                  (0xA0 <= in[1] && in[1] <= 0xBF) &&
+                  (0x80 <= in[2] && in[2] <= 0xBF)) ||
+                 (((0xE1 <= in[0] && in[0] <= 0xEC) ||
+                   in[0] == 0xEE || in[0] == 0xEF) &&
+                  (0x80 <= in[1] && in[1] <= 0xBF) &&
+                  (0x80 <= in[2] && in[2] <= 0xBF)) ||
+                 (in[0] == 0xED &&
+                  (0x80 <= in[1] && in[1] <= 0x9F) &&
+                  (0x80 <= in[2] && in[2] <= 0xBF)))
+        {
+            seq_len = 3;
+        }
+        /* 4-byte sequences */
+        else if ((in[0] == 0xF0 &&
+                  (0x90 <= in[1] && in[1] <= 0xBF) &&
+                  (0x80 <= in[2] && in[2] <= 0xBF) &&
+                  (0x80 <= in[3] && in[3] <= 0xBF)) ||
+                 ((0xF1 <= in[0] && in[0] <= 0xF3) &&
+                  (0x80 <= in[1] && in[1] <= 0xBF) &&
+                  (0x80 <= in[2] && in[2] <= 0xBF) &&
+                  (0x80 <= in[3] && in[3] <= 0xBF)) ||
+                 (in[0] == 0xF4 &&
+                  (0x80 <= in[1] && in[1] <= 0x8F) &&
+                  (0x80 <= in[2] && in[2] <= 0xBF) &&
+                  (0x80 <= in[3] && in[3] <= 0xBF)))
+        {
+            seq_len = 4;
+        }
+
+        if (seq_len > 0)
+        {
+            /* Valid sequence - copy it */
+            memcpy(outp, in, seq_len);
+            outp += seq_len;
+            outlen += seq_len;
+            in += seq_len;
+        }
+        else
+        {
+            /* Invalid byte - replace with U+FFFD (0xEF 0xBF 0xBD) */
+            if (outlen + 3 < sizeof(out) - 1)
+            {
+                *outp++ = 0xEF;
+                *outp++ = 0xBF;
+                *outp++ = 0xBD;
+                outlen += 3;
+            }
+            in += 1;  /* Skip the invalid byte */
+            modified = 1;
+        }
+    }
+
+    *outp = '\0';
+
+    if (!modified)
+        return -1;
+
+    /* Copy sanitized string back */
+    memcpy(str, out, outlen + 1);
+    return (int)outlen;
+}
 
 /** Check whether \a str contains non-ASCII characters.
  * @param[in] str String that might contain such characters.
@@ -289,6 +441,42 @@ char* ircd_strncpy(char* s1, const char* s2, size_t n)
   return s1;
 }
 
+/** Append a formatted string at buf[*pos], clamping to buflen.
+ * Advances *pos by the number of bytes ACTUALLY written (never the
+ * would-be length that vsnprintf returns), and is a safe no-op once
+ * the buffer is full.  buf stays NUL-terminated within buflen.
+ * Use this instead of the unguarded `x += ircd_snprintf(0, buf+x,
+ * buflen-x, ...)` idiom, which overflows once x reaches buflen.
+ *
+ * Uses libc vsnprintf (not ircd_vsnprintf) so ircd_string stays
+ * dependency-light -- it is linked standalone into helper tools like
+ * umkpasswd and table_gen that do not link ircd_snprintf.o.  The call
+ * sites format only plain %s/%d, so no ircd_snprintf %C-style conversions
+ * are needed; C99 vsnprintf's would-be-length return makes the clamp exact.
+ */
+int str_appendf(char* buf, size_t buflen, size_t* pos, const char* fmt, ...)
+{
+  va_list args;
+  int would;
+  size_t remaining, wrote;
+
+  if (!buf || !pos || *pos >= buflen)
+    return 0;                       /* full or invalid: no-op */
+
+  remaining = buflen - *pos;        /* >= 1 */
+  va_start(args, fmt);
+  would = vsnprintf(buf + *pos, remaining, fmt, args);
+  va_end(args);
+
+  if (would <= 0)
+    return 0;
+  /* vsnprintf writes at most remaining-1 chars + NUL and returns the C99
+   * would-be length; the bytes actually written are min(would, remaining-1). */
+  wrote = ((size_t)would < remaining) ? (size_t)would : (remaining - 1);
+  *pos += wrote;
+  return (int)wrote;
+}
+
 #ifndef FORCEINLINE
 NTL_HDR_strChattr { NTL_SRC_strChattr }
 NTL_HDR_strCasediff { NTL_SRC_strCasediff }
@@ -337,6 +525,195 @@ int ircd_strncmp(const char *a, const char *b, size_t n)
       ++rb;
   }
   return (ToLower(*ra) - ToLower(*rb));
+}
+
+/** Is @a token a member of the comma/space/tab-separated @a csv list
+ * (case-insensitive, exact token match, no prefix match)?  Empty/NULL csv
+ * or token denies.  Pure helper; the SASL layer passes feature_str(...) in. */
+/** Truncate \a s in place to at most \a maxbytes bytes (excluding the
+ * NUL), never splitting a UTF-8 sequence: if the cut lands mid-sequence
+ * the whole partial sequence is dropped.
+ * @param[in,out] s        String to clamp (may be NULL).
+ * @param[in]     maxbytes Maximum byte length to keep.
+ * @return 1 if truncation occurred, 0 if the string already fit.
+ */
+int ircd_utf8_clamp(char* s, size_t maxbytes)
+{
+  size_t len;
+
+  if (!s)
+    return 0;
+  len = strlen(s);
+  if (len <= maxbytes)
+    return 0;
+  /* Back off over UTF-8 continuation bytes so the byte at the cut
+   * index is a lead byte (or ASCII); cutting there drops any partial
+   * sequence while keeping every complete one. */
+  while (maxbytes > 0 && ((unsigned char)s[maxbytes] & 0xC0) == 0x80)
+    --maxbytes;
+  s[maxbytes] = '\0';
+  return 1;
+}
+
+/** Compute the length to keep \a line at or under \a body_max body
+ * bytes, never splitting a UTF-8 sequence.  Pure function: it only
+ * measures, it does not write to \a line.
+ *
+ * If \a line starts with '@' (an S2S tag region), the body is
+ * everything after the first space; a tagged line with no space has
+ * no body to measure, so the whole line is kept.  Otherwise the body
+ * is the whole line.  When the body is already within \a body_max,
+ * \a len is returned unchanged; otherwise, when the cut would split a
+ * UTF-8 sequence, it is moved back to that sequence's lead byte so the
+ * sequence is dropped whole.  The back-off is at most three bytes (a
+ * sequence is at most four) and needs a lead byte whose sequence the
+ * cut really splits; text that is not UTF-8 (a Latin-1 / cp1252 run of
+ * 0x80-0xBF bytes) keeps the byte-exact cut instead of losing more.
+ *
+ * @param[in] line     Line to measure (tag region + body, or just a
+ *                      body); may be NULL.
+ * @param[in] len       Length of \a line in bytes.
+ * @param[in] body_max  Maximum number of body bytes to keep.
+ * @return The length (<= \a len) that keeps the body at or under
+ *         \a body_max bytes.
+ */
+size_t ircd_line_body_clamp(const char* line, size_t len, size_t body_max)
+{
+  size_t head = 0;
+  size_t cut;
+
+  if (!line || len == 0)
+    return len;
+
+  if (line[0] == '@') {
+    const char* sp = memchr(line, ' ', len);
+    if (!sp)
+      return len; /* no space after the tag region: nothing to measure */
+    head = (size_t)(sp - line) + 1;
+  }
+
+  if (len - head <= body_max)
+    return len;
+
+  cut = head + body_max;
+  /* The byte at the cut index is the first one dropped.  If it is a
+   * continuation byte (10xxxxxx), walk back over at most three of them
+   * to the lead byte (11xxxxxx) of the sequence they belong to, and cut
+   * there when that sequence runs past the cut.  Anything else -- a
+   * fourth continuation byte, ASCII before the run, or a lead whose
+   * sequence already ended -- means the bytes are not UTF-8 here, and
+   * the byte-exact cut stands. */
+  {
+    size_t back = cut;
+    int steps = 0;
+    unsigned char lead;
+    size_t seqlen;
+
+    while (steps < 3 && back > head
+           && ((unsigned char)line[back] & 0xC0) == 0x80) {
+      --back;
+      ++steps;
+    }
+    lead = (unsigned char)line[back];
+    if (steps > 0 && (lead & 0xC0) == 0xC0) {
+      seqlen = (lead >= 0xF0) ? 4 : (lead >= 0xE0) ? 3 : 2;
+      if (back + seqlen > cut)
+        cut = back;
+    }
+  }
+  return cut;
+}
+
+/** Case-insensitive word-boundary search for \a nick in \a text, using
+ * the IRC nickname character class as the boundary definition: a match
+ * counts only when the characters on both sides of it are not nickname
+ * characters (start/end of string included).  Comparison uses the
+ * server casemapping (ircd_strncmp).
+ * @param[in] text Message text to scan (may be NULL).
+ * @param[in] nick Nickname to look for (may be NULL/empty).
+ * @return 1 when mentioned, 0 otherwise.
+ */
+int ircd_text_mentions(const char* text, const char* nick)
+{
+  size_t nlen;
+  const char* p;
+
+  if (!text || !nick || !*nick)
+    return 0;
+  nlen = strlen(nick);
+  for (p = text; *p; ++p) {
+    if ((p == text || !IsNickChar(p[-1]))
+        && 0 == ircd_strncmp(p, nick, nlen)
+        && !IsNickChar(p[nlen]))
+      return 1;
+  }
+  return 0;
+}
+
+/** Escape \a src as a JSON string body (no surrounding quotes) into
+ * \a dst: backslash, double-quote, and control characters below 0x20
+ * are escaped; everything else (UTF-8 bytes included) passes through
+ * verbatim.  Output is always NUL-terminated; content that would
+ * overflow is truncated at an escape-sequence boundary.
+ * @param[out] dst    Destination buffer.
+ * @param[in]  dstlen Destination size in bytes (>= 1).
+ * @param[in]  src    Source string (may be NULL == empty).
+ * @return dst.
+ */
+char* ircd_json_escape(char* dst, size_t dstlen, const char* src)
+{
+  size_t o = 0;
+  const unsigned char* p;
+
+  if (!dst || dstlen == 0)
+    return dst;
+  for (p = (const unsigned char*)(src ? src : ""); *p; ++p) {
+    if (*p == '"' || *p == '\\') {
+      if (o + 2 >= dstlen)
+        break;
+      dst[o++] = '\\';
+      dst[o++] = (char)*p;
+    }
+    else if (*p < 0x20) {
+      if (o + 6 >= dstlen)
+        break;
+      dst[o++] = '\\';
+      dst[o++] = 'u';
+      dst[o++] = '0';
+      dst[o++] = '0';
+      dst[o++] = "0123456789abcdef"[*p >> 4];
+      dst[o++] = "0123456789abcdef"[*p & 0xf];
+    }
+    else {
+      if (o + 1 >= dstlen)
+        break;
+      dst[o++] = (char)*p;
+    }
+  }
+  dst[o] = '\0';
+  return dst;
+}
+
+int csv_contains_token(const char* csv, const char* token)
+{
+  const char *p;
+  size_t nlen;
+  if (!csv || !*csv || !token || !*token)
+    return 0;
+  nlen = strlen(token);
+  for (p = csv; *p; ) {
+    const char *start;
+    size_t tlen;
+    while (*p == ',' || *p == ' ' || *p == '\t')
+      p++;
+    start = p;
+    while (*p && *p != ',' && *p != ' ' && *p != '\t')
+      p++;
+    tlen = (size_t)(p - start);
+    if (tlen == nlen && 0 == ircd_strncmp(start, token, nlen))
+      return 1;
+  }
+  return 0;
 }
 
 /** Fill a vector of distinct names from a delimited input list.
@@ -945,6 +1322,133 @@ int valid_hostname(const char* name) {
 
   for (c = name; *c; c++) {
     if (!IsHostChar(*c))
+      return 0;
+  }
+
+  return 1;
+}
+
+/* ------------------------------------------------------------------
+ * msgid intrinsic time decode
+ *
+ * generate_msgid() (send.c) lays a msgid out as
+ *   <node_2><logical_3><time_ms_7><counter_2>   (14 chars)
+ * with time_ms_7 = milliseconds since epoch in the ircd base64
+ * alphabet.  Decoding it lets every msgid resolve to WHEN it was
+ * minted even after the message aged out of history storage (or was
+ * never stored).  Pre-repack msgids carried a monotonic counter in
+ * those positions whose value decodes to ~zero -- far outside the
+ * accepted epoch range -- so legacy ids are rejected cleanly and the
+ * caller falls back to index/failure paths.
+ *
+ * The alphabet below MUST match numnicks.c convert2y; it is duplicated
+ * here because this file stays dependency-light (umkpasswd/table_gen
+ * link it standalone).  A build-time drift would break the round-trip
+ * cmocka test in ircd_string_cmocka.c.
+ * ------------------------------------------------------------------ */
+static const char msgid_b64_alphabet[65] =
+  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789[]";
+
+/** Decode the intrinsic mint-time from a msgid.
+ * @param[in] msgid The message id (>= 12 chars examined).
+ * @return Milliseconds since epoch, or 0 if the id is not a
+ *         time-carrying msgid (legacy format, malformed, or the
+ *         decoded value falls outside 2020..2100). */
+int msgid_decode_hlc(const char *msgid, uint64_t *ms_out, uint16_t *logical_out)
+{
+  uint64_t ms, logical = 0;
+  int i;
+
+  ms = msgid_decode_time_ms(msgid);
+  if (!ms)
+    return 0;
+  /* <node_2><logical_3><time_7><counter_2>: the logical counter sits in
+   * chars 2..4 (see generate_msgid). */
+  for (i = 2; i < 5; i++) {
+    const char *pos = strchr(msgid_b64_alphabet, msgid[i]);
+    if (!pos)
+      return 0;
+    logical = (logical << 6) | (uint64_t)(pos - msgid_b64_alphabet);
+  }
+  if (ms_out)
+    *ms_out = ms;
+  if (logical_out)
+    *logical_out = (uint16_t)(logical & 0xFFFF);
+  return 1;
+}
+
+uint64_t msgid_decode_time_ms(const char *msgid)
+{
+  uint64_t ms = 0;
+  int i;
+
+  if (!msgid)
+    return 0;
+  for (i = 0; i < 12; i++)
+    if (!msgid[i])
+      return 0;   /* shorter than <node2><logical3><time7> */
+
+  for (i = 5; i < 12; i++) {
+    const char *pos = strchr(msgid_b64_alphabet, msgid[i]);
+    if (!pos)
+      return 0;
+    ms = (ms << 6) | (uint64_t)(pos - msgid_b64_alphabet);
+  }
+
+  /* Sanity: accept 2020-01-01 .. 2100-01-01 only.  Legacy msgids
+   * decode to near-zero here (counter high padding). */
+  if (ms < 1577836800000ULL || ms > 4102444800000ULL)
+    return 0;
+  return ms;
+}
+
+
+/* Check if a spoof host is valid.  A spoof host is a host name, optionally
+ * prefixed with a user name and '@'.  Wildcards are only allowed if mask is
+ * non-zero (Spoofhost blocks using ismask).  Anything else is rejected so
+ * that the spoof host cannot be mistaken for something other than a single
+ * parameter when it is sent to other servers, most notably a spoof host
+ * beginning with a ':'.
+ */
+int valid_spoofhost(const char* host, int mask) {
+  const char *c = NULL;
+  const char *at = NULL;
+
+  /* Empty strings are not valid spoof hosts */
+  if (EmptyString(host))
+    return 0;
+
+  if ((at = strchr(host, '@')) != NULL) {
+    /* Don't allow an empty user name */
+    if (at == host)
+      return 0;
+    /* The user part is copied into cli_user()->sethost[HOSTLEN+USERLEN+2]
+     * downstream with strlcpy semantics; bound it here rather than let
+     * it truncate silently (PR #109 follow-up). */
+    if ((size_t)(at - host) > USERLEN)
+      return 0;
+    for (c = host; c < at; c++) {
+      if (!IsUserChar(*c) && !(mask && ((*c == '*') || (*c == '?'))))
+        return 0;
+    }
+    c = at + 1;
+  } else
+    c = host;
+
+  /* Empty strings are not valid hosts */
+  if (EmptyString(c))
+    return 0;
+  if (strlen(c) > HOSTLEN)
+    return 0;
+  /* Don't allow leading period */
+  if (*c == '.')
+    return 0;
+  /* Don't allow trailing period */
+  if (c[strlen(c)-1] == '.')
+    return 0;
+
+  for ( ; *c; c++) {
+    if (!IsHostChar(*c) && !(mask && ((*c == '*') || (*c == '?'))))
       return 0;
   }
 

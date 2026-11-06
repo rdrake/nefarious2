@@ -182,10 +182,18 @@ void do_trace(struct Client *cptr, struct Client *sptr, int parc, char *parv[])
 
   if (doall) {
     for (acptr = GlobalClientList; acptr; acptr = cli_next(acptr)) {
+      /* Count each client against the local link it is reached through.
+       * A client with no socket has no such link: a held bouncer ghost
+       * is local (cli_from is itself) with fd -1, which indexed
+       * link_u[-1].  The listing below reads only the fds of
+       * LocalClientArray, so skipping it loses nothing. */
+      int fd = cli_fd(cli_from(acptr));
+      if (fd < 0 || fd >= MAXCONNECTIONS)
+        continue;
       if (IsUser(acptr))
-        link_u[cli_fd(cli_from(acptr))]++;
+        link_u[fd]++;
       else if (IsServer(acptr))
-        link_s[cli_fd(cli_from(acptr))]++;
+        link_s[fd]++;
     }
   }
 
@@ -301,9 +309,12 @@ void do_trace(struct Client *cptr, struct Client *sptr, int parc, char *parv[])
  */
 int m_trace(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
 {
+  int lb;
   if (feature_bool(FEAT_HIS_TRACE))
     return send_reply(cptr, ERR_NOPRIVILEGES);
+  lb = labeled_batch_start(sptr);
   do_trace(cptr, sptr, parc, parv);
+  if (lb) labeled_batch_end(sptr);
   return 0;
 }
 
@@ -316,7 +327,9 @@ int m_trace(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
  */
 int ms_trace(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
 {
+  int lb = labeled_batch_start(sptr);
   do_trace(cptr, sptr, parc, parv);
+  if (lb) labeled_batch_end(sptr);
   return 0;
 }
 
@@ -329,8 +342,11 @@ int ms_trace(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
  */
 int mo_trace(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
 {
+  int lb;
   if (feature_bool(FEAT_HIS_TRACE) && !IsAnOper(sptr))
     return send_reply(cptr, ERR_NOPRIVILEGES);
+  lb = labeled_batch_start(sptr);
   do_trace(cptr, sptr, parc, parv);
+  if (lb) labeled_batch_end(sptr);
   return 0;
 }

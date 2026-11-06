@@ -27,18 +27,28 @@
 #include "IPcheck.h"
 #include "class.h"
 #include "client.h"
+#include "handlers.h"
+#include "crdt_hlc.h"
 #include "crule.h"
 #include "destruct_event.h"
 #include "hash.h"
+#include "bouncer_session.h"
+#include "chathistory_presence.h"
+#include "history.h"
 #include "ircd_alloc.h"
+#include "ircd_compress.h"
 #include "ircd_events.h"
+#include "forwarded_label.h"
 #include "ircd_features.h"
 #include "ircd_geoip.h"
 #include "ircd_log.h"
+#include "ircd_log_async.h"
 #include "ircd_reply.h"
 #include "ircd_signal.h"
 #include "ircd_string.h"
 #include "ircd_crypt.h"
+#include "capab.h"
+#include "thread_pool.h"
 #include "jupe.h"
 #include "list.h"
 #include "match.h"
@@ -51,6 +61,8 @@
 #include "querycmds.h"
 #include "res.h"
 #include "s_auth.h"
+#include "dnsbl.h"
+#include "gitsync.h"
 #include "s_bsd.h"
 #include "s_conf.h"
 #include "s_debug.h"
@@ -64,6 +76,19 @@
 #include "userload.h"
 #include "version.h"
 #include "whowas.h"
+#include "metadata.h"
+#include "webpush.h"
+#include "webpush_store.h"
+#include "listener.h"
+#include "paste_listener.h"
+#include "sasl_auth.h"
+#include "sasl_conf.h"
+#include "sasl_webhook.h"
+#ifdef USE_LIBKC
+#include "ircd_kc_adapter.h"
+#include <kc/kc.h>
+#include <kc/kc_keycloak.h>
+#endif
 
 /* #include <assert.h> -- Now using assert in ircd_log.h */
 #include <errno.h>
@@ -81,6 +106,9 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
+#ifdef USE_ROCKSDB
+#include <pthread.h>
+#endif
 
 
 
@@ -89,6 +117,25 @@
  *--------------------------------------------------------------------------*/
 extern void init_counters(void);
 extern void mem_dbg_initialise(void);
+
+#ifdef USE_ROCKSDB
+struct db_init_arg { const char *path; int rc; };
+static void *history_init_worker(void *arg) {
+  struct db_init_arg *a = arg;
+  a->rc = history_init(a->path);
+  return NULL;
+}
+static void *metadata_init_worker(void *arg) {
+  struct db_init_arg *a = arg;
+  a->rc = metadata_lmdb_init(a->path);
+  return NULL;
+}
+static void *webpush_init_worker(void *arg) {
+  struct db_init_arg *a = arg;
+  a->rc = webpush_store_init(a->path);
+  return NULL;
+}
+#endif
 
 /*----------------------------------------------------------------------------
  * Constants / Enums
@@ -121,6 +168,24 @@ static char   *dbg_client;                /**< Client specifier for chkconf */
 static struct Timer connect_timer; /**< timer structure for try_connections() */
 static struct Timer ping_timer; /**< timer structure for check_pings() */
 static struct Timer destruct_event_timer; /**< timer structure for exec_expired_destruct_events() */
+static struct Timer history_purge_timer; /**< timer structure for history_purge_callback() */
+static struct Timer presence_alive_timer; /**< minute heartbeat for the presence crash-recovery stamp */
+static struct Timer metadata_purge_timer; /**< timer structure for metadata_purge_callback() */
+static struct Timer bouncer_gate_timer;
+static struct Timer fwd_label_timer;
+
+/** Periodic forwarded-label expiry (see forwarded_label.c). */
+static void fwd_label_timer_callback(struct Event *ev)
+{
+  (void)ev;
+  fwd_label_expire_all();
+} /**< timer structure for bounce_legacy_burst_gate_tick() */
+
+/* Forward declarations so the *_restart_timer helpers below can refer to
+ * the callbacks before their definitions. */
+static void history_purge_callback(struct Event* ev);
+static void presence_alive_callback(struct Event* ev);
+static void metadata_purge_callback(struct Event* ev);
 
 /** Daemon information. */
 static struct Daemon thisServer  = { 0, 0, 0, 0, 0, 0, -1 };
@@ -128,6 +193,285 @@ static struct Daemon thisServer  = { 0, 0, 0, 0, 0, 0, -1 };
 /** Non-zero until we want to exit. */
 int running = 1;
 
+/** Set non-zero after all subsystem init completes (just before
+ * event_loop() entry).  accept_connection() in listener.c gates on
+ * this so client connections are not pulled out of the kernel listen
+ * backlog while stores (RocksDB history/metadata/webpush, bouncer
+ * persistence) are still being opened.  Without the gate, clients
+ * connecting during startup complete TCP handshake but receive no
+ * IRC welcome until the event loop runs, and several seconds of
+ * "connected but unresponsive" surface as client-side timeouts. */
+int server_boot_complete = 0;
+
+/** Counter for generating unique message IDs. */
+unsigned long MsgIdCounter = 0;
+
+/** SASL mechanism list received from services. Empty means use default. */
+char SaslMechanisms[SASL_MECHS_LEN] = "";
+
+/** Set the SASL mechanism list (called when services announces mechanisms).
+ * Sends CAP NEW :sasl when SASL becomes available, CAP DEL :sasl when removed.
+ * @param[in] mechs Comma-separated list of mechanism names.
+ */
+void set_sasl_mechanisms(const char *mechs)
+{
+  int was_available = (SaslMechanisms[0] != '\0');
+
+  if (mechs && *mechs) {
+    ircd_strncpy(SaslMechanisms, mechs, SASL_MECHS_LEN - 1);
+    SaslMechanisms[SASL_MECHS_LEN - 1] = '\0';
+
+    /* Send CAP NEW if SASL just became available */
+    if (!was_available)
+      send_cap_notify("sasl", 1, SaslMechanisms);
+  } else {
+    /* Send CAP DEL if SASL was available and is now removed */
+    if (was_available)
+      send_cap_notify("sasl", 0, NULL);
+
+    SaslMechanisms[0] = '\0';
+  }
+}
+
+/** Get the SASL mechanism list for CAP LS.
+ * @return Mechanism list, or NULL if none set.
+ */
+const char* get_sasl_mechanisms(void)
+{
+  return SaslMechanisms[0] ? SaslMechanisms : NULL;
+}
+
+/** VAPID public key received from services. Empty means webpush unavailable. */
+char VapidPublicKey[VAPID_KEY_LEN] = "";
+
+/** 1 once libkc's HTTP transport initialised (webpush delivery, local
+ * SASL, webhooks).  Stays 0 on a build without libkc or when kc_init()
+ * failed at boot; STATS webpush reports it. */
+int kc_transport_ready = 0;
+
+/** Set the VAPID public key (called when services announces it).
+ * Sends CAP NEW when webpush becomes available, CAP DEL when removed.
+ * @param[in] key Base64url-encoded VAPID public key.
+ */
+void set_vapid_pubkey(const char *key)
+{
+  int was_available = (VapidPublicKey[0] != '\0');
+
+  if (key && *key) {
+    ircd_strncpy(VapidPublicKey, key, VAPID_KEY_LEN - 1);
+    VapidPublicKey[VAPID_KEY_LEN - 1] = '\0';
+
+    /* Send CAP NEW if webpush just became available */
+    if (!was_available)
+      send_cap_notify("draft/webpush", 1, NULL);
+  } else {
+    /* Send CAP DEL if webpush was available and is now removed */
+    if (was_available)
+      send_cap_notify("draft/webpush", 0, NULL);
+
+    VapidPublicKey[0] = '\0';
+  }
+}
+
+/** Get the VAPID public key for ISUPPORT/CAP.
+ * @return VAPID public key, or NULL if none set.
+ */
+const char* get_vapid_pubkey(void)
+{
+  return VapidPublicKey[0] ? VapidPublicKey : NULL;
+}
+
+/** Check if a client-only tag is denied by CLIENTTAGDENY config.
+ * Full IRCv3 CLIENTTAGDENY semantics:
+ *   "*"          - deny all client-only tags (whitelist mode)
+ *   "+tag"       - deny exactly +tag
+ *   "+prefix/*"  - deny all tags starting with +prefix/
+ *   "-tag"       - exempt +tag from denial (negation, overrides * and +patterns)
+ *   "-prefix/*"  - exempt all +prefix/ tags from denial
+ * Example: "*,-typing,-reply,-react" = deny all except those three.
+ * Negations always take priority over denials.
+ * @param[in] tag The tag name to check (including + prefix).
+ * @param[in] tag_len Length of the tag name (up to = or end).
+ * @return 1 if tag is denied, 0 if allowed.
+ */
+/** Check whether a client-only tag squats a server-reserved vendor
+ * namespace.  The server authors tags there and trusts them: the
+ * `+evilnet.github.io/sid=<sessid>` marker injected into PM history
+ * (ircd_relay.c) is what chathistory's ephemeral-participant auth check
+ * (history_pm_target_has_sessid) matches against.  `+afternet.org/` is
+ * ALSO reserved, permanently and independent of any single use: it is
+ * the network's own domain (cf. the afternet.org/account WEBIRC
+ * option), so client tags have no claim to it -- and concretely,
+ * records stored before 2026-08-29 carry the sid marker under it and
+ * the auth check still honors those.  Do NOT drop this entry when the
+ * legacy records age out.  A client-supplied
+ * tag in either namespace is dropped at capture (parse.c).  The vendor
+ * part is a DNS name -> case-insensitive match (ircd_strncmp folds
+ * ASCII letters; the '.' '/' '+' are compared exactly).
+ * @param[in] tag The tag name to check (including + prefix).
+ * @param[in] tag_len Length of the tag (name, optionally =value).
+ * @return 1 if the tag is in a reserved namespace, 0 otherwise. */
+int is_reserved_vendor_tag(const char *tag, size_t tag_len)
+{
+  static const char *prefixes[] = { "+evilnet.github.io/", "+afternet.org/" };
+  size_t i;
+
+  if (!tag)
+    return 0;
+  for (i = 0; i < sizeof(prefixes) / sizeof(prefixes[0]); i++) {
+    size_t plen = strlen(prefixes[i]);
+    if (tag_len >= plen && 0 == ircd_strncmp(tag, prefixes[i], plen))
+      return 1;
+  }
+  return 0;
+}
+
+int is_client_tag_denied(const char *tag, size_t tag_len)
+{
+  const char *deny_list;
+  const char *p, *pattern_start;
+  size_t pattern_len;
+  int deny_all = 0;
+  int explicitly_exempted = 0;
+  int explicitly_denied = 0;
+
+  /* Only client-only tags (starting with +) can be denied */
+  if (!tag || tag_len == 0 || tag[0] != '+')
+    return 0;
+
+  deny_list = feature_str(FEAT_CLIENTTAGDENY);
+  if (!deny_list || !*deny_list)
+    return 0;
+
+  /* First pass: check for bare * (deny-all / whitelist mode) */
+  p = deny_list;
+  while (*p) {
+    while (*p == ' ' || *p == ',')
+      p++;
+    if (!*p)
+      break;
+    pattern_start = p;
+    while (*p && *p != ',')
+      p++;
+    pattern_len = p - pattern_start;
+    while (pattern_len > 0 && pattern_start[pattern_len - 1] == ' ')
+      pattern_len--;
+    if (pattern_len == 1 && pattern_start[0] == '*')
+      deny_all = 1;
+  }
+
+  /* Second pass: check negation and positive patterns */
+  p = deny_list;
+  while (*p) {
+    while (*p == ' ' || *p == ',')
+      p++;
+    if (!*p)
+      break;
+    pattern_start = p;
+    while (*p && *p != ',')
+      p++;
+    pattern_len = p - pattern_start;
+    while (pattern_len > 0 && pattern_start[pattern_len - 1] == ' ')
+      pattern_len--;
+    if (pattern_len == 0)
+      continue;
+
+    /* Skip bare * (handled in first pass) */
+    if (pattern_len == 1 && pattern_start[0] == '*')
+      continue;
+
+    /* Negation pattern: -tag or -prefix/* (exempts +tag from denial) */
+    if (pattern_start[0] == '-') {
+      const char *neg = pattern_start + 1;
+      size_t neg_len = pattern_len - 1;
+      if (neg_len == 0)
+        continue;
+      /* Wildcard suffix negation: -prefix/* exempts +prefix/ tags */
+      if (neg_len >= 2 && neg[neg_len - 1] == '*' && neg[neg_len - 2] == '/') {
+        size_t prefix_len = neg_len - 1;  /* Include / but not * */
+        if (tag_len > prefix_len + 1 &&
+            ircd_strncmp(tag + 1, neg, prefix_len) == 0)
+          explicitly_exempted = 1;
+      }
+      /* Exact negation: -tag exempts +tag */
+      else if (tag_len - 1 == neg_len &&
+               ircd_strncmp(tag + 1, neg, neg_len) == 0)
+        explicitly_exempted = 1;
+    }
+    /* Positive deny pattern: +tag or +prefix/* */
+    else if (pattern_start[0] == '+') {
+      if (pattern_len >= 2 && pattern_start[pattern_len - 1] == '*' &&
+          pattern_start[pattern_len - 2] == '/') {
+        size_t prefix_len = pattern_len - 1;
+        if (tag_len >= prefix_len &&
+            ircd_strncmp(tag, pattern_start, prefix_len) == 0)
+          explicitly_denied = 1;
+      }
+      else if (tag_len == pattern_len &&
+               ircd_strncmp(tag, pattern_start, pattern_len) == 0)
+        explicitly_denied = 1;
+    }
+  }
+
+  /* Exemptions always take priority over denials */
+  if (explicitly_exempted)
+    return 0;
+  if (explicitly_denied)
+    return 1;
+  if (deny_all)
+    return 1;
+  return 0;
+}
+
+/*----------------------------------------------------------------------------
+ * Shutdown: everything that owns a descriptor lets go before
+ * close_connections() closes them by number.
+ *--------------------------------------------------------------------------*/
+/** Close every store.
+ *
+ * close_connections() closes 3..MAXCONNECTIONS without asking who owns a
+ * number.  A RocksDB env still open there keeps its WAL, MANIFEST, info LOG,
+ * LOCK and SST descriptors in its own records, and its background threads
+ * (flush, compaction, the stats dump) keep using them: a flush or
+ * compaction running past the close loop writes to a number that is free,
+ * or -- after any open() in the process -- someone else's file, the
+ * corruption class of the TLS close_notify (4b658482).  The history and
+ * webpush stores were never closed here (history_shutdown() had no caller):
+ * the close loop took their descriptors, and their threads lived on until
+ * exit() or execv().
+ *
+ * rocksdb_close() cancels its env's background work and waits for what is
+ * running -- a compaction stops at its next key, a running flush finishes,
+ * bounded by the write buffer -- and closes its own files.  The shared
+ * pool threads then sit idle until exit or exec and hold no descriptor.
+ */
+static void shutdown_stores(void)
+{
+  stop_listeners();          /* refuse new connections before the slow part */
+  bounce_db_shutdown();      /* persist bouncer sessions (metadata env) */
+  history_shutdown();        /* history, multiline content, presence state:
+                              * the presence CF lives on the metadata env,
+                              * so this goes first */
+  webpush_store_shutdown();
+  metadata_shutdown();       /* metadata, read markers, bouncer sessions,
+                              * presence records */
+}
+
+/** Stop the threads that write to log and pipe descriptors, then close the
+ * logs for good.  Producers before the consumer: the crypt workers (which
+ * log, and signal the main loop through a pipe) are joined first, then the
+ * async log writer drains its queue and exits -- a worker logging after
+ * the writer stopped would lock its destroyed mutex.  log_shutdown() keeps
+ * the logs shut through close_connections() and whatever the dying event
+ * batch still runs after server_die() returns: a log line there would
+ * reopen its file on a number just closed (0, 1, 2, or one a client still
+ * holds). */
+static void shutdown_writers(void)
+{
+  thread_pool_shutdown();
+  log_async_shutdown();
+  log_shutdown();
+}
 
 /*----------------------------------------------------------------------------
  * API: server_die
@@ -139,7 +483,9 @@ void server_die(const char *message)
 {
   /* log_write will send out message to both log file and as server notice */
   log_write(LS_SYSTEM, L_CRIT, 0, "Server terminating: %s", message);
+  shutdown_stores();
   flush_connections(0);
+  shutdown_writers();
   close_connections(1);
   running = 0;
 }
@@ -156,8 +502,15 @@ void server_panic(const char *message)
   log_write(LS_SYSTEM, L_CRIT, LOG_NOSNOTICE, "Server panic: %s", message);
   flush_connections(0);
   log_close();
-  close_connections(1);
-  exit(1);
+  /* No close_connections() and no exit(): the stores cannot be closed here
+   * (a store close allocates, and we are out of memory), and closing their
+   * descriptors by number under their live background threads -- or
+   * running exit()'s static destructors, which tear RocksDB down -- would
+   * hand a WAL or SST number to the next open.  _exit() leaves every
+   * descriptor to the kernel, which closes them only once the last thread
+   * is gone: nothing can reuse a number.  Every committed write is already
+   * in the WAL. */
+  _exit(1);
 }
 
 /*----------------------------------------------------------------------------
@@ -178,9 +531,9 @@ void server_restart(const char *message)
 
   sendto_opmask_butone(0, SNO_OLDSNO, "Restarting server: %s", message);
   Debug((DEBUG_NOTICE, "Restarting server..."));
+  shutdown_stores();
   flush_connections(0);
-
-  log_close();
+  shutdown_writers();
 
   close_connections(!(thisServer.bootopt & (BOOT_TTY | BOOT_DEBUG | BOOT_CHKCONF)));
 
@@ -188,8 +541,14 @@ void server_restart(const char *message)
 
   execv(SPATH, thisServer.argv);
 
-  /* Have to reopen since it has been closed above */
-  log_reopen();
+  /* Have to reopen since it has been closed above (keeping execv's errno
+   * for the %m below) */
+  {
+    int err = errno;
+
+    log_resume();
+    errno = err;
+  }
 
   log_write(LS_SYSTEM, L_CRIT, 0, "execv(%s,%s) failed: %m", SPATH,
 	    *thisServer.argv);
@@ -348,9 +707,14 @@ static void check_pings(struct Event* ev) {
 
     /* Remove dead clients. */
     if (IsDead(cptr)) {
-      exit_client(cptr, cptr, &me, cli_info(cptr));
+      exit_dead_client(cptr, "Dead socket");   /* or holds it */
       continue;
     }
+
+    /* Check for client batch timeout (draft/multiline) */
+    check_client_batch_timeout(cptr);
+
+    /* Metadata TTL expiration is handled by metadata_account_purge_expired() */
 
     Debug((DEBUG_DEBUG, "check_pings(%s)=status:%s current: %d",
 	   cli_name(cptr),
@@ -382,6 +746,9 @@ static void check_pings(struct Event* ev) {
     }
 
     max_ping = client_get_ping(cptr);
+
+    /* Aliases have their own Client ping management — no
+     * separate alias ping check needed. */
 
     /* If it's a server and we have not sent an AsLL lately, do so. */
     if (IsServer(cptr)) {
@@ -425,6 +792,18 @@ static void check_pings(struct Event* ev) {
         sendto_opmask_butone(0, SNO_OLDSNO,
                              "No response from %s, closing link",
                              cli_name(cptr));
+
+      /* A session primary that pinged out goes through the disconnect
+       * rule a QUIT and a dead socket do (bounce_promote_or_hold): a live
+       * device of its own copy takes over (one here at once, one on
+       * another server at the next tick), else the session holds or,
+       * with hold off, ends.  An alias exits plainly.  After a promote
+       * here the old primary's channels are already left, so the exit
+       * below shows no QUIT in them. */
+      if (IsUser(cptr) && !IsBouncerAlias(cptr)
+          && bounce_promote_or_hold(cptr, "Ping timeout") == 0)
+        continue; /* held */
+
       exit_client_msg(cptr, cptr, &me, "Ping timeout");
       continue;
     }
@@ -454,8 +833,107 @@ static void check_pings(struct Event* ev) {
   
   Debug((DEBUG_DEBUG, "[%i] check_pings() again in %is",
 	 CurrentTime, next_check-CurrentTime));
-  
+
   timer_add(&ping_timer, check_pings, 0, TT_ABSOLUTE, next_check);
+}
+
+/** The chathistory maintenance tick (CHATHISTORY_MAINTENANCE_INTERVAL,
+ * floor 60 s): starts a trim pass -- retention age-out runs from there in
+ * budgeted slices on the trimmer's own 1 s timer (history_trim_tick) --
+ * and prunes expired presence intervals.
+ * @param[in] ev Timer event: only its expiry runs a tick (the ET_DESTROY
+ * of a timer_del, e.g. history_purge_restart_timer's, is not a tick).
+ */
+static void history_purge_callback(struct Event* ev)
+{
+  if (ev_type(ev) != ET_EXPIRE)
+    return;
+
+  /* Only run if chathistory storage is enabled */
+  if (!feature_bool(FEAT_CHATHISTORY_STORE))
+    return;
+
+  if (!history_is_available())
+    return;
+
+  /* A trim pass starts on every maintenance tick, retention or not:
+   * age-out simply has no work at retention 0 (the slice timer carries
+   * any backlog on at 1 s). */
+  history_trim_tick(1);
+
+  if (feature_int(FEAT_CHATHISTORY_RETENTION) <= 0)
+    return; /* Retention disabled */
+
+  /* Strict-presence chathistory: prune intervals fully older than the
+   * retention horizon.  Cheap (in-memory walk + a single CF scan of a
+   * small CF) and bounded — happens once per maintenance tick, as the
+   * trim pass starts. */
+  presence_retention_sweep();
+}
+
+/** Minute heartbeat: the presence store's last-alive stamp (crash
+ * recovery bound; see presence_init's boot-close). */
+static void presence_alive_callback(struct Event* ev)
+{
+  (void)ev;
+  presence_alive_tick();
+}
+
+/** Compute the effective interval for the history_purge_timer.
+ * Honours FEAT_CHATHISTORY_MAINTENANCE_INTERVAL with a one-minute floor. */
+static int history_purge_interval(void)
+{
+  int v = feature_int(FEAT_CHATHISTORY_MAINTENANCE_INTERVAL);
+  if (v < 60)
+    v = 60;
+  return v;
+}
+
+/** Restart the history_purge_timer with the current FEAT_CHATHISTORY_MAINTENANCE_INTERVAL.
+ * No-op if the timer is not currently armed — the boot path arms it once
+ * the IRCd is past init_conf(). */
+void history_purge_restart_timer(void)
+{
+  if (!t_active(&history_purge_timer))
+    return;
+  timer_del(&history_purge_timer);
+  timer_add(timer_init(&history_purge_timer), history_purge_callback, 0,
+            TT_PERIODIC, history_purge_interval());
+}
+
+/** Restart the metadata_purge_timer with the current FEAT_METADATA_PURGE_FREQUENCY.
+ * No-op if the timer is not currently armed. */
+void metadata_purge_restart_timer(void)
+{
+  int interval;
+  if (!t_active(&metadata_purge_timer))
+    return;
+  interval = feature_int(FEAT_METADATA_PURGE_FREQUENCY);
+  if (interval < 60)
+    interval = 60;
+  timer_del(&metadata_purge_timer);
+  timer_add(timer_init(&metadata_purge_timer), metadata_purge_callback, 0,
+            TT_PERIODIC, interval);
+}
+
+/** Periodic callback to purge expired metadata cache entries.
+ * Runs at METADATA_PURGE_FREQUENCY to enforce METADATA_CACHE_TTL.
+ * Era-2 note: reclaims only pre-era-2 legacy TTL rows — no live writer
+ * mints new ones (see metadata_account_purge_expired's header).
+ * @param[in] ev Timer event (ignored).
+ */
+static void metadata_purge_callback(struct Event* ev)
+{
+  (void)ev; /* unused */
+
+  if (!metadata_lmdb_is_available())
+    return;
+
+  /* TTL of 0 disables purging */
+  if (feature_int(FEAT_METADATA_CACHE_TTL) <= 0)
+    return;
+
+  metadata_account_purge_expired();
 }
 
 
@@ -694,6 +1172,23 @@ int main(int argc, char **argv) {
 
   setup_signals();
   feature_init(); /* initialize features... */
+
+  /* Initialize thread pool for async operations (bcrypt, etc.)
+   * Must be after feature_init() to read THREAD_POOL_SIZE config */
+  if (thread_pool_init(feature_int(FEAT_THREAD_POOL_SIZE)) < 0) {
+    log_write(LS_SYSTEM, L_WARNING, 0,
+              "Thread pool init failed; password verification will be synchronous");
+  }
+
+  /* Initialize async logging if enabled
+   * Must be after feature_init() to read ASYNC_LOGGING config */
+  if (feature_bool(FEAT_ASYNC_LOGGING)) {
+    if (log_async_init(0) < 0) {
+      log_write(LS_SYSTEM, L_WARNING, 0,
+                "Async logging init failed; logging will be synchronous");
+    }
+  }
+
   init_isupport(); /* initialize RPL_ISUPPORT... */
   log_init(*argv);
   set_nomem_handler(outofmemory);
@@ -717,6 +1212,11 @@ int main(int argc, char **argv) {
 	      configfile);
     return 7;
   }
+
+  /* Rebuild ISUPPORT after config is loaded.  init_isupport() ran before
+   * init_conf(), so feature-dependent tokens (CHATHISTORY, NETWORK_ICON,
+   * etc.) were built with defaults.  Re-running picks up config values. */
+  init_isupport();
 
   if (thisServer.bootopt & BOOT_CHKCONF) {
     if (dbg_client)
@@ -744,11 +1244,30 @@ int main(int argc, char **argv) {
 
   stats_init();
 
+  dnsbl_init();
+
+#ifdef USE_LIBGIT2
+  gitsync_init();
+#endif
+
   IPcheck_init();
   timer_add(timer_init(&connect_timer), try_connections, 0, TT_RELATIVE, 1);
   timer_add(timer_init(&ping_timer), check_pings, 0, TT_RELATIVE, 1);
+  websocket_ping_timer_init();
   timer_add(timer_init(&destruct_event_timer), exec_expired_destruct_events, 0, TT_PERIODIC, 60);
-
+  timer_add(timer_init(&history_purge_timer), history_purge_callback, 0,
+            TT_PERIODIC, history_purge_interval());
+  timer_add(timer_init(&metadata_purge_timer), metadata_purge_callback, 0, TT_PERIODIC,
+            feature_int(FEAT_METADATA_PURGE_FREQUENCY)); /* Default: hourly */
+  /* 1-second tick to release expired legacy-peer burst gates per
+   * design intent #135 + #254 (one face per session toward legacy). */
+  timer_add(timer_init(&bouncer_gate_timer),
+            bounce_legacy_burst_gate_callback, 0, TT_PERIODIC, 1);
+  /* Forwarded-label expiry: closes DRAINING batches and reaps stranded
+   * PENDING/ACTIVE entries for idle clients (the lazy checks only run
+   * on client activity). */
+  timer_add(timer_init(&fwd_label_timer), fwd_label_timer_callback, 0,
+            TT_PERIODIC, 2);
   CurrentTime = time(NULL);
 
   SetMe(&me);
@@ -766,16 +1285,226 @@ int main(int argc, char **argv) {
 
   cli_lasttime(&me) = cli_since(&me) = cli_firsttime(&me) = CurrentTime;
 
+  hlc_init((uint16_t)base64toint(cli_yxx(&me)));
+
+  /* Seed MsgIdCounter from epoch milliseconds to ensure uniqueness across
+   * restarts.  9 base64 chars holds ~1.8e16; epoch ms is ~1.7e12, leaving
+   * ~10^4 years of headroom before the counter space wraps. */
+  MsgIdCounter = (unsigned long)hlc_wall_clock_ms();
+
   hAddClient(&me);
   SetIPv6(&me);
+  /* IRCv3-aware S2S framework: advertise that this server speaks
+   * IRCv3 message-tag wire extensions. Peers that understand the 'v'
+   * flag will set FLAG_IRCV3AWARE on us and gate fork-only emissions
+   * accordingly. Legacy peers ignore the unknown flag char. */
+  SetIRCv3Aware(&me);
+  /* Deliberately do NOT SetRenameCapable(&me): 'r' (FLAG_RENAME_CAPABLE)
+   * exists so this fork can recognize and propagate rename-capable
+   * non-v3 peers (X3, which advertises 'r'), not to advertise it on our
+   * own SERVER line. Fork servers apply/relay RENAME via the 'v'
+   * (IsIRCv3Aware) path, so &me stays r-less; the emit sites in
+   * s_serv.c/m_server.c only carry 'r' for the *described* server, and
+   * IsServer(&me) is false (cli_status(&me) == STAT_ME, not
+   * STAT_SERVER) so rename_legacy_blocker()'s GlobalClientList walk
+   * never even considers &me. */
 
   write_pidfile();
   init_counters();
   load_tunefile();
   geoip_init();
 
+#ifdef USE_ROCKSDB
+  /* Open the three RocksDB stores (history, metadata, webpush) in
+   * parallel.  Each DB::Open is independent — separate paths, separate
+   * env structs, separate background thread pools — so there is no
+   * shared mutable state between them.  Sequentially they take ~30s
+   * under valgrind (10s each, dominated by SST property-block reads
+   * during column-family open); in parallel the wall-clock time
+   * collapses to roughly the slowest single open.
+   *
+   * Workers only call the init function and store a return code;
+   * post-init bookkeeping (chathistory_init_callbacks(), warning
+   * logging on failure) runs serially on the main thread after join,
+   * which avoids any concern about log_write or callback-registration
+   * thread-safety. */
+  {
+    struct db_init_arg hist_arg = { NULL, 0 };
+    struct db_init_arg meta_arg = { NULL, 0 };
+    struct db_init_arg web_arg  = { NULL, 0 };
+    pthread_t hist_th, meta_th, web_th;
+    int hist_started = 0, meta_started = 0, web_started = 0;
+    uint64_t newest_row_ms = 0;   /* 0 = no history store */
+
+    if (feature_bool(FEAT_CHATHISTORY_STORE)) {
+      /* zstd compression must be configured before history_init() runs
+       * (HISTORY_MAP_SIZE_MB is the trimmer's logical cap, read live). */
+#ifdef USE_ZSTD
+      compress_init((size_t)feature_int(FEAT_COMPRESS_THRESHOLD),
+                    feature_int(FEAT_COMPRESS_LEVEL));
+#endif
+      hist_arg.path = feature_str(FEAT_CHATHISTORY_DB);
+      if (pthread_create(&hist_th, NULL, history_init_worker, &hist_arg) == 0)
+        hist_started = 1;
+      else
+        hist_arg.rc = history_init(hist_arg.path);
+    }
+
+    if (feature_bool(FEAT_CAP_draft_metadata_2)) {
+      meta_arg.path = feature_str(FEAT_METADATA_DB);
+      if (pthread_create(&meta_th, NULL, metadata_init_worker, &meta_arg) == 0)
+        meta_started = 1;
+      else
+        meta_arg.rc = metadata_lmdb_init(meta_arg.path);
+    }
+
+    if (feature_bool(FEAT_CAP_draft_webpush)) {
+      web_arg.path = feature_str(FEAT_WEBPUSH_DB);
+      if (pthread_create(&web_th, NULL, webpush_init_worker, &web_arg) == 0)
+        web_started = 1;
+      else
+        web_arg.rc = webpush_store_init(web_arg.path);
+    }
+
+    if (hist_started) pthread_join(hist_th, NULL);
+    if (meta_started) pthread_join(meta_th, NULL);
+    if (web_started)  pthread_join(web_th, NULL);
+
+    if (feature_bool(FEAT_CHATHISTORY_STORE)) {
+      if (hist_arg.rc != 0)
+        log_write(LS_SYSTEM, L_WARNING, 0,
+                  "Failed to initialize chathistory database, feature disabled");
+      else {
+        chathistory_init_callbacks();
+        /* One walk of the targets CF serves the trimmer's start (its
+         * index-gap check) and the presence boot-close below (the newest
+         * stored row). */
+        newest_row_ms = history_trim_start();
+      }
+    }
+    if (feature_bool(FEAT_CAP_draft_metadata_2) && meta_arg.rc != 0)
+      log_write(LS_SYSTEM, L_WARNING, 0,
+                "Failed to initialize metadata database");
+    if (feature_bool(FEAT_CAP_draft_webpush) && web_arg.rc != 0)
+      log_write(LS_SYSTEM, L_WARNING, 0,
+                "Failed to initialize webpush database");
+
+    /* Strict-presence: account records live on the METADATA env (#6
+     * metadata-layer replication) -- init after metadata_lmdb_init
+     * completes.  Also runs the boot-close sweep for stale open
+     * intervals.  Non-fatal: without the env, session-anchored
+     * presence remains usable in-memory. */
+    presence_set_boot_alive_hint(newest_row_ms);
+    if (presence_init() != 0 && feature_bool(FEAT_CHATHISTORY_STRICT_PRESENCE)) {
+      /* Strict presence with no account store hides every authenticated
+       * user's history behind a zero record.  Fail loud and fail open. */
+      static const char *const off[] = { "CHATHISTORY_STRICT_PRESENCE", "FALSE" };
+      log_write(LS_CONFIG, L_ERROR, 0,
+                "CHATHISTORY_STRICT_PRESENCE disabled: it needs the metadata "
+                "database (CAP_draft_metadata_2) for account presence records");
+      feature_set(NULL, off, 2);
+    }
+    timer_add(timer_init(&presence_alive_timer), presence_alive_callback, 0,
+              TT_PERIODIC, 60);
+  }
+#endif
+
+  /* Paste HTTP listeners are configured via Port { paste = yes; ssl = yes; }
+   * blocks in ircd.conf and started by add_listener() during init_conf().
+   * Paste content is stored in ml_content via history's MDBX. */
+
+  /* Initialize bouncer session registry.
+   * Always init even when FEAT_BOUNCER_ENABLE is off — connection classes
+   * with CRFLAG_BOUNCER can create sessions independently of the global flag.
+   * The init is cheap (zeroes hash tables). */
+  bounce_init();
+
+  /* draft/persistence CAP 302 value: static feature-token inventory
+   * (spec: clients MUST tolerate unknown tokens).  attach-cursor =
+   * ATTACH accepts the optional last-seen-msgid catch-up anchor. */
+  cap_set_value(CAP_DRAFT_PERSISTENCE, "attach,detach,list,attach-cursor");
+
+  /* Restore persisted bouncer sessions (ghosts + channels) from MDBX.
+   * Must run after bounce_init() and metadata_lmdb_init(), before event_loop().
+   */
+  {
+    int restored = bounce_db_restore();
+    if (restored > 0)
+      log_write(LS_SYSTEM, L_NOTICE, 0, "Bouncer: restored %d sessions from MDBX", restored);
+  }
+
+#ifdef USE_LIBKC
+  {
+    /* Initialize libkc transport — needed by webpush, local SASL, and webhooks.
+     * The Keycloak{} and Webhook{} blocks are the source of truth (with the
+     * deprecated FEAT_KEYCLOAK_x / FEAT_WEBHOOK_x features as fallback); the
+     * parser has already stashed the parsed values in sasl_conf, and we apply
+     * them right after kc_init() lands. */
+    int kc_needed = feature_bool(FEAT_CAP_draft_webpush)
+                 || feature_bool(FEAT_SASL_LOCAL)
+                 || feature_int(FEAT_WEBHOOK_PORT) > 0;
+
+    if (kc_needed) {
+      ircd_kc_adapter_init();
+      if (kc_init(ircd_kc_get_event_ops(), ircd_kc_get_log_ops()) != 0) {
+        log_write(LS_SYSTEM, L_ERROR, 0,
+                  "Failed to initialize libkc HTTP transport "
+                  "(webpush delivery, local SASL and webhooks are down)");
+      } else {
+        kc_transport_ready = 1;
+        /* Apply parsed Keycloak{} + Webhook{} blocks (or fall back to features).
+         * Re-initialises libkc's Keycloak REST API + arms local SASL on first
+         * arrival, and starts the webhook listener if configured. */
+        sasl_conf_boot_apply();
+      }
+    }
+  }
+#endif
+
+  /* draft/webpush promises delivery.  Without the libkc HTTP transport --
+   * a build without --enable-keycloak (the configure default is OFF), or
+   * kc_init() failing -- no push can ever be sent, so advertising the cap
+   * only collects registrations nobody can serve.  Refuse loudly, at a
+   * log level every deployment keeps.  (Prod 2026-09-03: the whole block
+   * above was compiled out, nothing logged, and the cap stayed on with no
+   * VAPID key for months.) */
+  if (feature_bool(FEAT_CAP_draft_webpush) && !kc_transport_ready) {
+    static const char *const off[] = { "CAP_draft_webpush", "FALSE" };
+#ifdef USE_LIBKC
+    log_write(LS_CONFIG, L_ERROR, 0,
+              "CAP_draft_webpush is on but the libkc HTTP transport failed to "
+              "initialise: draft/webpush disabled (pushes could never be sent)");
+#else
+    log_write(LS_CONFIG, L_ERROR, 0,
+              "CAP_draft_webpush is on but this build has no libkc: rebuild with "
+              "./configure --enable-keycloak (needs libcurl and libjansson); "
+              "draft/webpush disabled");
+#endif
+    feature_set(NULL, off, 2);
+  }
+
+  /* Webpush key setup is independent of the transport's health once it
+   * exists: the VAPID key and its ISUPPORT token are what clients register
+   * against.  STATS webpush reports both. */
+  if (feature_bool(FEAT_CAP_draft_webpush))
+    webpush_setup();
+
+#ifdef USE_LIBGIT2
+  /* Start gitsync timer after config is loaded */
+  gitsync_start_timer();
+#endif
+
   Debug((DEBUG_NOTICE, "Server ready..."));
   log_write(LS_SYSTEM, L_NOTICE, 0, "Server Ready");
+
+  /* Open the gate: listener sockets were created+bound during init_conf()
+   * but listen(2) was deferred so the kernel rejects (RST) any client
+   * that tries to connect during the slow tail of init (rocksdb
+   * DB::Open, bouncer restore, libkc/JWKS).  Now that all stored data
+   * is loaded and we're about to enter event_loop(), it's safe to
+   * start accepting. */
+  server_boot_complete = 1;
+  start_all_listeners();
 
   event_loop();
 

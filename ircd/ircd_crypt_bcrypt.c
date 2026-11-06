@@ -180,10 +180,11 @@ void ircd_register_crypt_bcrypt(void)
   /* Use a real tag so this mech can be selected via the normal token
    * dispatch loop in ircd_crypt(). An empty token would have matched
    * any salt (ircd_strncmp with n=0 always returns 0), causing
-   * untagged crypt(3) and libc-crypt formats ($1$, $5$, $6$) to be
-   * dispatched here and re-hashed against a freshly generated salt.
-   * Existing raw $2[aby]$ stored hashes are still verified by the
-   * explicit prefix branch after the dispatch loop. */
+   * untagged crypt(3) and libc-crypt formats ($1$, $5$, $6$) — and
+   * in this fork, $PBKDF2$ / $PBKDF2-SHA512$ — to be dispatched here
+   * and re-hashed against a freshly generated salt. Existing raw
+   * $2[abxy]$ stored hashes are still verified by the explicit prefix
+   * branch after the dispatch loop. */
   crypt_mech->crypt_token = "$BCRYPT$";
   crypt_mech->crypt_token_size = 8;
 

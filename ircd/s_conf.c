@@ -24,8 +24,11 @@
 #include "config.h"
 
 #include "s_conf.h"
+#include "sasl_conf.h"
+#include "dnsbl.h"
 #include "IPcheck.h"
 #include "class.h"
+#include "authtoken.h"
 #include "client.h"
 #include "crule.h"
 #include "ircd_crypt.h"
@@ -41,6 +44,7 @@
 #include "ircd_log.h"
 #include "ircd_reply.h"
 #include "ircd_snprintf.h"
+#include "bouncer_session.h"
 #include "ircd_string.h"
 #include "list.h"
 #include "listener.h"
@@ -49,12 +53,15 @@
 #include "numeric.h"
 #include "numnicks.h"
 #include "opercmds.h"
+#include "querycmds.h"
 #include "parse.h"
 #include "res.h"
 #include "s_auth.h"
 #include "s_bsd.h"
+#include "sasl_auth.h"
 #include "s_debug.h"
 #include "s_misc.h"
+#include "s_user.h"
 #include "send.h"
 #include "struct.h"
 #include "sys.h"
@@ -97,6 +104,11 @@ struct WebIRCConf* webircConfList;
 struct SHostConf*  shostConfList;
 /** Global list of Except blocks. */
 struct ExceptConf* exceptConfList;
+
+#ifdef USE_SSL
+/** Global list of SNI certificate configurations. */
+struct SSLCertConf* sslCertConfList;
+#endif
 
 /** Tell a user that they are banned, dumping the message from a file.
  * @param sptr Client being rejected
@@ -398,6 +410,31 @@ enum AuthorizationCheckResult attach_iline(struct Client* cptr)
     if (aconf->redirserver && !EmptyString(aconf->redirserver)) {
       send_reply(cptr, RPL_BOUNCE, aconf->redirserver, aconf->redirport);
       return ACR_NO_AUTHORIZATION;
+    }
+    /* Check if class requires SASL and SASL is unavailable from all sources.
+     * Skip if user already authenticated via SASL (IsAccount) — the check
+     * gates whether SASL *can* be offered, not whether it *was* used.
+     * Must consider: local Keycloak SASL, IAuth, dynamic P10 mechanisms,
+     * and default mechanisms (FEAT_SASL_DEFAULT_MECHANISMS for legacy X3). */
+    if (aconf->conn_class &&
+        FlagHas(&aconf->conn_class->restrictflags, CRFLAG_REQUIRE_SASL) &&
+        !IsAccount(cptr) &&
+        !sasl_local_available() &&
+        !auth_iauth_handles_sasl()) {
+      if (!get_sasl_mechanisms()) {
+        /* No dynamic mechanisms — check for legacy fallback */
+        const char *default_mechs = feature_str(FEAT_SASL_DEFAULT_MECHANISMS);
+        if (!default_mechs || !*default_mechs)
+          return ACR_SASL_UNAVAILABLE;
+        /* Default mechanisms configured — verify a SASL server is reachable */
+        const char *sasl_server = feature_str(FEAT_SASL_SERVER);
+        if (!strcmp(sasl_server, "*")) {
+          if (UserStats.servers == 0)
+            return ACR_SASL_UNAVAILABLE;
+        } else if (!find_match_server((char *)sasl_server)) {
+          return ACR_SASL_UNAVAILABLE;
+        }
+      }
     }
     if (aconf->username && !IsWebIRCUserIdent(cptr) && (aconf->flags & CONF_NOIDENTTILDE))
       SetFlag(cptr, FLAG_DOID);
@@ -886,6 +923,32 @@ struct WebIRCConf* find_webirc_conf(struct Client *cptr, char *passwd, int* stat
   return 0;
 }
 
+/** Find WebIRC configuration by host/IP match only (no password verification).
+ * This is used for async password verification - we find the matching block
+ * first, then verify the password asynchronously.
+ * @param[in] cptr Client to match WebIRC configuration against.
+ * @return Matching WebIRCConf or NULL if no match found.
+ */
+struct WebIRCConf* find_webirc_conf_by_host(struct Client *cptr)
+{
+  struct WebIRCConf *wconf;
+
+  for (wconf = webircConfList; wconf; wconf = wconf->next) {
+    if (wconf->usermask && match(wconf->usermask, cli_username(cptr)))
+      continue;
+    if (wconf->bits > 0) {
+      if (!ipmask_check(&cli_ip(cptr), &wconf->address, wconf->bits))
+        continue;
+    } else if (wconf->hostmask && match(wconf->hostmask, cli_sockhost(cptr)))
+      continue;
+
+    /* Found a matching host/IP - return it (password check deferred) */
+    return wconf;
+  }
+
+  return NULL;
+}
+
 /** Free all WebIRC configurations from #webircConfList. */
 void conf_erase_webirc_list(void)
 {
@@ -977,6 +1040,49 @@ struct SHostConf* find_shost_conf(struct Client *cptr, char *host, char *passwd,
   }
 
   return 0;
+}
+
+/** Find SpoofHost configuration by hostmask match only (no password verification).
+ * This is used for async password verification - we find the matching block
+ * first, then verify the password asynchronously.
+ * @param[in] cptr Client to match SpoofHost configuration against.
+ * @param[in] host Spoofhost to look for.
+ * @return Matching SHostConf or NULL if no match found.
+ */
+struct SHostConf* find_shost_conf_by_host(struct Client *cptr, const char *host)
+{
+  struct SHostConf* sconf;
+
+  if (!host)
+    return NULL;
+
+  for (sconf = shostConfList; sconf; sconf = sconf->next) {
+    /* Check hostmask match */
+    if (!(sconf->flags & SHFLAG_ISMASK) && strcmp(sconf->spoofhost, host))
+      continue;
+    if ((sconf->flags & SHFLAG_ISMASK) && match(sconf->spoofhost, host))
+      continue;
+
+    /* Check usermask if configured */
+    if (sconf->usermask) {
+      if (match(sconf->usermask, cli_username(cptr)) &&
+          !((sconf->flags & SHFLAG_MATCHUSER) && cli_user(cptr) &&
+            !match(sconf->usermask, cli_user(cptr)->username)))
+        continue;
+    }
+
+    /* Check IP/host match */
+    if (sconf->bits > 0) {
+      if (!ipmask_check(&cli_ip(cptr), &sconf->address, sconf->bits))
+        continue;
+    } else if (sconf->hostmask && match(sconf->hostmask, cli_sockhost(cptr)))
+      continue;
+
+    /* Found a matching host - return it (password check deferred) */
+    return sconf;
+  }
+
+  return NULL;
 }
 
 /** Free all SpoofHost configurations from #shostConfList. */
@@ -1165,11 +1271,15 @@ int read_configuration_file(void)
   conf_error = 0;
   feature_unmark(); /* unmark all features for resetting later */
   clear_nameservers(); /* clear previous list of DNS servers */
+  sasl_conf_reset_pending(); /* clear Webhook{} / Keycloak{} pending */
+  authtoken_conf_begin();    /* clear Authtoken{} pending */
   if (!init_lexer())
     return 0;
   yyparse();
   deinit_lexer();
   feature_mark(); /* reset unmarked features */
+  sasl_conf_apply(); /* push pending Webhook{}/Keycloak{} into libkc */
+  authtoken_conf_apply(); /* diff Authtoken{} services: TOKEN NEW/DEL */
   conf_already_read = 1;
   return 1;
 }
@@ -1187,6 +1297,15 @@ yyerror(const char *msg)
  if (!conf_already_read)
    fprintf(stderr, "Config parse error in file %s on line %d: %s\n", linefile, lineno, msg);
  conf_error = 1;
+}
+
+/** Get the configuration error flag.
+ * @return Non-zero if a parse error occurred during last config read.
+ */
+int
+conf_get_error_flag(void)
+{
+  return conf_error;
 }
 
 /** Attach CONF_UWORLD items to a server and everything attached to it. */
@@ -1277,6 +1396,9 @@ int rehash(struct Client *cptr, int sig)
   conf_erase_webirc_list();
   conf_erase_shost_list();
   conf_erase_except_list();
+#ifdef USE_SSL
+  clear_sslcert_confs();
+#endif
   motd_clear();
 
   /*
@@ -1285,6 +1407,7 @@ int rehash(struct Client *cptr, int sig)
   clearNickJupes();
 
   clear_quarantines();
+  dnsbl_clear_servers();
 
   class_mark_delete();
   mark_listeners_closing();
@@ -1292,6 +1415,11 @@ int rehash(struct Client *cptr, int sig)
   close_mappings();
 
   read_configuration_file();
+
+  /* Rebuild ISUPPORT tokens from current feature values and
+   * push updates to clients with draft/extended-isupport */
+  init_isupport();
+  send_isupport_update();
 
   if (sig != 2)
     restart_resolver();
@@ -1332,6 +1460,15 @@ int rehash(struct Client *cptr, int sig)
                              "K-line active for %s%s"),
                              IsUnknown(acptr) ? "Unregistered Client ":"",
                              get_client_name(acptr, SHOW_IP));
+        /* Enforcement ends the bouncer session the connection carries,
+         * as a KILL does.  The oper who asked for the rehash can be
+         * K-lined by it: once its connection has gone (CPTR_KILLED), a
+         * later match is handed no connection -- bounce_forced_exit()
+         * reads the one it is given, and this one is freed. */
+        bounce_forced_exit(ret == CPTR_KILLED ? NULL : cptr, acptr,
+                           BOUNCE_FORCED_BAN,
+                           found_g == -2 ? "G-lined" :
+                           (found_g == -3 ? "Z-lined" : "K-lined"));
         if (exit_client(cptr, acptr, &me, found_g == -2 ? "G-lined" :
             (found_g == -3 ? "Z-lined" : "K-lined")) == CPTR_KILLED)
           ret = CPTR_KILLED;
@@ -1352,6 +1489,10 @@ int rehash(struct Client *cptr, int sig)
   }
 
   auth_send_event("rehash", NULL);
+
+  /* A class or feature a live session's record stamp reads may have
+   * changed: re-stamped at the next persist tick. */
+  bounce_restamp_sessions();
 
   return ret;
 }
@@ -1555,6 +1696,14 @@ int conf_check_server(struct Client *cptr)
   if (!c_conf)
     c_conf = find_conf_byip(lp, &cli_ip(cptr), CONF_SERVER);
   /*
+   * A rehash during the handshake marks the old Connect block illegal
+   * and leaves it attached only to this link (rehash detaches confs from
+   * registered servers alone); the detach below would free it, and
+   * attach_conf() would then use the freed block.  Treat it as gone.
+   */
+  if (c_conf && IsIllegal(c_conf))
+    c_conf = NULL;
+  /*
    * detach all conf lines that got attached by attach_confs()
    */
   det_confs_butmask(cptr, 0);
@@ -1669,4 +1818,23 @@ get_client_conf(struct Client *acptr)
     }
   return NULL;
 }
+
+#ifdef USE_SSL
+/** Clear all SNI certificate configurations.
+ * Called during rehash before parsing new config.
+ */
+void clear_sslcert_confs(void)
+{
+  struct SSLCertConf *conf, *next;
+
+  for (conf = sslCertConfList; conf; conf = next) {
+    next = conf->next;
+    MyFree(conf->hostname);
+    MyFree(conf->certfile);
+    MyFree(conf->keyfile);
+    MyFree(conf);
+  }
+  sslCertConfList = NULL;
+}
+#endif /* USE_SSL */
 

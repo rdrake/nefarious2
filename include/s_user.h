@@ -14,6 +14,7 @@ struct User;
 struct Channel;
 struct MsgBuf;
 struct Flags;
+struct ConfItem;
 
 /*
  * Macros
@@ -54,6 +55,10 @@ struct Flags;
 #define ALLOWMODES_ANY	0 /**< Allow any user mode */
 #define ALLOWMODES_DEFAULT  1 /**< Only allow the subset of modes that are legit defaults */
 #define ALLOWMODES_SVSMODE 2 /**< Allow any user mode to be changed ignoring restrictions */
+#define ALLOWMODES_ALIAS_SYNC 4 /**< Alias->primary mode sync: force +o propagation */
+
+/* flags for do_oper() */
+#define OPER_FLAG_SILENT 1 /**< Suppress oper announcement, OPERMOTD, and log */
 
 /** Formatter function for send_user_info().
  * @param who Client being displayed.
@@ -67,6 +72,7 @@ typedef void (*InfoFormatter)(struct Client* who, struct Client *sptr, struct Ms
  */
 extern struct User* make_user(struct Client *cptr);
 extern void         free_user(struct User *user);
+extern void         free_user_lists(struct Client *cptr);
 extern int          register_user(struct Client* cptr, struct Client *sptr);
 
 extern void         user_count_memory(size_t* count_out, size_t* bytes_out);
@@ -74,6 +80,25 @@ extern void         user_count_memory(size_t* count_out, size_t* bytes_out);
 extern int set_nick_name(struct Client* cptr, struct Client* sptr,
                          const char* nick, int parc, char* parv[],
                          int svsnick);
+/* One-shot: the next register_user() of a remote client relays its N to
+ * IRCv3-aware links only (legacy links learn that user some other way,
+ * e.g. a BX P renumbering a face they already hold).  Every
+ * register_user() call clears it, whatever client it registers; arm it
+ * immediately before the set_nick_name() that introduces the client and
+ * clear it again when that call returns. */
+extern void set_nick_relay_withhold_legacy(void);
+extern void clear_nick_relay_withhold_legacy(void);
+/** Apply one mode-synced flag (metadata_mode_sync[]) that an account row
+ * changed to one of OUR connections of the account, the way a self MODE
+ * looks: the flag, the user counts, the client told (MODE <nick> +x, not
+ * for a held ghost), an M line to every server, and the session's local
+ * devices through the session mode mirror.  A no-op for a remote copy, a
+ * device (alias) and a connection whose flag already matches.
+ * @param[in] cptr The connection.
+ * @param[in] flag The mode flag (enum Flag).
+ * @param[in] on Nonzero to set it, zero to clear it.
+ */
+extern void umode_sync_apply(struct Client *cptr, int flag, int on);
 extern void send_umode_out(struct Client* cptr, struct Client* sptr,
                           struct Flags* old, int prop);
 extern int whisper(struct Client* source, const char* nick,
@@ -85,6 +110,27 @@ extern int hide_hostmask(struct Client *cptr);
 extern int unhide_hostmask(struct Client *cptr);
 extern int set_user_mode(struct Client *cptr, struct Client *sptr,
                          int parc, char *parv[], int allow_modes);
+extern void do_oper(struct Client* cptr, struct Client* sptr,
+                    struct ConfItem* aconf, int flags);
+extern int user_set_away(struct User *user, char *message);
+extern int away_apply(struct Client *cptr, struct Client *sptr,
+                      char *away_message, int interactive);
+/* draft/pre-away: a user whose every connection said AWAY * is stored and
+ * relayed as away "*"; only a client that did not negotiate draft/pre-away
+ * is shown FEAT_AWAY_STAR_MSG instead, at the moment we write to it. */
+extern const char *away_text_for(struct Client *viewer, const char *away);
+/* Sends CMD_AWAY to other servers, for local away changes and relays
+ * alike: substitutes FEAT_AWAY_STAR_MSG for legacy peers when away is
+ * the pre-away star.  Not the only CMD_AWAY sender: ms_away relays a
+ * legacy sender's literal "*" verbatim itself, judged by the link it
+ * arrived on.  NULL/"" away is "no longer away"; see ircd/m_away.c for
+ * the full contract (including the never-arm-s2s_alias_source rule). */
+extern void away_send_to_servers(struct Client *from, struct Client *one,
+                                 const char *away);
+extern void away_notify_common(struct Client *sptr, struct Client *one,
+                               const char *text);
+extern void away_notify_channel(struct Client *sptr, struct Channel *chptr,
+                                const char *text);
 extern int is_silenced(struct Client *sptr, struct Client *acptr, int ischanmsg);
 extern int hunt_server_cmd(struct Client *from, const char *cmd,
 			   const char *tok, struct Client *one,
@@ -96,8 +142,10 @@ extern int hunt_server_prio_cmd(struct Client *from, const char *cmd,
 				int server, int parc, char *parv[]);
 extern struct Client* next_client(struct Client* next, const char* ch);
 extern char *umode_str(struct Client *cptr);
+extern void user_apply_umode_str(struct Client *cptr, const char *modes);
 extern void send_umode(struct Client *cptr, struct Client *sptr,
                        struct Flags *old, int sendset);
+extern void send_umode_signon(struct Client *sptr);
 extern void set_snomask(struct Client *, unsigned int, int);
 extern int is_snomask(char *);
 extern int check_target_limit(struct Client *sptr, void *target, const char *name,
@@ -106,14 +154,18 @@ extern void add_target(struct Client *sptr, void *target);
 extern unsigned int umode_make_snomask(unsigned int oldmask, char *arg,
                                        int what);
 extern int send_supported(struct Client *cptr);
+extern int send_supported_batched(struct Client *cptr);
+extern struct SLink *get_isupport_lines(void);
 extern int do_nick_name(char* nick);
 
 extern void user_setcloaked(struct Client *cptr);
 
 extern void init_isupport(void);
 extern void del_isupport(const char *name);
+extern void add_isupport(const char *name);
 extern void add_isupport_s(const char *name, const char *value);
 extern void add_isupport_i(const char *name, int value);
+extern void send_isupport_update(void);
 
 #define NAMES_ALL 1 /**< List all users in channel */
 #define NAMES_VIS 2 /**< List only visible users in non-secret channels */
@@ -123,5 +175,6 @@ extern void add_isupport_i(const char *name, int value);
 void do_names(struct Client* sptr, struct Channel* chptr, int filter);
 
 extern int abort_sasl(struct Client* cptr, int timeout);
+extern void sasl_resume_registration_later(struct Client *cptr);
 
 #endif /* INCLUDED_s_user_h */

@@ -107,14 +107,17 @@
 int m_lusers(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
 {
   int longoutput = MyUser(sptr) || IsOper(sptr);
+  int lb;
   if (parc > 2)
     if (hunt_server_cmd(sptr, CMD_LUSERS, cptr, feature_int(FEAT_HIS_REMOTE),
                         "%s :%C", 2, parc, parv) != HUNTED_ISME)
       return 0;
 
+  lb = labeled_batch_start(sptr);
+
   assert(UserStats.inv_clients <= UserStats.clients + UserStats.unknowns);
 
-  send_reply(sptr, RPL_LUSERCLIENT, 
+  send_reply(sptr, RPL_LUSERCLIENT,
 	     UserStats.clients - UserStats.inv_clients + UserStats.unknowns,
 	     UserStats.inv_clients, UserStats.servers);
   if (longoutput && UserStats.opers)
@@ -123,16 +126,27 @@ int m_lusers(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
     send_reply(sptr, RPL_LUSERUNKNOWN, UserStats.unknowns);
   if (longoutput && UserStats.channels > 0)
     send_reply(sptr, RPL_LUSERCHANNELS, UserStats.channels);
+  /* RPL_LUSERME: "I have X clients" — sockets is the right unit
+   * here ("clients" implies actual connections).  Includes
+   * bouncer aliases since each alias has its own socket. */
   send_reply(sptr, RPL_LUSERME, UserStats.local_clients,
 	     UserStats.local_servers);
 
-  send_reply(sptr, RPL_CURRENT_LOCAL, UserStats.local_clients, UserStats.local_clients_max);
-  send_reply(sptr, RPL_CURRENT_GLOBAL, UserStats.clients, UserStats.clients_max);
+  /* RPL_CURRENT_LOCAL / RPL_CURRENT_GLOBAL: network-visible user
+   * count.  Excludes bouncer aliases (which are introduced via
+   * BX C, not N, so peers don't see them as users); includes
+   * held ghosts (still N-visible until destroyed).  See
+   * .claude/para/projects/rpl-localusers-announced-count.md. */
+  send_reply(sptr, RPL_CURRENT_LOCAL, UserStats.local_announced_clients,
+             UserStats.local_announced_clients_max);
+  send_reply(sptr, RPL_CURRENT_GLOBAL, UserStats.announced_clients,
+             UserStats.announced_clients_max);
 
   sendcmdto_one(&me, CMD_NOTICE, sptr, "%C :Highest connection count: "
 		"%d (%d clients)", sptr, max_connection_count,
 		max_client_count);
 
+  if (lb) labeled_batch_end(sptr);
   return 0;
 }
 
@@ -146,10 +160,13 @@ int m_lusers(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
 int ms_lusers(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
 {
   int longoutput = MyUser(sptr) || IsOper(sptr);
+  int lb;
   if (parc > 2)
     if (hunt_server_cmd(sptr, CMD_LUSERS, cptr, 0, "%s :%C", 2, parc, parv) !=
         HUNTED_ISME)
       return 0;
+
+  lb = labeled_batch_start(sptr);
 
   send_reply(sptr, RPL_LUSERCLIENT, UserStats.clients - UserStats.inv_clients,
 	     UserStats.inv_clients, UserStats.servers);
@@ -162,12 +179,19 @@ int ms_lusers(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
   send_reply(sptr, RPL_LUSERME, UserStats.local_clients,
 	     UserStats.local_servers);
 
-  send_reply(sptr, RPL_CURRENT_LOCAL, UserStats.local_clients, UserStats.local_clients_max);
-  send_reply(sptr, RPL_CURRENT_GLOBAL, UserStats.clients, UserStats.clients_max);
+  send_reply(sptr, RPL_CURRENT_LOCAL, UserStats.local_announced_clients,
+             UserStats.local_announced_clients_max);
+  send_reply(sptr, RPL_CURRENT_GLOBAL, UserStats.announced_clients,
+             UserStats.announced_clients_max);
 
+  /* Echo compact tag for labeled-response correlation */
+  if (!MyUser(sptr) && feature_bool(FEAT_P10_MESSAGE_TAGS) &&
+      cli_s2s_msgid(cli_from(sptr))[0])
+    sendcmdto_set_s2s_tags(cli_s2s_time_ms(cli_from(sptr)), cli_s2s_msgid(cli_from(sptr)));
   sendcmdto_one(&me, CMD_NOTICE, sptr, "%C :Highest connection count: "
 		"%d (%d clients)", sptr, max_connection_count,
 		max_client_count);
 
+  if (lb) labeled_batch_end(sptr);
   return 0;
 }

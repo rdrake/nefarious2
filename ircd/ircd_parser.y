@@ -50,7 +50,10 @@
 #include "s_bsd.h"
 #include "s_conf.h"
 #include "s_debug.h"
+#include "dnsbl.h"
 #include "s_misc.h"
+#include "sasl_conf.h"
+#include "authtoken.h"
 #include "send.h"
 #include "struct.h"
 #include "sys.h"
@@ -74,6 +77,9 @@ extern int init_lexer_file(char* file);
   extern struct WebIRCConf* webircConfList;
   extern struct SHostConf*  shostConfList;
   extern struct ExceptConf* exceptConfList;
+#ifdef USE_SSL
+  extern struct SSLCertConf* sslCertConfList;
+#endif
 
   int yylex(void);
   /* Now all the globals we need :/... */
@@ -95,6 +101,10 @@ extern int init_lexer_file(char* file);
   struct Privs privs_dirty;
   struct WebIRCFlags wflags;
   struct ClassRestrictFlags crestrict;
+  /* DNSBL block parsing globals */
+  char *dnsbl_domain, *dnsbl_index, *dnsbl_mark;
+  unsigned int dnsbl_bitmask;
+  int dnsbl_action, dnsbl_score;
 
 static void parse_error(char *pattern,...) {
   static char error_buffer[1024];
@@ -191,6 +201,13 @@ static void free_slist(struct SLink **link) {
 %token DNS
 %token FORWARDS
 %token WEBIRC
+%token DNSBL
+%token BITMASK
+%token SCORE
+%token ACTION
+%token BLOCK_ALL
+%token BLOCK_ANON
+%token WHITELIST
 %token IDENT
 %token USERIDENT
 %token IGNOREIDENT
@@ -234,9 +251,36 @@ static void free_slist(struct SLink **link) {
 %token SWHOIS
 %token ENABLEOPTIONS
 %token TRUSTACCOUNT
+%token WEBSOCKET
+%token PASTE
+%token AUTODETECT
+%token CERTIFICATE
+%token KEY
+%token REQUIRE_SASL
+%token BOUNCER
+%token WEBHOOK
+%token AUTHTOKEN
+%token KEYCLOAK
+%token SECRET
+%token URL
+%token REALM
+%token CLIENT_ID
+%token CLIENT_SECRET
+%token ISSUER
+%token ALLOWED_CLIENTS
+%token INSECURE_TOKEN_VALIDATION
+%token PATH
+/* T_ prefix avoids collision with config.h's MAXCONNECTIONS (= 4096).
+ * Conf keyword stays "MAXCONNECTIONS" via the explicit lexer entry. */
+%token T_MAXCONNECTIONS
+%token MAXREQUESTSIZE
+%token QUEUEMAX
+%token BATCHSIZE
+%token SIGNATUREWINDOW
+%token LEGACYSECRET
 /* and now a lot of privileges... */
 %token TPRIV_CHAN_LIMIT TPRIV_MODE_LCHAN TPRIV_DEOP_LCHAN TPRIV_WALK_LCHAN
-%token TPRIV_LOCAL_KILL TPRIV_REHASH TPRIV_RESTART TPRIV_DIE
+%token TPRIV_LOCAL_KILL TPRIV_REHASH TPRIV_RESTART TPRIV_GITSYNC TPRIV_DIE
 %token TPRIV_LOCAL_GLINE TPRIV_LOCAL_JUPE TPRIV_LOCAL_BADCHAN
 %token TPRIV_LOCAL_OPMODE TPRIV_OPMODE TPRIV_SET TPRIV_WHOX TPRIV_BADCHAN
 %token TPRIV_SEE_CHAN TPRIV_SHOW_INVIS TPRIV_SHOW_ALL_INVIS TPRIV_PROPAGATE
@@ -266,7 +310,9 @@ block: adminblock | generalblock | classblock | connectblock |
        uworldblock | operblock | portblock | jupeblock | clientblock |
        killblock | cruleblock | motdblock | featuresblock | quarantineblock |
        pseudoblock | iauthblock | forwardsblock | webircblock | spoofhostblock |
-       exceptblock | include | error ';';
+       exceptblock | sslblock | dnsblblock |
+       webhookblock | keycloakblock | authtokenblock |
+       include | error ';';
 
 /* The timespec, sizespec and expr was ripped straight from
  * ircd-hybrid-7. */
@@ -518,7 +564,8 @@ classitems: classitem classitems | classitem;
 classitem: classname | classpingfreq | classconnfreq | classmaxlinks |
            classsendq | classrecvq | classusermode | classmaxchans | priv |
            classsnomask | classajoinchan | classajoinnotice | classrestrictjoin |
-           classrestrictpm | classrestrictumode | classfakelagmin | classfakelagfactor;
+           classrestrictpm | classrestrictumode | classrequiresasl |
+           classbouncer | classfakelagmin | classfakelagfactor;
 classname: NAME '=' QSTRING ';'
 {
   MyFree(name);
@@ -595,6 +642,20 @@ classrestrictumode: RESTRICT_UMODE '=' YES ';'
 } | RESTRICT_UMODE '=' NO ';'
 {
   FlagClr(&crestrict, CRFLAG_UMODE);
+};
+classrequiresasl: REQUIRE_SASL '=' YES ';'
+{
+  FlagSet(&crestrict, CRFLAG_REQUIRE_SASL);
+} | REQUIRE_SASL '=' NO ';'
+{
+  FlagClr(&crestrict, CRFLAG_REQUIRE_SASL);
+};
+classbouncer: BOUNCER '=' YES ';'
+{
+  FlagSet(&crestrict, CRFLAG_BOUNCER);
+} | BOUNCER '=' NO ';'
+{
+  FlagClr(&crestrict, CRFLAG_BOUNCER);
 };
 
 connectblock: CONNECT
@@ -883,6 +944,7 @@ privtype: TPRIV_CHAN_LIMIT { $$ = PRIV_CHAN_LIMIT; } |
           TPRIV_LOCAL_KILL { $$ = PRIV_LOCAL_KILL; } |
           TPRIV_REHASH { $$ = PRIV_REHASH; } |
           TPRIV_RESTART { $$ = PRIV_RESTART; } |
+          TPRIV_GITSYNC { $$ = PRIV_GITSYNC; } |
           TPRIV_DIE { $$ = PRIV_DIE; } |
           GLINE { $$ = PRIV_GLINE; } |
           TPRIV_LOCAL_GLINE { $$ = PRIV_LOCAL_GLINE; } |
@@ -944,6 +1006,22 @@ address_family:
 portblock: PORT '{' portitems '}' ';' {
   struct ListenerFlags flags_here;
   struct SLink *link;
+  int paste_invalid = 0;
+  if (FlagHas(&listen_flags, LISTEN_PASTE)) {
+    if (!FlagHas(&listen_flags, LISTEN_SSL)) {
+      parse_error("Port block has paste enabled but ssl is not set; paste requires ssl = yes.");
+      paste_invalid = 1;
+    }
+    if (FlagHas(&listen_flags, LISTEN_WEBSOCKET_AUTO)) {
+      parse_error("Port block cannot combine paste with websocket = autodetect; "
+                  "use websocket = yes (upgrade detection is HTTP-header based).");
+      paste_invalid = 1;
+    }
+    if (FlagHas(&listen_flags, LISTEN_SERVER)) {
+      parse_error("Port block cannot combine paste with server.");
+      paste_invalid = 1;
+    }
+  }
   if (hosts == NULL) {
     struct SLink *link;
     link = make_link();
@@ -952,7 +1030,7 @@ portblock: PORT '{' portitems '}' ';' {
     link->next = hosts;
     hosts = link;
   }
-  for (link = hosts; link != NULL; link = link->next) {
+  for (link = paste_invalid ? NULL : hosts; link != NULL; link = link->next) {
     memcpy(&flags_here, &listen_flags, sizeof(flags_here));
     switch (link->flags & (USE_IPV4 | USE_IPV6)) {
     case USE_IPV4:
@@ -977,7 +1055,7 @@ portblock: PORT '{' portitems '}' ';' {
   port = 0;
 };
 portitems: portitem portitems | portitem;
-portitem: portnumber | portvhost | portvhostnumber | portmask | portserver | porthidden | portssl;
+portitem: portnumber | portvhost | portvhostnumber | portmask | portserver | porthidden | portssl | portwebsocket | portpaste;
 portnumber: PORT '=' address_family NUMBER ';'
 {
   if ($4 < 1 || $4 > 65535) {
@@ -1046,6 +1124,33 @@ portssl: SSLTOK '=' YES ';'
 } | SSLTOK '=' NO ';'
 {
   FlagClr(&listen_flags, LISTEN_SSL);
+}
+
+portwebsocket: WEBSOCKET '=' YES ';'
+{
+  FlagSet(&listen_flags, LISTEN_WEBSOCKET);
+  FlagClr(&listen_flags, LISTEN_WEBSOCKET_AUTO);
+} | WEBSOCKET '=' NO ';'
+{
+  FlagClr(&listen_flags, LISTEN_WEBSOCKET);
+  FlagClr(&listen_flags, LISTEN_WEBSOCKET_AUTO);
+} | WEBSOCKET '=' AUTODETECT ';'
+{
+  FlagSet(&listen_flags, LISTEN_WEBSOCKET_AUTO);
+  FlagClr(&listen_flags, LISTEN_WEBSOCKET);
+}
+
+portpaste: PASTE '=' YES ';'
+{
+#ifdef USE_SSL
+  FlagSet(&listen_flags, LISTEN_PASTE);
+#else
+  parse_error("Port block has paste enabled but I'm not built with SSL.  Check ./configure syntax/output.");
+  FlagClr(&listen_flags, LISTEN_PASTE);
+#endif /* USE_SSL */
+} | PASTE '=' NO ';'
+{
+  FlagClr(&listen_flags, LISTEN_PASTE);
 }
 
 clientblock: CLIENT
@@ -1712,6 +1817,8 @@ spoofhostblock : SPOOFHOST QSTRING
     parse_error("Missing host(s) in spoofhost block");
   else if (spoofhost == NULL)
     parse_error("Missing spoofhost in spoofhost block");
+  else if (!valid_spoofhost(spoofhost, (flags & SHFLAG_ISMASK)))
+    parse_error("Invalid spoofhost '%s' in spoofhost block", spoofhost);
   else for (link = hosts; link != NULL; link = link->next) {
     sconf = (struct SHostConf*) MyCalloc(1, sizeof(*sconf));
     if (!(flags & SHFLAG_NOPASS))
@@ -1899,7 +2006,273 @@ exceptlistdelay: LISTDELAY '=' YES ';'
   flags &= ~EFLAG_LISTDELAY;
 };
 
+dnsblblock: DNSBL
+{
+  dnsbl_domain = dnsbl_index = dnsbl_mark = NULL;
+  dnsbl_bitmask = 0;
+  dnsbl_action = DNSBL_ACT_MARK;
+  dnsbl_score = 0;
+} '{' dnsblitems '}' ';'
+{
+  if (dnsbl_domain == NULL)
+    parse_error("Missing name in DNSBL block");
+  else {
+    dnsbl_add_server(dnsbl_domain, dnsbl_index, dnsbl_bitmask,
+                     dnsbl_action, dnsbl_mark, dnsbl_score);
+  }
+  MyFree(dnsbl_domain);
+  MyFree(dnsbl_index);
+  MyFree(dnsbl_mark);
+  dnsbl_domain = dnsbl_index = dnsbl_mark = NULL;
+  dnsbl_bitmask = 0;
+  dnsbl_action = DNSBL_ACT_MARK;
+  dnsbl_score = 0;
+};
+dnsblitems: dnsblitem dnsblitems | dnsblitem;
+dnsblitem: dnsblname | dnsblindex | dnsblbitmask | dnsblaction | dnsblmark | dnsblscore;
+dnsblname: NAME '=' QSTRING ';'
+{
+  MyFree(dnsbl_domain);
+  dnsbl_domain = $3;
+};
+dnsblindex: HOST '=' QSTRING ';'
+{
+  /* HOST used as "index" for reply values, e.g., "2,3,5" */
+  MyFree(dnsbl_index);
+  dnsbl_index = $3;
+};
+dnsblbitmask: BITMASK '=' expr ';'
+{
+  dnsbl_bitmask = $3;
+};
+dnsblaction: ACTION '=' MARK ';'
+{
+  dnsbl_action = DNSBL_ACT_MARK;
+} | ACTION '=' BLOCK_ALL ';'
+{
+  dnsbl_action = DNSBL_ACT_BLOCK_ALL;
+} | ACTION '=' BLOCK_ANON ';'
+{
+  dnsbl_action = DNSBL_ACT_BLOCK_ANON;
+} | ACTION '=' WHITELIST ';'
+{
+  dnsbl_action = DNSBL_ACT_WHITELIST;
+};
+dnsblmark: REASON '=' QSTRING ';'
+{
+  /* REASON is used as the mark string */
+  MyFree(dnsbl_mark);
+  dnsbl_mark = $3;
+};
+dnsblscore: SCORE '=' expr ';'
+{
+  dnsbl_score = $3;
+};
+
 include: INCLUDE QSTRING ';'
 {
   init_lexer_file($2);
 }
+
+sslblock: SSLTOK '{' sslcertitems '}' ';';
+sslcertitems: sslcertitems sslcertitem | sslcertitem;
+sslcertitem: QSTRING
+{
+  MyFree(host);
+  host = $1;
+  MyFree(pass);
+  pass = NULL;
+  MyFree(origin);
+  origin = NULL;
+} '{' sslcertprops '}' ';'
+{
+#ifdef USE_SSL
+  struct SSLCertConf *conf;
+  if (host == NULL)
+    parse_error("Missing hostname in SSL block");
+  else if (pass == NULL)
+    parse_error("Missing certificate in SSL block for %s", host);
+  else if (origin == NULL)
+    parse_error("Missing key in SSL block for %s", host);
+  else {
+    conf = (struct SSLCertConf*) MyCalloc(1, sizeof(*conf));
+    conf->hostname = host;
+    conf->certfile = pass;
+    conf->keyfile = origin;
+    conf->next = sslCertConfList;
+    sslCertConfList = conf;
+    host = pass = origin = NULL;
+  }
+#else
+  parse_error("SSL block defined but SSL is not enabled");
+#endif
+  MyFree(host);
+  MyFree(pass);
+  MyFree(origin);
+  host = pass = origin = NULL;
+};
+sslcertprops: sslcertprops sslcertprop | sslcertprop;
+sslcertprop: sslcertfile | sslkeyfile;
+sslcertfile: CERTIFICATE '=' QSTRING ';'
+{
+  MyFree(pass);
+  pass = $3;
+};
+sslkeyfile: KEY '=' QSTRING ';'
+{
+  MyFree(origin);
+  origin = $3;
+};
+
+/* ---------------------------------------------------------------- */
+/* Webhook { } — Keycloak webhook listener configuration.           */
+/* Replaces FEAT_WEBHOOK_PORT/FEAT_WEBHOOK_SECRET.  Driven by libkc; */
+/* see ircd/sasl_conf.c for state management.                       */
+/* ---------------------------------------------------------------- */
+webhookblock: WEBHOOK
+{
+  sasl_conf_webhook_begin();
+} '{' webhookitems '}' ';' ;
+webhookitems: webhookitem webhookitems | webhookitem;
+webhookitem: webhookport | webhooksecret | webhookvhost | webhookpath
+           | webhookmaxconn | webhookmaxreqsize
+           | webhookqueuemax | webhookbatchsize
+           | webhooksigwindow | webhooklegacysecret | webhookrealm;
+webhookport: PORT '=' NUMBER ';'
+{
+  sasl_conf_webhook_set_port($3);
+};
+webhooksecret: SECRET '=' QSTRING ';'
+{
+  sasl_conf_webhook_set_secret($3);
+  MyFree($3);
+};
+webhookvhost: VHOST '=' QSTRING ';'
+{
+  sasl_conf_webhook_set_vhost($3);
+  MyFree($3);
+};
+webhookpath: PATH '=' QSTRING ';'
+{
+  sasl_conf_webhook_set_path($3);
+  MyFree($3);
+};
+webhookmaxconn: T_MAXCONNECTIONS '=' NUMBER ';'
+{
+  sasl_conf_webhook_set_max_connections($3);
+};
+webhookmaxreqsize: MAXREQUESTSIZE '=' sizespec ';'
+{
+  sasl_conf_webhook_set_max_request_size($3);
+};
+webhookqueuemax: QUEUEMAX '=' NUMBER ';'
+{
+  sasl_conf_webhook_set_queue_max($3);
+};
+webhookbatchsize: BATCHSIZE '=' NUMBER ';'
+{
+  sasl_conf_webhook_set_batch_size($3);
+};
+webhooksigwindow: SIGNATUREWINDOW '=' NUMBER ';'
+{
+  sasl_conf_webhook_set_signature_window($3);
+};
+webhooklegacysecret: LEGACYSECRET '=' yesorno ';'
+{
+  sasl_conf_webhook_set_legacy_secret($3);
+};
+webhookrealm: REALM '=' QSTRING ';'
+{
+  sasl_conf_webhook_set_realm($3);
+  MyFree($3);
+};
+
+/* ---------------------------------------------------------------- */
+/* Authtoken "<service key>" { } — IRCv3 draft/authtoken external    */
+/* service: url, description, and the validator credential (pass     */
+/* and/or host masks).  One block per service; see ircd/authtoken.c. */
+/* ---------------------------------------------------------------- */
+authtokenblock: AUTHTOKEN QSTRING
+{
+  authtoken_conf_service($2);
+  MyFree($2);
+} '{' authtokenitems '}' ';'
+{
+  if (!authtoken_conf_end())
+    parse_error("Invalid Authtoken block (see the config log)");
+};
+authtokenitems: authtokenitem authtokenitems | authtokenitem;
+authtokenitem: authtokenurl | authtokendesc | authtokenpass | authtokenhost | authtokenkey;
+authtokenurl: URL '=' QSTRING ';'
+{
+  authtoken_conf_url($3);
+  MyFree($3);
+};
+authtokendesc: DESCRIPTION '=' QSTRING ';'
+{
+  authtoken_conf_description($3);
+  MyFree($3);
+};
+authtokenpass: PASS '=' QSTRING ';'
+{
+  authtoken_conf_pass($3);
+  MyFree($3);
+};
+authtokenhost: HOST '=' QSTRING ';'
+{
+  authtoken_conf_host($3);
+  MyFree($3);
+};
+authtokenkey: KEY '=' QSTRING ';'
+{
+  authtoken_conf_key($3);
+  MyFree($3);
+};
+
+/* ---------------------------------------------------------------- */
+/* Keycloak { } — Keycloak REST API configuration.                  */
+/* Replaces FEAT_KEYCLOAK_URL/REALM/CLIENT_ID/CLIENT_SECRET.        */
+/* ---------------------------------------------------------------- */
+keycloakblock: KEYCLOAK
+{
+  sasl_conf_keycloak_begin();
+} '{' keycloakitems '}' ';' ;
+keycloakitems: keycloakitem keycloakitems | keycloakitem;
+keycloakitem: keycloakurl | keycloakrealm
+            | keycloakclientid | keycloakclientsecret
+            | keycloakissuer | keycloakallowedclients
+            | keycloakinsecure;
+keycloakurl: URL '=' QSTRING ';'
+{
+  sasl_conf_keycloak_set_url($3);
+  MyFree($3);
+};
+keycloakrealm: REALM '=' QSTRING ';'
+{
+  sasl_conf_keycloak_set_realm($3);
+  MyFree($3);
+};
+keycloakclientid: CLIENT_ID '=' QSTRING ';'
+{
+  sasl_conf_keycloak_set_client_id($3);
+  MyFree($3);
+};
+keycloakclientsecret: CLIENT_SECRET '=' QSTRING ';'
+{
+  sasl_conf_keycloak_set_client_secret($3);
+  MyFree($3);
+};
+keycloakissuer: ISSUER '=' QSTRING ';'
+{
+  sasl_conf_keycloak_set_issuer($3);
+  MyFree($3);
+};
+keycloakallowedclients: ALLOWED_CLIENTS '=' QSTRING ';'
+{
+  sasl_conf_keycloak_set_allowed_clients($3);
+  MyFree($3);
+};
+keycloakinsecure: INSECURE_TOKEN_VALIDATION '=' yesorno ';'
+{
+  sasl_conf_keycloak_set_insecure_token_validation($3);
+};

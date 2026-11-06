@@ -24,6 +24,7 @@
 #include "config.h"
 
 #include "zline.h"
+#include "bouncer_session.h"
 #include "channel.h"
 #include "client.h"
 #include "ircd.h"
@@ -190,12 +191,24 @@ do_zline(struct Client *cptr, struct Client *sptr, struct Zline *zline)
       sendto_opmask_butone_global(&me, SNO_GLINE, "Z-line active for %s",
                            get_client_name(acptr, SHOW_IP));
 
-      /* and get rid of him */
-      if ((tval = exit_client_msg(cptr, acptr, &me, "Z-lined%s%s%s",
-          (!feature_bool(FEAT_HIS_ZLINE_REASON) ? " (" : ""),
-          (!feature_bool(FEAT_HIS_ZLINE_REASON) ? zline->zl_reason : ""),
-          (!feature_bool(FEAT_HIS_ZLINE_REASON) ? ")" : ""))))
-        retval = tval; /* retain killed status */
+      /* and get rid of him -- and of the bouncer session his connection
+       * carries: enforcement ends it, as a KILL does */
+      {
+        char reason[BUFSIZE];
+
+        ircd_snprintf(0, reason, sizeof(reason), "Z-lined%s%s%s",
+            (!feature_bool(FEAT_HIS_ZLINE_REASON) ? " (" : ""),
+            (!feature_bool(FEAT_HIS_ZLINE_REASON) ? zline->zl_reason : ""),
+            (!feature_bool(FEAT_HIS_ZLINE_REASON) ? ")" : ""));
+        /* An oper's own Z-line can match the oper: once its connection,
+         * the one being handled, has gone (CPTR_KILLED), a later match is
+         * handed no connection -- bounce_forced_exit() reads the one it
+         * is given, and this one is freed. */
+        bounce_forced_exit(retval == CPTR_KILLED ? NULL : cptr, acptr,
+                           BOUNCE_FORCED_BAN, reason);
+        if ((tval = exit_client(cptr, acptr, &me, reason)))
+          retval = tval; /* retain killed status */
+      }
     }
   }
   return retval;

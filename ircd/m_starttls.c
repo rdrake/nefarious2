@@ -87,12 +87,14 @@
 #include "handlers.h"
 #include "hash.h"
 #include "ircd.h"
+#include "ircd_features.h"
 #include "ircd_log.h"
 #include "ircd_reply.h"
 #include "ircd_string.h"
 #include "numeric.h"
 #include "numnicks.h"
 #include "send.h"
+#include "ssl.h"
 
 /* #include <assert.h> -- Now using assert in ircd_log.h */
 
@@ -101,6 +103,14 @@ int m_starttls(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
 #ifndef USE_SSL
   return m_unregistered(cptr, sptr, parc, parv);
 #else
+  /* The IRCv3 `tls` cap is deprecated (STS replaces it).  The command
+   * only exists while an operator turns CAP_tls on; otherwise it is as
+   * unknown as any other command.  Never over WebSocket: the frame and
+   * fragment buffers would carry plaintext bytes across the upgrade. */
+  if (!feature_bool(FEAT_CAP_tls))
+    return send_reply(sptr, ERR_UNKNOWNCOMMAND, "STARTTLS");
+  if (IsWebSocket(sptr))
+    return send_reply(sptr, ERR_STARTTLS, "STARTTLS failed. Not available on WebSocket connections.");
   if (cli_socket(sptr).ssl || IsSSL(sptr))
     return send_reply(sptr, ERR_STARTTLS, "STARTTLS failed. Already using TLS.");
 
@@ -121,8 +131,11 @@ int m_starttls(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
   if (ssl_is_init_finished(cli_socket(cptr).ssl))
   {
     char *sslfp = ssl_get_fingerprint(cli_socket(cptr).ssl);
-    if (sslfp)
+    if (sslfp) {
       ircd_strncpy(cli_sslclifp(cptr), sslfp, BUFSIZE+1);
+      if (feature_bool(FEAT_CERT_EXPIRY_TRACKING))
+        cli_sslcliexp(cptr) = ssl_get_cert_expiry(cli_socket(cptr).ssl);
+    }
   }
 #endif
   return 0;

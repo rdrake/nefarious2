@@ -15,6 +15,7 @@
 
 struct Client;
 struct ConfItem;
+struct Event;
 struct Listener;
 struct MsgQ;
 struct irc_in_addr;
@@ -60,9 +61,11 @@ extern struct irc_sockaddr VirtualHost_dns_v6;
  * Proto types
  */
 extern unsigned int deliver_it(struct Client *cptr, struct MsgQ *buf);
+extern int ws_flush_txrem(struct Client *cptr, unsigned int *wrote_out);
 extern int connect_server(struct ConfItem* aconf, struct Client* by);
 extern int  net_close_unregistered_connections(struct Client* source);
 extern void close_connection(struct Client *cptr);
+extern int exit_dead_client(struct Client *cptr, const char *dflt);
 #ifdef USE_SSL
 extern void add_connection(struct Listener* listener, int fd, void *ssl);
 #else
@@ -73,5 +76,6 @@ extern void init_server_identity(void);
 extern void close_connections(int close_stderr);
 extern int  init_connection_limits(void);
 extern void update_write(struct Client* cptr);
+extern void client_sock_callback(struct Event* ev);
 
 #endif /* INCLUDED_s_bsd_h */

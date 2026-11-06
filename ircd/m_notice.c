@@ -81,6 +81,7 @@
  */
 #include "config.h"
 
+#include "bouncer_session.h"
 #include "client.h"
 #include "hash.h"
 #include "ircd.h"
@@ -89,6 +90,7 @@
 #include "ircd_log.h"
 #include "ircd_relay.h"
 #include "ircd_reply.h"
+#include "ircd_snprintf.h"
 #include "ircd_string.h"
 #include "mark.h"
 #include "match.h"
@@ -105,6 +107,8 @@
 #if !defined(XXX_BOGUS_TEMP_HACK)
 #include "handlers.h"
 #endif
+
+extern int multiline_add_message(struct Client *sptr, const char *target, const char *text, int concat, int is_notice);
 
 /*
  * mr_notice - Pre-registration message handler to catch CTCP VERSION reply
@@ -145,7 +149,16 @@ int mr_notice(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
                                "K-line active for %s%s",
                                IsUnknown(sptr) ? "Unregistered Client ":"",
                                get_client_name(sptr, SHOW_IP));
-          return exit_client_msg(cptr, sptr, &me, "Banned Client: %s", cli_version(sptr));
+          {
+            char reason[BUFSIZE];
+
+            /* Enforcement ends the bouncer session the connection
+             * carries, as a KILL does. */
+            ircd_snprintf(0, reason, sizeof(reason), "Banned Client: %s",
+                          cli_version(sptr));
+            bounce_forced_exit(cptr, sptr, BOUNCE_FORCED_BAN, reason);
+            return exit_client(cptr, sptr, &me, reason);
+          }
         }
       }
       return 0;
@@ -177,6 +190,30 @@ int m_notice(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
 
   if (parc < 2 || EmptyString(parv[1]))
     return send_reply(sptr, ERR_NORECIPIENT, MSG_NOTICE);
+
+  /*
+   * Check for multiline batch interception (draft/multiline).
+   * Must be checked BEFORE the empty-text check so that blank lines
+   * in a multiline batch can reach multiline_add_message() for validation.
+   */
+  /* Lines tagged with a FAILed batch's ref are ignored per spec --
+   * without this they leaked into the target as ordinary messages. */
+  if (cli_msg_batch_tag(sptr)[0] != '\0'
+      && cli_ml_dead_batch_id(sptr)[0] != '\0'
+      && strcmp(cli_msg_batch_tag(sptr), cli_ml_dead_batch_id(sptr)) == 0
+      && strcmp(cli_msg_batch_tag(sptr), cli_ml_batch_id(sptr)) != 0)
+    return 0;
+
+  if (cli_msg_batch_tag(sptr)[0] != '\0' && cli_ml_batch_id(sptr)[0] != '\0') {
+    if (strcmp(cli_msg_batch_tag(sptr), cli_ml_batch_id(sptr)) == 0) {
+      return multiline_add_message(sptr, parv[1],
+               (parc >= 3) ? parv[parc - 1] : NULL, cli_msg_concat(sptr), 1);
+    } else {
+      send_fail(sptr, "BATCH", "MULTILINE_INVALID", NULL,
+                "Batch tag does not match active multiline batch");
+      return 0;
+    }
+  }
 
   if (parc < 3 || EmptyString(parv[parc - 1]))
     return send_reply(sptr, ERR_NOTEXTTOSEND);
@@ -232,7 +269,16 @@ int m_notice(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
                                "K-line active for %s%s",
                                IsUnknown(sptr) ? "Unregistered Client ":"",
                                get_client_name(sptr, SHOW_IP));
-          return exit_client_msg(cptr, sptr, &me, "Banned Client: %s", cli_version(sptr));
+          {
+            char reason[BUFSIZE];
+
+            /* Enforcement ends the bouncer session the connection
+             * carries, as a KILL does. */
+            ircd_snprintf(0, reason, sizeof(reason), "Banned Client: %s",
+                          cli_version(sptr));
+            bounce_forced_exit(cptr, sptr, BOUNCE_FORCED_BAN, reason);
+            return exit_client(cptr, sptr, &me, reason);
+          }
         }
       }
       return 0;
@@ -320,6 +366,26 @@ int mo_notice(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
 
   if (parc < 2 || EmptyString(parv[1]))
     return send_reply(sptr, ERR_NORECIPIENT, MSG_NOTICE);
+
+  /* Multiline batch interception for NOTICE */
+  /* Lines tagged with a FAILed batch's ref are ignored per spec --
+   * without this they leaked into the target as ordinary messages. */
+  if (cli_msg_batch_tag(sptr)[0] != '\0'
+      && cli_ml_dead_batch_id(sptr)[0] != '\0'
+      && strcmp(cli_msg_batch_tag(sptr), cli_ml_dead_batch_id(sptr)) == 0
+      && strcmp(cli_msg_batch_tag(sptr), cli_ml_batch_id(sptr)) != 0)
+    return 0;
+
+  if (cli_msg_batch_tag(sptr)[0] != '\0' && cli_ml_batch_id(sptr)[0] != '\0') {
+    if (strcmp(cli_msg_batch_tag(sptr), cli_ml_batch_id(sptr)) == 0) {
+      return multiline_add_message(sptr, parv[1],
+               (parc >= 3) ? parv[parc - 1] : NULL, cli_msg_concat(sptr), 1);
+    } else {
+      send_fail(sptr, "BATCH", "MULTILINE_INVALID", NULL,
+                "Batch tag does not match active multiline batch");
+      return 0;
+    }
+  }
 
   if (parc < 3 || EmptyString(parv[parc - 1]))
     return send_reply(sptr, ERR_NOTEXTTOSEND);

@@ -34,6 +34,7 @@
 #include "ircd.h"
 #include "ircd_log.h"
 #include "s_debug.h"
+#include "thread_pool.h"
 
 /* #include <assert.h> -- Now using assert in ircd_log.h */
 #include <errno.h>
@@ -269,12 +270,23 @@ engine_loop(struct Generators* gen)
   struct Socket *sock;
 
   while (running) {
+    /* Engine errors deferred since the last pass (socket_error()) */
+    socket_run_errors();
+
     read_set = global_read_set; /* all hail structure copy!! */
     write_set = global_write_set;
 
     /* set up the sleep time */
     wait.tv_sec = timer_next(gen) ? (timer_next(gen) - CurrentTime) : -1;
     wait.tv_usec = 0;
+    /* select() below passes NULL (infinite) when tv_sec < 0.  An OVERDUE
+     * next-timer makes (timer_next - CurrentTime) negative, which would then
+     * be sentinel'd to infinite — a quiet node sleeps forever, timer never
+     * fires (the engine_epoll coma class).  Clamp an overdue timer to 0
+     * (poll now); the no-timers case keeps tv_sec = -1 (the infinite
+     * sentinel) untouched. */
+    if (timer_next(gen) && wait.tv_sec < 0)
+      wait.tv_sec = 0;
 
     Debug((DEBUG_INFO, "select: delay: %Tu (%Tu) %Tu", timer_next(gen),
 	   CurrentTime, wait.tv_sec));
@@ -407,6 +419,7 @@ engine_loop(struct Generators* gen)
     }
 
     timer_run(); /* execute any pending timers */
+    thread_pool_poll(); /* process completed async tasks */
   }
 }
 

@@ -54,6 +54,12 @@ enum ListenerFlag {
   LISTEN_IPV6,
   /** Port is SSL enabled. */
   LISTEN_SSL,
+  /** Port accepts WebSocket connections. */
+  LISTEN_WEBSOCKET,
+  /** Port auto-detects WebSocket vs plain IRC connections. */
+  LISTEN_WEBSOCKET_AUTO,
+  /** Port serves the multiline-paste HTTP/TLS service. */
+  LISTEN_PASTE,
   /** Sentinel for counting listener flags. */
   LISTEN_LAST_FLAG
 };
@@ -79,18 +85,24 @@ struct Listener {
 #define listener_server(LISTENER) FlagHas(&(LISTENER)->flags, LISTEN_SERVER)
 #define listener_active(LISTENER) FlagHas(&(LISTENER)->flags, LISTEN_ACTIVE)
 #define listener_ssl(LISTENER)    FlagHas(&(LISTENER)->flags, LISTEN_SSL)
+#define listener_websocket(LISTENER) FlagHas(&(LISTENER)->flags, LISTEN_WEBSOCKET)
+#define listener_websocket_auto(LISTENER) FlagHas(&(LISTENER)->flags, LISTEN_WEBSOCKET_AUTO)
+#define listener_paste(LISTENER)  FlagHas(&(LISTENER)->flags, LISTEN_PASTE)
 
-extern void        add_listener(int port, const char* vaddr_ip, 
+extern struct Listener *ListenerPollList;
+extern void        add_listener(int port, const char* vaddr_ip,
                                 const char* mask,
                                 const struct ListenerFlags *flags);
 extern void        close_listener(struct Listener* listener);
 extern void        close_listeners(void);
+extern void        stop_listeners(void);
 extern void        count_listener_memory(int* count_out, size_t* size_out);
 extern const char* get_listener_name(const struct Listener* listener);
 extern void        mark_listeners_closing(void);
 extern void show_ports(struct Client* client, const struct StatDesc* sd,
                        char* param);
 extern void        release_listener(struct Listener* listener);
+extern void        start_all_listeners(void);
 
 #endif /* INCLUDED_listener_h */
 

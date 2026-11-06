@@ -24,8 +24,13 @@
 #include "config.h"
 
 #include "parse.h"
+#include "bouncer_session.h"
+#include "capab.h"
 #include "class.h"
+#include "crdt_hlc.h"
+#include "authtoken.h"
 #include "client.h"
+#include "forwarded_label.h"
 #include "channel.h"
 #include "handlers.h"
 #include "hash.h"
@@ -33,6 +38,7 @@
 #include "ircd_alloc.h"
 #include "ircd_chattr.h"
 #include "ircd_features.h"
+#include "fakelag.h"
 #include "ircd_log.h"
 #include "ircd_reply.h"
 #include "ircd_string.h"
@@ -273,7 +279,7 @@ struct Message msgtab[] = {
     TOK_PING,
     0, MAXPARA, MFLG_SLOW | MFLG_NOSHUN, 0, NULL,
     /* UNREG, CLIENT, SERVER, OPER, SERVICE */
-    { m_unregistered, m_ping, ms_ping, mo_ping, m_ignore },
+    { m_ping, m_ping, ms_ping, mo_ping, m_ignore },
     ""
   },
   {
@@ -313,7 +319,7 @@ struct Message msgtab[] = {
     TOK_AWAY,
     0, MAXPARA, MFLG_SLOW, 0, NULL,
     /* UNREG, CLIENT, SERVER, OPER, SERVICE */
-    { m_unregistered, m_away, ms_away, m_away, m_ignore },
+    { mu_away, m_away, ms_away, m_away, m_ignore },
     "[:<reason>] - Marks yourself as away, or back."
   },
   {
@@ -525,6 +531,14 @@ struct Message msgtab[] = {
     "- Returns information about the local server"
   },
   {
+    MSG_ISUPPORT,
+    TOK_ISUPPORT,
+    0, MAXPARA, MFLG_SLOW | MFLG_UNREG, 0, NULL,
+    /* UNREG, CLIENT, SERVER, OPER, SERVICE */
+    { m_isupport, m_isupport, m_ignore, m_isupport, m_ignore },
+    "- Returns ISUPPORT tokens (requires draft/extended-isupport cap)"
+  },
+  {
     MSG_MOTD,
     TOK_MOTD,
     0, MAXPARA, MFLG_SLOW, 0, NULL,
@@ -620,6 +634,16 @@ struct Message msgtab[] = {
     { m_unregistered, m_not_oper, ms_rehash, mo_rehash, m_ignore },
     "- Reloads the server's configuration"
   },
+#ifdef USE_LIBGIT2
+  {
+    MSG_GITSYNC,
+    TOK_GITSYNC,
+    0, MAXPARA, MFLG_SLOW, 0, NULL,
+    /* UNREG, CLIENT, SERVER, OPER, SERVICE */
+    { m_unregistered, m_not_oper, ms_gitsync, mo_gitsync, m_ignore },
+    "- Triggers or shows status of gitsync"
+  },
+#endif
   {
     MSG_RESTART,
     TOK_RESTART,
@@ -685,6 +709,14 @@ struct Message msgtab[] = {
     ""
   },
   {
+    MSG_CACHEINVAL,
+    TOK_CACHEINVAL,
+    0, MAXPARA, 0, 0, NULL,
+    /* UNREG, CLIENT, SERVER, OPER, SERVICE */
+    { m_ignore, m_ignore, ms_cacheinval, m_ignore, m_ignore },
+    ""
+  },
+  {
     MSG_ASLL,
     TOK_ASLL,
     0, MAXPARA, MFLG_SLOW, 0, NULL,
@@ -711,7 +743,14 @@ struct Message msgtab[] = {
   {
     MSG_CAP,
     TOK_CAP,
-    0, MAXPARA, 0, 0, NULL,
+    /* MFLG_NOSHUN: CAP is capability negotiation about the client's own
+     * connection — it reaches no other user, reveals no one else's state,
+     * and carries nothing worth silencing.  Without the exemption the shun
+     * gate below drops post-registration CAP, which wedges clients: the
+     * server itself sends CAP NEW/DEL to cap-notify clients (m_cap.c
+     * cap_notify_flush) and then discards the CAP REQ its own notification
+     * invited, leaving the client waiting on an ACK/NAK that never comes. */
+    0, MAXPARA, MFLG_NOSHUN, 0, NULL,
     /* UNREG, CLIENT, SERVER, OPER, SERVICE */
     { m_cap, m_cap, m_ignore, m_cap, m_ignore },
     ""
@@ -731,6 +770,14 @@ struct Message msgtab[] = {
     /* UNREG, CLIENT, SERVER, OPER, SERVICE */
     { m_unregistered, m_not_oper, mo_check, mo_check, m_ignore },
     ""
+  },
+  {
+    MSG_STORE,
+    TOK_STORE,
+    0, MAXPARA, MFLG_SLOW, 0, NULL,
+    /* UNREG, CLIENT, SERVER, OPER, SERVICE */
+    { m_unregistered, m_not_oper, m_ignore, mo_store, m_ignore },
+    "<DEFRAG|SYNC|GC|INFO> [history|metadata|all] - storage admin"
   },
   {
     MSG_PROTOCTL,
@@ -893,6 +940,176 @@ struct Message msgtab[] = {
     ""
   },
   {
+    MSG_SETNAME,
+    TOK_SETNAME,
+    0, MAXPARA, MFLG_SLOW, 0, NULL,
+    /* UNREG, CLIENT, SERVER, OPER, SERVICE */
+    { m_unregistered, m_setname, ms_setname, m_setname, m_ignore },
+    "- SETNAME :newrealname - Change your realname (GECOS)"
+  },
+  {
+    MSG_TAGMSG,
+    TOK_TAGMSG,
+    0, MAXPARA, MFLG_SLOW, 0, NULL,
+    /* UNREG, CLIENT, SERVER, OPER, SERVICE */
+    { m_unregistered, m_tagmsg, ms_tagmsg, m_tagmsg, m_ignore },
+    "- TAGMSG target - Send message with only tags (no content)"
+  },
+  {
+    MSG_BATCH_CMD,
+    TOK_BATCH_CMD,
+    0, MAXPARA, MFLG_SLOW, 0, NULL,
+    /* UNREG, CLIENT, SERVER, OPER, SERVICE */
+    { m_ignore, m_batch, ms_batch, m_batch, m_ignore },
+    "+id type [params] | -id - Start or end a message batch"
+  },
+  {
+    MSG_MULTILINE,
+    TOK_MULTILINE,
+    0, MAXPARA, 0, 0, NULL,
+    /* UNREG, CLIENT, SERVER, OPER, SERVICE */
+    { m_ignore, m_ignore, ms_multiline, m_ignore, m_ignore },
+    "S2S multiline batch relay - internal use only"
+  },
+  {
+    MSG_CHATHISTORY,
+    TOK_CHATHISTORY,
+    0, MAXPARA, MFLG_SLOW, 0, NULL,
+    /* UNREG, CLIENT, SERVER, OPER, SERVICE */
+    { m_unregistered, m_chathistory, ms_chathistory, m_chathistory, m_ignore },
+    "subcommand target ref [ref] limit - Query message history"
+  },
+  {
+    MSG_SEARCH,
+    TOK_SEARCH,
+    0, MAXPARA, MFLG_SLOW, 0, NULL,
+    /* UNREG, CLIENT, SERVER, OPER, SERVICE */
+    { m_unregistered, m_search, m_ignore, m_search, m_ignore },
+    "in=<target> [from=<nick>] [text=<words>] [after=<ts>] [before=<ts>] [limit=<n>] - Search message history (soju.im/search)"
+  },
+  {
+    MSG_HISTORY,
+    TOK_HISTORY,
+    0, MAXPARA, MFLG_SLOW, 0, NULL,
+    /* UNREG, CLIENT, SERVER, OPER, SERVICE */
+    { m_unregistered, m_history, m_ignore, m_history, m_ignore },
+    "SET|GET #channel <setting> [value] - Manage history settings"
+  },
+  {
+    MSG_REDACT,
+    TOK_REDACT,
+    0, MAXPARA, MFLG_SLOW, 0, NULL,
+    /* UNREG, CLIENT, SERVER, OPER, SERVICE */
+    { m_unregistered, m_redact, ms_redact, m_redact, m_ignore },
+    "<target> <msgid> [:<reason>] - Redact a previously sent message"
+  },
+  {
+    MSG_REGISTER,
+    TOK_REGISTER,
+    0, MAXPARA, MFLG_SLOW, 0, NULL,
+    /* UNREG, CLIENT, SERVER, OPER, SERVICE */
+    { m_register, m_register, m_ignore, m_register, m_ignore },
+    "<account> <email|*> <password> - Register an account"
+  },
+  {
+    MSG_VERIFY,
+    TOK_VERIFY,
+    0, MAXPARA, MFLG_SLOW, 0, NULL,
+    /* UNREG, CLIENT, SERVER, OPER, SERVICE */
+    { m_verify, m_verify, m_ignore, m_verify, m_ignore },
+    "<account> <code> - Verify account registration"
+  },
+  {
+    MSG_MARKREAD,
+    TOK_MARKREAD,
+    0, MAXPARA, MFLG_SLOW, 0, NULL,
+    /* UNREG, CLIENT, SERVER, OPER, SERVICE */
+    { m_unregistered, m_markread, ms_markread, m_markread, m_ignore },
+    "<target> [timestamp=<ts>] - Get or set read marker for target"
+  },
+  {
+    MSG_PRESENCE,
+    TOK_PRESENCE,
+    0, MAXPARA, MFLG_SLOW, 0, NULL,
+    /* UNREG, CLIENT, SERVER, OPER, SERVICE */
+    { m_unregistered, m_ignore, ms_presencesync, m_ignore, m_ignore },
+    "S2S-only: strict-presence interval replication"
+  },
+  {
+    MSG_RENAME,
+    TOK_RENAME,
+    0, MAXPARA, MFLG_SLOW, 0, NULL,
+    /* UNREG, CLIENT, SERVER, OPER, SERVICE */
+    { m_unregistered, m_rename, ms_rename, m_rename, m_ignore },
+    "<oldchannel> <newchannel> [:<reason>] - Rename a channel"
+  },
+  {
+    MSG_RELOCATE,
+    TOK_RELOCATE,
+    0, MAXPARA, MFLG_SLOW, 0, NULL,
+    /* UNREG, CLIENT, SERVER, OPER, SERVICE */
+    { m_ignore, m_ignore, m_ignore, m_ignore, m_ignore },
+    "<oldchannel> <newchannel> [:<reason>] - Server-to-client relocation notice (no client command)"
+  },
+  {
+    MSG_METADATA,
+    TOK_METADATA,
+    0, MAXPARA, MFLG_SLOW, 0, NULL,
+    /* UNREG, CLIENT, SERVER, OPER, SERVICE */
+    { m_metadata, m_metadata, ms_metadata, m_metadata, m_ignore },
+    "<subcommand> [args] - Manage user/channel metadata"
+  },
+  {
+    MSG_TOKEN,
+    TOK_TOKEN,
+    0, MAXPARA, MFLG_SLOW, 0, NULL,
+    /* UNREG, CLIENT, SERVER, OPER, SERVICE */
+    { mr_token, m_token, ms_token, m_token, m_ignore },
+    "SERVICELIST|GENERATE <service> [scope]|VALIDATE <service> :<token> - draft/authtoken"
+  },
+  {
+    MSG_WEBPUSH,
+    TOK_WEBPUSH,
+    0, MAXPARA, MFLG_SLOW, 0, NULL,
+    /* UNREG, CLIENT, SERVER, OPER, SERVICE */
+    { m_unregistered, m_webpush, ms_webpush, m_webpush, m_ignore },
+    "REGISTER|UNREGISTER <endpoint> [keys] - Manage web push subscriptions"
+  },
+  {
+    MSG_BOUNCER,
+    TOK_BOUNCER,
+    0, MAXPARA, MFLG_SLOW, 0, NULL,
+    /* UNREG, CLIENT, SERVER, OPER, SERVICE */
+    { m_unregistered, m_bouncer, m_ignore, m_bouncer, m_ignore },
+    "TOKEN|RESUME|LISTSESSIONS|DISCONNECT|SETNAME|SET|SETTINGS - Bouncer session management"
+  },
+  {
+    MSG_PERSISTENCE,
+    TOK_PERSISTENCE,
+    0, MAXPARA, MFLG_SLOW, 0, NULL,
+    /* UNREG, CLIENT, SERVER, OPER, SERVICE.  UNREG must accept ATTACH
+     * during the SASL-success/pre-CAP-END window so clients can pin
+     * an active profile before registration completes. */
+    { m_persistence, m_persistence, m_ignore, m_persistence, m_ignore },
+    "STATUS|GET|SET|PROFILE|ATTACH - draft/persistence (profiles, hold, replay)"
+  },
+  {
+    MSG_BOUNCER_SESSION,
+    TOK_BOUNCER_SESSION,
+    0, MAXPARA, 0, 0, NULL,
+    /* UNREG, CLIENT, SERVER, OPER, SERVICE */
+    { m_ignore, m_ignore, ms_bouncer_session, m_ignore, m_ignore },
+    "C|A|D|X|U <account> <sessid> [args] - S2S bouncer session sync"
+  },
+  {
+    MSG_BOUNCER_TRANSFER,
+    TOK_BOUNCER_TRANSFER,
+    0, MAXPARA, 0, 0, NULL,
+    /* UNREG, CLIENT, SERVER, OPER, SERVICE */
+    { m_ignore, m_ignore, ms_bouncer_transfer, m_ignore, m_ignore },
+    "C|X|P|N|U <args> - Bouncer alias/transfer management"
+  },
+  {
     MSG_FINGERPRINT,
     TOK_FINGERPRINT,
     0, MAXPARA,         0, 0, NULL,
@@ -921,7 +1138,7 @@ struct Message msgtab[] = {
     TOK_AUTHENTICATE,
     0, MAXPARA, MFLG_UNREG | MFLG_NOSHUN, 0, NULL,
     /* UNREG, CLIENT, SERVER, OPER, SERVICE */
-    { m_authenticate, m_registered, m_ignore, m_registered, m_ignore },
+    { m_authenticate, m_authenticate, m_ignore, m_authenticate, m_ignore },
     ""
   },
   {
@@ -946,6 +1163,14 @@ struct Message msgtab[] = {
     0, MAXPARA, MFLG_SLOW, 0, NULL,
     /* UNREG, CLIENT, SERVER, OPER, SERVICE */
     { m_unregistered, m_watch, m_ignore, m_watch, m_ignore },
+    ""
+  },
+  {
+    MSG_MONITOR,
+    TOK_MONITOR,
+    0, MAXPARA, MFLG_SLOW, 0, NULL,
+    /* UNREG, CLIENT, SERVER, OPER, SERVICE */
+    { m_unregistered, m_monitor, m_ignore, m_monitor, m_ignore },
     ""
   },
   {
@@ -1212,8 +1437,163 @@ parse_client(struct Client *cptr, char *buffer, char *bufend)
   if (IsDead(cptr))
     return 0;
 
+  /* Close any DRAINING forwarded label batches before processing new command */
+  fwd_label_close_draining(cptr);
+
+  /* Clear any previous label, client-only tags, and batch tags */
+  cli_label(cptr)[0] = '\0';
+  cli_label_responded(cptr) = 0;  /* Reset labeled-response tracking for ACK */
+  cli_client_tags(cptr)[0] = '\0';
+  cli_msg_batch_tag(cptr)[0] = '\0';
+  cli_msg_concat(cptr) = 0;
+
   para[0] = cli_name(from);
   for (ch = buffer; *ch == ' '; ch++);  /* Eat leading spaces */
+
+  /* Parse message tags if present (IRCv3.2) */
+  if (*ch == '@') {
+    char *tag_end;
+    char *tag_start = ch + 1;  /* Skip the @ */
+
+    /* Registered clients must have negotiated *some* tag-using CAP
+     * before they may send @-prefixed lines.  Without any such CAP,
+     * the tag region would be a non-negotiated bytes channel — pair
+     * the recv-side 4095 byte cap (recv_classify) with a parse-side
+     * rejection so the tag region is semantically gated, not just
+     * byte-bounded.
+     *
+     * Caps that imply legitimate client-to-server tag emission:
+     *   - message-tags: the canonical "I speak @-tags" cap.
+     *   - batch: clients SHOULD send `@batch=<reftag>` on lines
+     *     belonging to a batch even without message-tags (the batch
+     *     reference is the spec-required tag for batched delivery,
+     *     including multiline).
+     *   - labeled-response: clients send `@label=<value>` on commands
+     *     they want correlated.
+     *   - server-time: strict IRCv3 reads server-time as server→client
+     *     only (the server adds `@time=` to messages it generates).
+     *     But a client that negotiated server-time has demonstrated
+     *     tag-awareness, and some relay/bouncer-style clients do
+     *     forward `@time=` tags on backfill.  Accepting it as a
+     *     bypass costs nothing (the tag-region byte cap still bounds
+     *     abuse) and avoids rejecting clients that negotiate only the
+     *     older time-stamping cap.
+     *
+     * Servers, handshakes, and pre-registration clients are exempt:
+     * server-direction traffic and pre-CAP-END labelling legitimately
+     * use the tag surface before any CAP is fully active. */
+    if (IsUser(cptr)
+        && !CapActive(cptr, CAP_MSGTAGS)
+        && !CapActive(cptr, CAP_BATCH)
+        && !CapActive(cptr, CAP_LABELEDRESP)
+        && !CapActive(cptr, CAP_SERVERTIME)) {
+      Debug((DEBUG_DEBUG, "Rejecting @-tagged line from non-tag-CAP client %s",
+             cli_name(cptr)));
+      ServerStats->is_ref++;
+      return -1;
+    }
+
+    /* Find end of tags (space before command) */
+    tag_end = strchr(tag_start, ' ');
+    if (tag_end) {
+      char *scan = tag_start;
+      int client_tags_pos = 0;
+      size_t total_tags_len = tag_end - ch;  /* Include @ prefix */
+
+      /* IRCv3 message-tags spec: server-to-client tags max 8191 bytes,
+       * client-to-server tags max 4094 bytes (+ @ prefix = 4095 total).
+       * Messages from clients exceeding 4095 get ERR_INPUTTOOLONG. */
+      if (total_tags_len > 8191) {
+        Debug((DEBUG_DEBUG, "Rejecting message: tags exceed 8191 byte limit (%zu)", total_tags_len));
+        ServerStats->is_ref++;
+        return -1;
+      }
+      if (!IsServer(cptr) && !IsHandshake(cptr) && total_tags_len > 4095) {
+        send_reply(from, ERR_INPUTTOOLONG);
+        return -1;
+      }
+
+      while (scan < tag_end) {
+        char *tag_name = scan;
+        char *next_semi = scan;
+        size_t tag_len;
+
+        /* Find end of this tag (semicolon or end) */
+        while (next_semi < tag_end && *next_semi != ';')
+          next_semi++;
+        tag_len = next_semi - tag_name;
+
+        /* Check for label= tag */
+        if (strncmp(tag_name, "label=", 6) == 0) {
+          /* Extract label value if client has capability */
+          if (CapActive(cptr, CAP_LABELEDRESP) &&
+              feature_bool(FEAT_CAP_labeled_response)) {
+            char *label_val = tag_name + 6;
+            size_t label_len = next_semi - label_val;
+            if (label_len >= sizeof(cli_label(cptr)))
+              label_len = sizeof(cli_label(cptr)) - 1;
+            memcpy(cli_label(cptr), label_val, label_len);
+            cli_label(cptr)[label_len] = '\0';
+          }
+        }
+        /* Check for batch= tag (draft/multiline) */
+        else if (strncmp(tag_name, "batch=", 6) == 0) {
+          /* Extract batch ID for multiline message handling */
+          if (CapActive(cptr, CAP_DRAFT_MULTILINE)) {
+            char *batch_val = tag_name + 6;
+            size_t batch_len = next_semi - batch_val;
+            if (batch_len >= sizeof(cli_msg_batch_tag(cptr)))
+              batch_len = sizeof(cli_msg_batch_tag(cptr)) - 1;
+            memcpy(cli_msg_batch_tag(cptr), batch_val, batch_len);
+            cli_msg_batch_tag(cptr)[batch_len] = '\0';
+          }
+        }
+        /* Check for draft/multiline-concat tag */
+        else if (tag_len == 22 && strncmp(tag_name, "draft/multiline-concat", 22) == 0) {
+          if (CapActive(cptr, CAP_DRAFT_MULTILINE))
+            cli_msg_concat(cptr) = 1;
+        }
+        /* Check for client-only tags (prefixed with +) */
+        else if (*tag_name == '+') {
+          /* IRCv3 CLIENTTAGDENY: check if this tag is blocked by operator config */
+          if (is_client_tag_denied(tag_name, tag_len))
+            ; /* Tag is denied, silently drop it */
+          /* Reserved vendor namespace: a client must not squat
+           * `+afternet.org/*`, which the server authors and trusts
+           * (e.g. the `+evilnet.github.io/sid=` PM-history auth marker;
+           * the legacy `+afternet.org/` namespace stays reserved too).
+           * Drop silently, same as a denied tag. */
+          else if (is_reserved_vendor_tag(tag_name, tag_len))
+            ; /* Reserved for the server, silently drop it */
+          /* Copy client-only tag to buffer for TAGMSG relay.
+           * IRCv3 message-tags spec: 4094 bytes max for client-only tags.
+           * Silently drop excess tags rather than rejecting the message.
+           */
+          else {
+            size_t needed = (client_tags_pos > 0) ? tag_len + 1 : tag_len;
+            if (client_tags_pos + needed <= 4094 &&
+                client_tags_pos + needed + 1 < sizeof(cli_client_tags(cptr))) {
+              if (client_tags_pos > 0)
+                cli_client_tags(cptr)[client_tags_pos++] = ';';
+              memcpy(cli_client_tags(cptr) + client_tags_pos, tag_name, tag_len);
+              client_tags_pos += tag_len;
+              cli_client_tags(cptr)[client_tags_pos] = '\0';
+            }
+          }
+        }
+
+        /* Move to next tag */
+        scan = next_semi;
+        if (*scan == ';')
+          scan++;
+      }
+      /* Advance past tags to the command */
+      ch = tag_end;
+      while (*ch == ' ')
+        ch++;
+    }
+  }
+
   if (*ch == ':')               /* Is any client doing this ? */
   {
     for (++ch; *ch && *ch != ' '; ++ch)
@@ -1275,8 +1655,21 @@ parse_client(struct Client *cptr, char *buffer, char *bufend)
     lagmin = 2;
   if (lagfactor < 0)
     lagfactor = 120;
-  if (((mptr->flags & MFLG_SLOW) || !IsAnOper(cptr)) && lagfactor > 0)
-    cli_since(cptr) += (lagmin + i / lagfactor);
+  if (((mptr->flags & MFLG_SLOW) || !IsAnOper(cptr)) && lagfactor > 0) {
+    int lag = lagmin + i / lagfactor;
+    /*
+     * Inside a multiline batch, do NOT accumulate per-line lag against
+     * cli_since.  The batch is one logical sender action from the
+     * client's perspective; per-line fakelag would freeze the whole
+     * connection while inside the batch.  Cost is applied at BATCH
+     * -close as a multiline-only cooldown (con_ml_cooldown_until), with
+     * a small flat cli_since charge to keep batches from being a
+     * full bypass of general flood accounting.  See
+     * .claude/para/projects/multiline-cooldown.md.
+     */
+    if (!cli_ml_batch_id(cptr)[0])
+      cli_since(cptr) += fakelag_charge(&cli_lagcredit(cptr), lag);
+  }
   /*
    * Allow only 1 msg per 2 seconds
    * (on average) to prevent dumping.
@@ -1340,10 +1733,21 @@ parse_client(struct Client *cptr, char *buffer, char *bufend)
   assert(0 != handler);
 
   if (!feature_bool(FEAT_IDLE_FROM_MSG) && IsUser(cptr) &&
-      handler != m_ping && handler != m_ignore)
+      handler != m_ping && handler != m_ignore) {
     cli_user(from)->last = CurrentTime;
+    bounce_record_activity(from);
+  }
 
-  return (*handler) (cptr, from, i, para);
+  {
+    int result = (*handler) (cptr, from, i, para);
+    /* IRCv3 labeled-response: close any batch opened by labeled_batch_start */
+    if (result != CPTR_KILLED && cli_labeled_batch(cptr))
+      labeled_batch_end(cptr);
+    /* IRCv3 labeled-response: send ACK if command produced no response */
+    if (result != CPTR_KILLED)
+      send_labeled_ack(cptr);
+    return result;
+  }
 }
 
 /** Parse a line of data from a server.
@@ -1369,15 +1773,218 @@ int parse_server(struct Client *cptr, char *buffer, char *bufend)
   if (IsDead(cptr))
     return 0;
 
-  /* Skip P10 message tags if present (compat with tag-aware servers).
-   * Doesn't parse or store — just advances past the @... prefix so
-   * the parser reaches the source numeric correctly. */
+  /*
+   * IRCv3.2 Message Tags: If line starts with @, extract and store tags.
+   * Format: @tag1=value;tag2;+clienttag=value NUMERIC TOKEN params
+   * We extract @time and @msgid for S2S relay (Phase 13c).
+   */
+  /* Clear previous S2S tags */
+  cli_s2s_time_ms(cptr) = 0;
+  cli_s2s_msgid(cptr)[0] = '\0';
+  cli_s2s_multi_msgid(cptr)[0] = '\0';
+  cli_s2s_client_tags(cptr)[0] = '\0';
+  cli_s2s_sessid(cptr)[0] = '\0';
+  cli_s2s_ml(cptr)[0] = '\0';
+  cli_s2s_held(cptr) = '\0';
+
   if (*ch == '@') {
-    ch = strchr(ch, ' ');
-    if (!ch)
-      return -1;
-    while (*ch == ' ')
-      ch++;
+    /* Find the end of tags (first space after @) */
+    char *tagend = strchr(ch, ' ');
+    if (tagend) {
+      /* Compact format A: @A<time_7><msgid_14>[+<msgid_14>]*
+       * Dispatch on the version letter. Anything else (malformed,
+       * unknown version, or — historically — verbose @key=value;...
+       * format) is silently ignored; we just skip past it to the
+       * message proper. The verbose-format S2S parser was carried for
+       * hypothetical interop that never materialised, and its dispatch
+       * heuristic (no '=' → compact, has '=' → verbose) breaks once
+       * extension segments embed '=' (planned ,C<client_tags>). */
+      int tag_len = tagend - ch - 1;  /* chars after @ */
+      if (tag_len >= 22 && ch[1] == 'A') {  /* version A: 1+7+14=22 */
+        char time_b64[8];
+
+        /* Decode time: 7 base64 chars -> epoch_ms */
+        memcpy(time_b64, ch + 2, 7);
+        time_b64[7] = '\0';
+        cli_s2s_time_ms(cptr) = base64toint_64(time_b64);
+
+        /* Extract first msgid: 14 chars */
+        if (14 < S2S_MSGID_BUFSIZE) {
+          memcpy(cli_s2s_msgid(cptr), ch + 9, 14);
+          cli_s2s_msgid(cptr)[14] = '\0';
+        }
+
+        /* Find the segment-separator (first ',' after the msgid).
+         * Everything before this is multi-msgid payload (+-separated);
+         * everything after is one or more extension segments
+         * (',<marker><data>'). */
+        {
+          char *seg_start = memchr(ch + 9, ',', tagend - (ch + 9));
+          char *multi_end = seg_start ? seg_start : tagend;
+
+          /* Extract full multi-msgid string (msgid1+msgid2+...) if present.
+           * Starts at ch+9, runs until first ',' or tagend. Contains
+           * +-separated msgids for batched CREATE/PART. */
+          {
+            int multi_len = multi_end - (ch + 9);
+            if (multi_len > 14 && multi_len < S2S_MULTI_MSGID_BUFSIZE) {
+              memcpy(cli_s2s_multi_msgid(cptr), ch + 9, multi_len);
+              cli_s2s_multi_msgid(cptr)[multi_len] = '\0';
+            }
+          }
+
+          /* Walk extension segments after the msgid. Each segment is
+           * ',<marker><data>' where data runs until the next ',' or
+           * tagend. Marker is a single ASCII char identifying the
+           * segment type:
+           *   S — bouncer session-identity hint
+           *   H — bouncer hold mark of the N's client (one of h, p, n)
+           *   M — multiline framing, <flag><batchref> (ML lines only)
+           *   C — client-only tags (literal IRCv3 client-tag string)
+           * Unknown markers are silently skipped (forward-compatible
+           * for future segments).
+           *
+           * ,C is always the LAST segment and its data runs to
+           * tagend, full stop. Client-tag values are arbitrary
+           * IRCv3 tag-value strings and may themselves contain
+           * commas, so there is no safe inner delimiter for it —
+           * unlike every other segment, we must not look for a
+           * terminating comma inside ,C's data. A sender never
+           * emits anything after ,C (see format_s2s_tags_with_client
+           * in send.c); walking stops as soon as ,C is seen. */
+          while (seg_start && seg_start < tagend) {
+            char marker;
+            char *seg_data;
+            char *seg_end;
+
+            /* Skip the comma; require at least one byte for the marker */
+            if (seg_start + 1 >= tagend)
+              break;
+            marker = seg_start[1];
+            seg_data = seg_start + 2;
+            if (marker == 'C')
+              seg_end = tagend;
+            else {
+              seg_end = memchr(seg_data, ',', tagend - seg_data);
+              if (!seg_end)
+                seg_end = tagend;
+            }
+
+            switch (marker) {
+            case 'C': {
+              /* Client-only tags segment: literal IRCv3 client-tag
+               * string, copy verbatim into per-Connection buffer for
+               * ms_privmsg/ms_notice/ms_tagmsg to forward to local
+               * recipients. Terminal segment — runs to tagend (see
+               * comment above the loop). */
+              size_t data_len = seg_end - seg_data;
+              if (data_len > 0 &&
+                  data_len < sizeof(con_s2s_client_tags(cli_connect(cptr)))) {
+                memcpy(cli_s2s_client_tags(cptr), seg_data, data_len);
+                cli_s2s_client_tags(cptr)[data_len] = '\0';
+              }
+              break;
+            }
+            case 'S': {
+              /* Bouncer session-identity hint (per redesign A.2).
+               * Carries the session UUID v7 for the message's source
+               * client.  Used by m_nick at-N-time recognition to
+               * dispatch convergence rules vs. standard P10 collision.
+               * Bouncer-aware peers only — legacy peers don't see this. */
+              size_t data_len = seg_end - seg_data;
+              if (data_len > 0 &&
+                  data_len < sizeof(con_s2s_sessid(cli_connect(cptr)))) {
+                memcpy(cli_s2s_sessid(cptr), seg_data, data_len);
+                cli_s2s_sessid(cptr)[data_len] = '\0';
+              }
+              break;
+            }
+            case 'H': {
+              /* Bouncer hold mark: what the N's client is on its home
+               * server -- a held ghost, a live session primary, or a
+               * live login that is not a session's primary -- for the
+               * same-nick verdict.  Exactly one of the three letters;
+               * anything else reads as no mark. */
+              size_t data_len = seg_end - seg_data;
+              if (data_len == 1 && bounce_hold_mark_valid(seg_data[0]))
+                cli_s2s_held(cptr) = seg_data[0];
+              break;
+            }
+            case 'M': {
+              /* Multiline framing (audit 0.1): one flag byte ('+'
+               * start, 'c' concat, '-' end, '.' plain) followed by the
+               * batch reference.  Carrying it here instead of in the
+               * ML body keeps that body one byte longer than the
+               * client's PRIVMSG, so a client line at the maximum
+               * crosses the link whole.  ms_multiline reads it, and
+               * its presence is what tells that handler the body is
+               * "<target> :<text>" rather than the older
+               * "<flag><ref> <target> :<text>".  Needs a flag and at
+               * least one reference byte.  A segment that is present
+               * but unusable (empty, or too long for the buffer) is
+               * stored as "?", a flag no sender emits, so the handler
+               * drops the line instead of misreading its body as the
+               * older form. */
+              size_t data_len = seg_end - seg_data;
+              if (data_len >= 2 &&
+                  data_len < sizeof(con_s2s_ml(cli_connect(cptr)))) {
+                memcpy(cli_s2s_ml(cptr), seg_data, data_len);
+                cli_s2s_ml(cptr)[data_len] = '\0';
+              } else {
+                cli_s2s_ml(cptr)[0] = '?';
+                cli_s2s_ml(cptr)[1] = '\0';
+              }
+              break;
+            }
+            default:
+              /* Unknown segment marker — skip silently */
+              break;
+            }
+
+            /* ,C is terminal: stop walking regardless of its
+             * (always tagend) seg_end. Every other segment continues
+             * to whatever follows, if anything remains. */
+            seg_start = (marker == 'C') ? NULL :
+                        (seg_end < tagend) ? seg_end : NULL;
+          }
+        }
+
+        /* Update local HLC from remote's time + logical (HLC receive) */
+        {
+          struct HLC remote_hlc;
+          char logical_b64[4], node_b64[3];
+          remote_hlc.physical_ms = cli_s2s_time_ms(cptr);
+          memcpy(logical_b64, cli_s2s_msgid(cptr) + 2, 3);
+          logical_b64[3] = '\0';
+          remote_hlc.logical = (uint16_t)base64toint_64(logical_b64);
+          node_b64[0] = cli_s2s_msgid(cptr)[0];
+          node_b64[1] = cli_s2s_msgid(cptr)[1];
+          node_b64[2] = '\0';
+          remote_hlc.node_id = (uint16_t)base64toint(node_b64);
+
+          {
+            static time_t hlc_refuse_rate;
+            uint64_t ahead = 0;
+            uint64_t hlc_max_forward = hlc_max_forward_ms();
+
+            if (hlc_global_receive(&remote_hlc, hlc_max_forward, &ahead))
+              sendto_opmask_butone_ratelimited(0, SNO_NETWORK, &hlc_refuse_rate,
+                                               "Clock of %s is %llu ms ahead of ours "
+                                               "(HLC_MAX_FORWARD_MS %llu); its time was "
+                                               "not adopted",
+                                               cli_name(cptr),
+                                               (unsigned long long)ahead,
+                                               (unsigned long long)hlc_max_forward);
+          }
+        }
+      }
+
+      /* Skip past the @ prefix and tags to the actual message */
+      ch = tagend;
+      while (*ch == ' ')
+        ch++;
+    }
+    /* If no space found, malformed - continue with original parse */
   }
 
   para[0] = cli_name(from);
@@ -1538,9 +2145,15 @@ int parse_server(struct Client *cptr, char *buffer, char *bufend)
    */
   s = strchr(ch, ' ');          /* s -> End of the command code */
   len = (s) ? (s - ch) : 0;
-  if (len == 3 && IsDigit(*ch))
+  if (len == 3 && IsDigit(*ch) && IsDigit(*(ch + 1)) && IsDigit(*(ch + 2)))
   {
     numeric = (*ch - '0') * 100 + (*(ch + 1) - '0') * 10 + (*(ch + 2) - '0');
+    /* 000 is no numeric, and the dispatch below takes numeric == 0 for
+     * a command with mptr set: drop it as an unknown command. */
+    if (numeric == 0) {
+      ServerStats->is_unco++;
+      return (-1);
+    }
     paramcount = 2; /* destination, and the rest of it */
     ServerStats->is_num++;
     mptr = NULL;                /* Init. to avoid stupid compiler warning :/ */

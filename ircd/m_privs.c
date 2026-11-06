@@ -142,7 +142,28 @@ int ms_privs(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
     if (MyConnect(acptr) && modified)
       sendcmdto_one(&me, CMD_NOTICE, acptr, "%C :Your privileges were modified", acptr);
 
-    sendcmdto_serv_butone(sptr, CMD_PRIVS, cptr, "%C %s", acptr, buf);
+    /* Alias→primary privilege sync: the PRIVS message targets the alias
+     * numeric, but the primary needs the same privileges so oper
+     * capabilities (CHECK, KILL, etc.) work from the primary too. */
+    if (IsBouncerAlias(acptr) && cli_user(acptr)
+        && cli_user(acptr)->alias_primary) {
+      memcpy(&cli_privs(cli_user(acptr)->alias_primary),
+             &cli_privs(acptr), sizeof(struct Privs));
+    }
+
+    /* GITSYNC is the one fork-only privilege (client.c's privtab); a
+     * legacy peer doesn't know it and would just drop the word as
+     * noise, but the wire-hygiene rule is that it never sees it at
+     * all, so relay the full list only to IRCv3-aware peers and a
+     * stripped list to legacy ones (skipping the legacy send entirely
+     * if nothing survives the strip). */
+    sendcmdto_serv_butone_v3(sptr, CMD_PRIVS, cptr, "%C %s", acptr, buf);
+    {
+      char legacybuf[sizeof(buf)];
+      privs_strip_fork_only(buf, legacybuf, sizeof(legacybuf));
+      if (legacybuf[0])
+        sendcmdto_legacy_serv_butone(sptr, CMD_PRIVS, cptr, "%C %s", acptr, legacybuf);
+    }
   } else {
     if (parc < 2)
       return protocol_violation(cptr, "PRIVS with no arguments");

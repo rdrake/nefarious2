@@ -29,6 +29,7 @@
 #include "ircd_features.h"
 #include "ircd_log.h"
 #include "s_debug.h"
+#include "thread_pool.h"
 
 /* #include <assert.h> -- Now using assert in ircd_log.h */
 #include <errno.h>
@@ -161,7 +162,7 @@ set_events(struct Socket* sock, unsigned int events)
 	   s_fd(sock), sock));
 
     if (write(devpoll_fd, &pfd, sizeof(pfd)) != sizeof(pfd)) {
-      event_generate(ET_ERROR, sock, errno); /* report error */
+      socket_error(sock, errno); /* delivered by the loop, not here */
       return;
     }
 
@@ -182,7 +183,7 @@ set_events(struct Socket* sock, unsigned int events)
 	 sock_flags(s_events(sock))));
 
   if (write(devpoll_fd, &pfd, sizeof(pfd)) != sizeof(pfd)) {
-    event_generate(ET_ERROR, sock, errno); /* report error */
+    socket_error(sock, errno); /* delivered by the loop, not here */
     return;
   }
 
@@ -298,6 +299,9 @@ engine_loop(struct Generators* gen)
   polls = (struct pollfd *)MyMalloc(sizeof(struct pollfd) * polls_count);
 
   while (running) {
+    /* Engine errors deferred since the last pass (socket_error()) */
+    socket_run_errors();
+
     if ((i = feature_int(FEAT_POLLS_PER_LOOP)) >= 20 && i != polls_count) {
       polls = (struct pollfd *)MyRealloc(polls, sizeof(struct pollfd) * i);
       polls_count = i;
@@ -309,6 +313,12 @@ engine_loop(struct Generators* gen)
     /* calculate the proper timeout */
     dopoll.dp_timeout = timer_next(gen) ?
       (timer_next(gen) - CurrentTime) * 1000 : -1;
+    /* Overdue next-timer -> negative dp_timeout, which /dev/poll treats as
+     * INFINITE: a quiet node would sleep forever, timer never fires (the
+     * engine_epoll coma class).  Clamp overdue (< -1) to "poll now"; -1 (no
+     * timers) stays the infinite sentinel. */
+    if (dopoll.dp_timeout < -1)
+      dopoll.dp_timeout = 0;
 
     Debug((DEBUG_ENGINE, "devpoll: delay: %Tu (%Tu) %d", timer_next(gen),
 	   CurrentTime, dopoll.dp_timeout));
@@ -448,6 +458,7 @@ engine_loop(struct Generators* gen)
     }
 
     timer_run(); /* execute any pending timers */
+    thread_pool_poll(); /* process completed async tasks */
   }
 }
 

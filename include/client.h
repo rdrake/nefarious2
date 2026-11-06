@@ -26,6 +26,12 @@
 #ifndef INCLUDED_ircd_defs_h
 #include "ircd_defs.h"
 #endif
+#ifndef INCLUDED_account_id_h
+#include "account_id.h"      /* ACCOUNT_ID_LEN */
+#endif
+#ifndef INCLUDED_sessid_index_h
+#include "sessid_index.h"    /* struct SessidLink */
+#endif
 #ifndef INCLUDED_dbuf_h
 #include "dbuf.h"
 #endif
@@ -50,10 +56,14 @@
 #include "ssl.h"
 #endif
 #endif /* USE_SSL */
+#ifndef INCLUDED_websocket_h
+#include "websocket.h"          /* WS_MAX_FRAME */
+#endif
 
 struct ConfItem;
 struct Listener;
 struct ListingArgs;
+struct ReplayState;
 struct SLink;
 struct Server;
 struct User;
@@ -61,6 +71,9 @@ struct Whowas;
 struct hostent;
 struct Privs;
 struct AuthRequest;
+struct MetadataEntry;
+struct MetadataSub;
+struct SASLSession;
 
 /*
  * Structures
@@ -74,28 +87,42 @@ struct AuthRequest;
 typedef unsigned long flagpage_t;
 
 /** Number of bits in a flagpage_t. */
+#ifndef FLAGSET_NBITS
 #define FLAGSET_NBITS (8 * sizeof(flagpage_t))
+#endif
 /** Element number for flag \a flag. */
+#ifndef FLAGSET_INDEX
 #define FLAGSET_INDEX(flag) ((flag) / FLAGSET_NBITS)
+#endif
 /** Element bit for flag \a flag. */
+#ifndef FLAGSET_MASK
 #define FLAGSET_MASK(flag) (1ul<<((flag) % FLAGSET_NBITS))
+#endif
 
 /** Declare a flagset structure of a particular size. */
+#ifndef DECLARE_FLAGSET
 #define DECLARE_FLAGSET(name,max) \
   struct name \
   { \
     unsigned long bits[((max + FLAGSET_NBITS - 1) / FLAGSET_NBITS)]; \
   }
+#endif
 
 /** Test whether a flag is set in a flagset. */
+#ifndef FlagHas
 #define FlagHas(set,flag) ((set)->bits[FLAGSET_INDEX(flag)] & FLAGSET_MASK(flag))
+#endif
 /** Set a flag in a flagset. */
+#ifndef FlagSet
 #define FlagSet(set,flag) ((set)->bits[FLAGSET_INDEX(flag)] |= FLAGSET_MASK(flag))
+#endif
 /** Clear a flag in a flagset. */
+#ifndef FlagClr
 #define FlagClr(set,flag) ((set)->bits[FLAGSET_INDEX(flag)] &= ~FLAGSET_MASK(flag))
+#endif
 
 /** String containing valid user modes, in no particular order. */
-#define infousermodes "adgiknoqswxzBDHLNORWX"
+#define infousermodes "abdgiknoqswxyzBDHLMNORWXY"
 
 /** Operator privileges. */
 enum Priv
@@ -111,6 +138,7 @@ enum Priv
     PRIV_LOCAL_KILL, /**< oper can local KILL */
     PRIV_REHASH, /**< oper can REHASH */
     PRIV_RESTART, /**< oper can RESTART */
+    PRIV_GITSYNC, /**< oper can trigger GITSYNC */
     PRIV_DIE, /**< oper can DIE */
     PRIV_GLINE, /**< oper can GLINE */
     PRIV_LOCAL_GLINE, /**< oper can local GLINE */
@@ -171,6 +199,36 @@ enum Flag
     FLAG_IPV6,                      /**< server understands P10 IPv6 addrs */
     FLAG_SERVICE,                   /**< server is a service */
     FLAG_OPLEVELS,                  /**< server has oplevels support */
+    FLAG_MULTILINE,                 /**< server supports P10 multiline batches */
+    FLAG_IRCV3AWARE,                /**< server speaks IRCv3 message-tag wire extensions */
+    FLAG_RENAME_CAPABLE,            /**< server applies and relays RENAME
+                                         (P10 RN) without being IRCv3-aware —
+                                         set on peers like X3 that advertise
+                                         'r' in their SERVER flags. Advertised
+                                         via 'r' in SERVER flags. Fork servers
+                                         are IRCv3-aware and use 'v' instead;
+                                         we never set this on &me. */
+    FLAG_BXF_AWARE,                 /**< server speaks BX F (reconcile-end)
+                                         marker — gates the burst N tail on
+                                         peer's BX F arrival.  Strictly a
+                                         superset of FLAG_IRCV3AWARE: a peer
+                                         with v but without F is an older
+                                         IRCv3-aware build that doesn't yet
+                                         emit BX F, so we must NOT gate on
+                                         it (gate would hang the burst).
+                                         Advertised via 'F' in SERVER flags. */
+    FLAG_HOLDMARK,                  /**< server stamps its own users' N with
+                                         the bouncer hold mark (compact-tag
+                                         ,H segment) and relays the marks it
+                                         receives.  Advertised via 'H' in
+                                         SERVER flags, only while
+                                         P10_MESSAGE_TAGS is on. */
+    FLAG_HOLDMARK_SENT,             /**< on a server link: OUR SERVER line to
+                                         it announced 'H'.  The far end of
+                                         a path judges our marks by that
+                                         announcement, so our trust in the
+                                         marks arriving over this link asks
+                                         it too (bounce_hold_marks_trusted). */
     FLAG_GOTID,                     /**< successful ident lookup achieved */
     FLAG_DOID,                      /**< I-lines say must use ident return */
     FLAG_NONL,                      /**< No \n in buffer */
@@ -179,6 +237,17 @@ enum Flag
     FLAG_JUNCTION,                  /**< Junction causing the net.burst. */
     FLAG_BURST,                     /**< Server is receiving a net.burst */
     FLAG_BURST_ACK,                 /**< Server is waiting for eob ack */
+    FLAG_BURST_GATED,               /**< Our burst tail to this link is held
+                                         while bouncer convergence is in
+                                         flight (server_estab).  Meanwhile
+                                         sendcmdto_serv_butone and
+                                         sendcmdto_flag_serv_butone send it
+                                         only what
+                                         bounce_burst_gate_passes() lets
+                                         through; the IRCv3-only and
+                                         legacy-only senders send it
+                                         nothing.  Cleared by
+                                         server_release_burst_gate(). */
     FLAG_IPCHECK,                   /**< Added or updated IPregistry data */
     FLAG_LOCOP,                     /**< Local operator -- SRB */
     FLAG_SERVNOTICE,                /**< server notices such as kill */
@@ -219,6 +288,12 @@ enum Flag
     FLAG_SSL,                       /**< User is connected via SSL (+z) */
     FLAG_STARTTLS,                  /**< User is connecting with StartTLS */
     FLAG_SSLNEEDACCEPT,             /**< Client needs SSL_accept() to be called again */
+    FLAG_SSLNEEDCONNECT,            /**< Outbound TLS handshake pending: SSL_connect() again */
+    FLAG_WEBSOCKET,                 /**< Client is connected via WebSocket */
+    FLAG_WSNEEDHANDSHAKE,           /**< WebSocket client needs handshake */
+    FLAG_WSTEXT,                    /**< WebSocket uses text frames (not binary) */
+    FLAG_WSAUTODETECT,              /**< WebSocket mode pending autodetection from first frame */
+    FLAG_WSSNIFF,                   /**< Protocol sniffing pending - WebSocket or plain IRC */
 
     FLAG_IPCEXEMPT,                 /**< User is IPcheck exempt */
     FLAG_IPCNOTEXEMPT,              /**< User is not IPcheck exempt */
@@ -238,6 +313,41 @@ enum Flag
     FLAG_SERVER_NOOP,               /**< Server has been NOOP'ed */
     FLAG_SENT_CVERSION,             /**< Client's CTCP VERSION reply has been sent out */
 
+    FLAG_MULTILINE_EXPAND,          /**< User opts into full multiline expansion (+M) */
+
+    FLAG_OPER_PENDING,              /**< Async OPER password verification in progress */
+    FLAG_WEBIRC_PENDING,            /**< Async WEBIRC password verification in progress */
+    FLAG_SETHOST_PENDING,           /**< Async SETHOST password verification in progress */
+
+    FLAG_NOSTORAGE,                 /**< User's messages not stored in chathistory (+Y) */
+    FLAG_PM_OPTOUT,                 /**< User opted out of PM history storage (+y) */
+    FLAG_BNC_HOLDPREF,              /**< User prefers bouncer hold mode enabled (+b) */
+
+    FLAG_BOUNCER_HOLD,              /**< Client is in bouncer HOLDING state (ghost) */
+    FLAG_BOUNCER_ALIAS,             /**< Client is an alias numeric for multi-server bouncer presence */
+    FLAG_NO_LC_DECREMENT,           /**< local_clients already settled (decremented at hold, or
+                                      *  never bumped for boot-spawned ghost).  Tells
+                                      *  Count_clientdisconnects NOT to decrement local_clients
+                                      *  on this Client's destroy.  Cleared by bounce_revive when
+                                      *  a new socket attaches and bumps local_clients again. */
+    FLAG_BOUNCER_INTERNAL_DESTROY,  /**< Client is being destroyed via bouncer-internal cleanup
+                                     *   (silent ghost destroy, BX P-handled retire, etc.).
+                                     *   Suppresses standard QUIT broadcast like FLAG_KILLED, but
+                                     *   does NOT trigger session-destroy semantics — only an
+                                     *   actual network KILL (FLAG_KILLED) ends the entire session
+                                     *   per design intent invariant #12. */
+
+    FLAG_DNSBL_EXEMPT,              /**< Client is exempt from blocks (native DNSBL whitelist hit) */
+
+    FLAG_COUNTED_OPER,             /**< This client currently contributes +1 to UserStats.opers.
+                                     *   Source of truth for oper counting: set/cleared ONLY by
+                                     *   userstats_count_sync()/userstats_count_clear() so every ++
+                                     *   has exactly one matching -- regardless of which path set/
+                                     *   cleared +o or created/destroyed the client (idempotent,
+                                     *   race-proof). Never set/cleared directly elsewhere. */
+    FLAG_COUNTED_INV,              /**< This client currently contributes +1 to UserStats.inv_clients.
+                                     *   Same discipline as FLAG_COUNTED_OPER. */
+
     FLAG_LAST_FLAG,                 /**< number of flags */
     FLAG_LOCAL_UMODES = FLAG_LOCOP, /**< First local mode flag */
     FLAG_GLOBAL_UMODES = FLAG_OPER  /**< First global mode flag */
@@ -249,6 +359,36 @@ DECLARE_FLAGSET(Privs, PRIV_LAST_PRIV);
 DECLARE_FLAGSET(Flags, FLAG_LAST_FLAG);
 
 #include "capab.h" /* client capabilities */
+#include "webpush_keyring.h" /* WEBPUSH_KEY_ID_LEN */
+
+/** Maximum number of concurrent forwarded label entries per connection. */
+#define MAX_FORWARDED_LABELS 4
+
+/** State of a forwarded label entry in the FIFO queue. */
+enum ForwardedLabelState {
+  FWD_LABEL_EMPTY = 0,    /**< Slot is available */
+  FWD_LABEL_PENDING,      /**< Waiting for first response numeric */
+  FWD_LABEL_ACTIVE,       /**< Batch opened, receiving numerics */
+  FWD_LABEL_DRAINING      /**< Terminal seen, draining trailing messages */
+};
+
+/** Tracks a labeled command forwarded to a remote server via hunt_server_cmd.
+ * Stored in a per-connection FIFO array on the Connection struct.
+ */
+struct ForwardedLabel {
+  char                     fl_label[64];   /**< Saved client label */
+  char                     fl_batch_id[16]; /**< Batch ID for labeled-response batch */
+  char                     fl_msgid[16];   /**< Compact tag msgid for correlation */
+  unsigned short           fl_terminal;    /**< Primary terminal numeric */
+  unsigned short           fl_terminal2;   /**< Alternate terminal (0 = none) */
+  time_t                   fl_created;     /**< For timeout cleanup */
+  enum ForwardedLabelState fl_state;       /**< Current state */
+};
+
+/** Longest exit reason kept for a dying socket (con_exit_reason): room
+ * for "Write error: " and a full OpenSSL reason, which the realname's
+ * REALLEN cut short ("... protocol er"). */
+#define EXITREASONLEN 127
 
 /** Represents a local connection.
  * This contains a lot of stuff irrelevant to server connections, but
@@ -267,8 +407,12 @@ struct Connection
   unsigned int        con_snomask;   /**< mask for server messages */
   time_t              con_nextnick;  /**< Next time a nick change is allowed */
   time_t              con_nexttarget;/**< Next time a target change is allowed */
+  time_t              con_nextaway;  /**< Next time an AWAY change is allowed */
   time_t              con_lasttime;  /**< Last time data read from socket */
   time_t              con_since;     /**< Last time we accepted a command */
+  int                 con_lagcredit; /**< Fake-lag seconds still to be
+                                        absorbed before con_since is
+                                        charged (post-registration grace) */
   struct MsgQ         con_sendQ;     /**< Outgoing message queue */
   struct DBuf         con_recvQ;     /**< Incoming data yet to be parsed */
   unsigned int        con_sendM;     /**< Stats: protocol messages sent */
@@ -281,6 +425,10 @@ struct Connection
   HandlerType         con_handler;   /**< Message index into command table
                                         for parsing. */
   struct ListingArgs* con_listing;   /**< Current LIST status. */
+  struct ReplayState* con_replay;    /**< Current chathistory replay status. */
+  char con_vapid_seen[WEBPUSH_KEY_ID_LEN + 1]; /**< VAPID key id in the last
+                                        ISUPPORT this connection was sent
+                                        (draft/webpush REGISTER binds to it) */
   unsigned int        con_max_sendq; /**< cached max send queue for client */
   unsigned int        con_max_recvq; /**< cached max recv queue for client */
   unsigned int        con_ping_freq; /**< cached ping freq */
@@ -296,19 +444,122 @@ struct Connection
                                         the socket and after which the
                                         connection was accepted. */
   char con_passwd[PASSWDLEN + 1];    /**< Password given by user. */
-  char con_buffer[BUFSIZE];          /**< Incoming message buffer; or
-                                        the error that caused this
-                                        clients socket to close. */
+  char con_buffer[FULL_MSG_SIZE];    /**< Incoming message buffer; sized
+                                        for IRCv3 message-tags, or the
+                                        error that caused this clients
+                                        socket to close. */
   char*               con_sslerror;  /**< SSL Error. */
+  /** Why the socket died (dead_link): read where the exit message is
+   * built.  dead_link() used to write it into the realname, which a held
+   * session then kept, persisted and replayed as the user's name. */
+  char                con_exit_reason[EXITREASONLEN + 1];
 
   struct Socket       con_socket;    /**< socket descriptor for
                                       client */
   struct Timer        con_proc;      /**< process latent messages from
                                       client */
+  struct Timer        con_sasltimeout; /**< timeout timer for SASL */
   struct CapSet       con_capab;     /**< Client capabilities (from us) */
-  struct CapSet       con_active;    /**< Active capabilities (to us) */
+  struct CapSet       con_active;    /**< Active capabilities (to us) — for bouncer
+                                        sessions this becomes the union of all
+                                        connections' caps (primary + aliases) */
+  struct CapSet       con_active_own; /**< This connection's own negotiated caps.
+                                        For non-bouncer clients, identical to con_active.
+                                        For bouncer primaries, tracks only this connection's
+                                        own CAP REQ/ACK state (not the session union). */
+  unsigned short      con_capab_version; /**< CAP version (0, 301, 302) */
   struct AuthRequest* con_auth;      /**< Auth request for client */
   struct LOCInfo*     con_loc;       /**< Login-on-connect information */
+  char                con_label[64]; /**< Current command label for labeled-response */
+  unsigned char       con_label_responded; /**< Whether a response was sent for current label */
+  char                con_batch_id[16]; /**< Current batch reference ID */
+  unsigned int        con_batch_seq;  /**< Batch sequence number for generating IDs */
+  unsigned int        con_token_auth; /**< draft/authtoken: service slots this connection's PASS may validate */
+  char                con_client_tags[4096]; /**< Client-only tags (+tag=value) for TAGMSG relay (IRCv3: 4094 max) */
+  uint64_t            con_s2s_time_ms;   /**< S2S @time as epoch milliseconds (0 = not set) */
+#define S2S_MSGID_BUFSIZE 64  /**< Msgid buffer: fits both verbose (~34 chars) and compact (14 chars) */
+  char                con_s2s_msgid[S2S_MSGID_BUFSIZE]; /**< S2S @msgid tag (first/only) from incoming message */
+#define S2S_MULTI_MSGID_BUFSIZE 256  /**< Multi-msgid: up to 15 x (14+1) = 225 chars */
+  char                con_s2s_multi_msgid[S2S_MULTI_MSGID_BUFSIZE]; /**< Full multi-msgid string (+-separated, empty if single) */
+  char                con_s2s_client_tags[4096]; /**< S2S compact-tag ,C<client_tags> segment (IRCv3: 4094 max) */
+#define S2S_SESSID_BUFSIZE 40  /**< Session ID buffer (sized for either 22-char base64 UUID v7 or legacy 36-char hyphenated form + slack) */
+/** Buffer for a DM history pair-key "idA:idB", where each id is an
+ *  account (<=ACCOUNTLEN) or, for an unauthenticated party, a session
+ *  id (<=S2S_SESSID_BUFSIZE-1).  Worst case: two session-id halves. */
+#define PM_PAIRKEY_BUFSIZE (2 * S2S_SESSID_BUFSIZE + 2)   /* = 82 */
+  char                con_s2s_sessid[S2S_SESSID_BUFSIZE]; /**< S2S compact-tag ,S<sessid> segment from incoming message — bouncer session identity hint per redesign A.2 */
+#define S2S_ML_BUFSIZE 32  /**< ML framing: one flag byte + a multiline batch reference (senders use <=15) + NUL */
+  char                con_s2s_ml[S2S_ML_BUFSIZE]; /**< S2S compact-tag ,M<flag><batchref> segment (multiline framing, audit 0.1); empty when absent */
+  char                con_s2s_held;  /**< S2S compact-tag ,H<x> segment: the bouncer hold mark of the N's client (BOUNCE_HOLD_MARK_*), 0 when absent or invalid */
+  struct Client*      con_burst_stamp_link; /**< Local client: the server link our last burst N for it went to with a hold mark (compared only, never dereferenced) */
+  char                con_burst_stamp; /**< Local client: the hold mark (BOUNCE_HOLD_MARK_*) that N carried, 0 when none */
+  unsigned long       con_burst_stamp_serial; /**< Local client: that link's link_serial when the N went (struct Server) */
+  char                con_s2s_batch_id[32]; /**< Active S2S batch ID from server */
+  char                con_s2s_batch_type[16]; /**< Active S2S batch type (netjoin, netsplit) */
+  unsigned char       con_pre_away;   /**< Pre-registration away state: 0=none, 1=away, 2=away-star */
+  char                con_pre_away_msg[AWAYLEN + 1]; /**< Pre-registration away message */
+  /* draft/persistence active profile (Phase 4 / M2).
+   * Set via PERSISTENCE ATTACH pre-CAP-END or implicitly to
+   * "default" at registration if not specified.  Per-connection
+   * (aliases each have their own value). */
+  char                con_active_profile[33]; /* PERSISTENCE_PROFILE_NAME_MAX + 1 */
+  char                con_attach_cursor[64];  /* HISTORY_MSGID_LEN: client's last-seen
+                                                 msgid from PERSISTENCE ATTACH (catch-up
+                                                 anchor); empty = none supplied */
+  /* Multiline batch state (draft/multiline) */
+  char                con_ml_batch_id[65]; /**< Active multiline batch ID (IRCv3 allows up to 64 chars) */
+  char                con_ml_dead_batch_id[65]; /**< Last FAILed/cleared batch ref: spec says all past and
+                                                 *   future messages in that batch are ignored, so tagged
+                                                 *   lines arriving after the FAIL are swallowed, not
+                                                 *   delivered (reset when a new batch opens) */
+  char                con_ml_target[CHANNELLEN + 1]; /**< Multiline batch target (channel or nick) */
+  struct SLink*       con_ml_messages; /**< List of multiline messages */
+  int                 con_ml_msg_count; /**< Number of messages in batch */
+  int                 con_ml_total_bytes; /**< Total bytes in batch */
+  time_t              con_ml_batch_start; /**< When batch was started (for timeout) */
+  time_t              con_ml_cooldown_until; /**< Multiline-only cooldown gate.  Set at BATCH -close to (now + (cooldown_base + total_bytes/cooldown_bytes_per_sec) * MULTILINE_COOLDOWN_DISCOUNT/100).  Checked at BATCH +open; rejects with FAIL BATCH MULTILINE_COOLDOWN until expired.  Multiline-scoped — does NOT block regular commands. */
+  char                con_ml_label[64];   /**< Label from BATCH +id for labeled-response on WARN */
+  char                con_ml_client_tags[512]; /**< Client-only tags from BATCH open command */
+  /* Batch rate limiting (FEAT_BATCH_RATE_LIMIT) */
+  time_t              con_batch_minute;   /**< Start of current rate limit window */
+  int                 con_batch_count;    /**< Number of batches in current window */
+  int                 con_ml_is_notice;    /**< 1=NOTICE batch, 0=PRIVMSG batch, -1=not yet set */
+  /* Current message @batch tag for PRIVMSG interception */
+  char                con_msg_batch_tag[65]; /**< @batch tag from current message (IRCv3 allows up to 64 chars) */
+  unsigned char       con_msg_concat; /**< draft/multiline-concat tag present */
+  unsigned char       con_labeled_batch; /**< 1 if labeled_batch_start opened a batch */
+  struct ForwardedLabel con_fwd_labels[MAX_FORWARDED_LABELS]; /**< Forwarded label FIFO */
+  /* WebSocket state for RFC 6455 compliance */
+  unsigned char       con_ws_frame_buf[WS_MAX_FRAME]; /**< Partial WebSocket frame buffer (holds one max-size frame) */
+  int                 con_ws_frame_len;   /**< Length of data in frame buffer */
+  char                con_ws_frag_buf[WS_MAX_PAYLOAD + 2]; /**< Fragment reassembly buffer (+ NUL and line ending) */
+  int                 con_ws_frag_len;    /**< Length of data in fragment buffer */
+  int                 con_ws_frag_opcode; /**< Opcode of first fragment */
+  time_t              con_ws_ctl_since;   /**< Control-frame meter: debt clock (same shape as con_since, own budget) */
+  char*               con_ws_hs_buf;      /**< HTTP upgrade request being accumulated (heap, WS_HANDSHAKE_MAX + 1; freed once the handshake is decided) */
+  int                 con_ws_hs_len;      /**< Bytes in con_ws_hs_buf */
+  char*               con_ws_txrem;       /**< Unsent tail of a partially-written outbound WS frame (heap, on demand; plaintext sockets) */
+  int                 con_ws_txrem_len;   /**< Total bytes in con_ws_txrem */
+  int                 con_ws_txrem_pos;   /**< Bytes of con_ws_txrem already written */
+  int                 con_ws_close_code;  /**< Status of the one Close frame this socket ends with (RFC 6455 §5.5.1), set by websocket_set_close(); 0 = none yet, WS_CLOSE_NO_STATUS = an empty Close */
+  char                con_ws_close_reason[WS_CLOSE_REASON_MAX + 1]; /**< Its reason text */
+  int                 con_ws_close_sent;  /**< That Close has gone out (websocket_close_flush()) */
+  time_t              con_burst_gate_deadline; /**< Deadline at which to force-release a
+                                                  burst gate held on a non-BXF-aware (legacy)
+                                                  peer.  Only meaningful while IsBurstGated().
+                                                  Enforces design intent #135 + #254 (legacy
+                                                  peer sees one face per bouncer session) by
+                                                  withholding bouncer-account N's until BX R
+                                                  convergence with BXF-aware peers can settle. */
+  /* Per-class recv classifier state — see
+   * .claude/para/projects/per-class-recvq-buffers.md.  Tracks the
+   * shape of the in-flight (un-terminated) wire line so per-class
+   * byte caps (tag region, msg region) can be enforced at byte-append
+   * time rather than recomputed from CAP arithmetic at flood-check time.
+   * Counters reset on \r\n; state is resumable across read() boundaries. */
+  unsigned char       con_recv_state;     /**< RECV_TAGS or RECV_MSG */
+  unsigned int        con_recv_tag_bytes; /**< Bytes of @-region in current line (incl. @) */
+  unsigned int        con_recv_msg_bytes; /**< Bytes of message region in current line */
 };
 
 /** Magic constant to identify valid Connection structures. */
@@ -353,15 +604,58 @@ struct Client {
   char cli_webirc[BUFSIZE + 1];     /**< webirc description */
   char cli_version[VERSIONLEN + 1]; /**< Free form client version information */
   char cli_sslclifp[BUFSIZE + 1];   /**< SSL client certificate fingerprint if available */
+  time_t cli_sslcliexp;             /**< SSL client certificate expiration timestamp */
   char cli_killmark[BUFSIZE + 1];   /**< Kill block mark */
+  char cli_wsorigin[256];           /**< WebSocket Origin header (oper WHOIS mark); empty = not WS */
 
   /* SASL */
   int            cli_saslagentref; /**< Number of clients that reference this client as an SASL agent */
   struct Client* cli_saslagent;     /**< SASL agent handling SASL exchange */
   char cli_saslaccount[ACCOUNTLEN + 1]; /**< SASL authenticated account name */
   time_t cli_saslacccreate;         /**< SASL authenticate account timestamp */
+  char cli_saslkcid[ACCOUNT_ID_LEN + 1]; /**< SASL authenticated Keycloak user id, compact; "" = none */
+  unsigned char cli_saslkcidlive; /**< 1 when Keycloak itself confirmed that id during this login
+                                   *   (a grant, a user lookup, introspection) -- not a cached answer
+                                   *   or a token checked locally, which a deleted user can still hold */
   unsigned int cli_saslcookie;      /**< SASL session cookie */
-  struct Timer cli_sasltimeout;     /**< timeout timer for SASL */
+  time_t cli_saslstart;             /**< When SASL authentication started (for stale response detection) */
+  struct SASLSession* cli_saslsession; /**< Local SASL session state (NULL if not using local path) */
+
+  /* IRCv3 draft/account-registration */
+  unsigned int cli_regcookie;       /**< Nonzero exactly while a REGISTER async chain is outstanding on this connection; doubles as that chain's client-refind key and as the one-in-flight guard. Deliberately NOT cli_saslcookie, which SASL zeroes on its own failure paths. See m_register.c */
+
+  /* IRCv3 Metadata */
+  struct MetadataEntry* cli_metadata;    /**< Client metadata key-value pairs */
+  struct MetadataSub*   cli_metadatasub; /**< Client metadata subscriptions */
+  time_t                cli_metadata_lastcmd;  /**< Time of last metadata command */
+  int                   cli_metadata_cmdcnt;   /**< Metadata commands this second */
+
+  /* Per-Client session identity (UUID v7, 22-char base64).
+   * Generated at make_client for local clients; adopted from a bouncer
+   * session's stored sessid on resume; for remote clients, populated by
+   * the ,S S2S compact tag (currently bouncer-only senders, extended to
+   * all clients in a future phase).  Empty string if not yet generated.
+   * Used as the presence anchor for ephemeral METADATA / READ_MARKER /
+   * CHATHISTORY (PM) and as the source of truth for the wire-emitted
+   * ,S<sessid> compact tag on outgoing N introductions.
+   *
+   * The ONLY writer is client_set_session_id() (list.c) -- it keeps
+   * this field and cli_sesslink below (the session-id -> Client index)
+   * in agreement.  Never write cli_session_id directly. */
+  char                  cli_session_id[S2S_SESSID_BUFSIZE];
+
+  /** This Client's filing in the session-id -> Client index
+   * (sessid_index.h), keyed by cli_session_id.  One id can name
+   * several Clients at once (a bouncer primary and its aliases; two
+   * kept-apart sessions that briefly share an id), so a lookup is a
+   * multi-match the caller interprets, not a single answer. */
+  struct SessidLink     cli_sesslink;
+
+  /* Phase C: in-memory PM ring for ephemeral↔ephemeral conversations.
+   * NULL until first insert; freed in ephemeral_purge_session.  Defined
+   * opaque here to avoid pulling chathistory_ephemeral.h everywhere
+   * that includes client.h; full type lives in that header. */
+  struct EphemeralPmRing *cli_ephemeral_pm;
 };
 
 /** Magic constant to identify valid Client structures. */
@@ -393,6 +687,8 @@ struct Client {
 #define cli_lasttime(cli)	con_lasttime(cli_connect(cli))
 /** Get time we last parsed something from the client. */
 #define cli_since(cli)		con_since(cli_connect(cli))
+/** Get the client's unspent fake-lag credit. */
+#define cli_lagcredit(cli)	con_lagcredit(cli_connect(cli))
 /** Get time client was created. */
 #define cli_firsttime(cli)	((cli)->cli_firsttime)
 /** Get time client last changed nickname. */
@@ -413,8 +709,105 @@ struct Client {
 #define cli_privs(cli)		((cli)->cli_privs)
 /** Get client capabilities for client */
 #define cli_capab(cli)		con_capab(cli_connect(cli))
-/** Get active client capabilities for client */
+/** Get active client capabilities for client (union for bouncer sessions) */
 #define cli_active(cli)		con_active(cli_connect(cli))
+/** Get this client's own negotiated caps (not the session union) */
+#define cli_active_own(cli)	con_active_own(cli_connect(cli))
+/** Get CAP version for client (0, 301, 302) */
+#define cli_capab_version(cli)	con_capab_version(cli_connect(cli))
+/** Get current command label for labeled-response */
+#define cli_label(cli)		con_label(cli_connect(cli))
+/** Check if labeled response was sent for this command */
+#define cli_label_responded(cli)	con_label_responded(cli_connect(cli))
+/** Get current batch reference ID */
+#define cli_batch_id(cli)	con_batch_id(cli_connect(cli))
+/** Get batch sequence number */
+#define cli_batch_seq(cli)	con_batch_seq(cli_connect(cli))
+#define cli_token_auth(cli)	con_token_auth(cli_connect(cli))
+/** Get client-only tags buffer for TAGMSG relay */
+#define cli_client_tags(cli)	con_client_tags(cli_connect(cli))
+/** Get S2S @time as epoch milliseconds from incoming message */
+#define cli_s2s_time_ms(cli)	con_s2s_time_ms(cli_connect(cli))
+/** Get S2S @msgid tag from incoming message */
+#define cli_s2s_msgid(cli)	con_s2s_msgid(cli_connect(cli))
+/** Get multi-msgid string from incoming message (+-separated, for batched CREATE/PART) */
+#define cli_s2s_multi_msgid(cli) con_s2s_multi_msgid(cli_connect(cli))
+/** Get client-only tags from compact-tag ,C segment of incoming S2S message */
+#define cli_s2s_client_tags(cli) con_s2s_client_tags(cli_connect(cli))
+/** Get bouncer session ID hint from compact-tag ,S segment of incoming S2S message (per redesign A.2) */
+#define cli_s2s_sessid(cli)      con_s2s_sessid(cli_connect(cli))
+/** Get multiline framing (flag + batch reference) from compact-tag ,M segment of incoming S2S message */
+#define cli_s2s_ml(cli)          con_s2s_ml(cli_connect(cli))
+/** Get the bouncer hold mark from compact-tag ,H segment of incoming S2S message (0 = none) */
+#define cli_s2s_held(cli)        con_s2s_held(cli_connect(cli))
+/** Get the link our last burst N for a local client carried a hold mark to */
+#define cli_burst_stamp_link(cli) con_burst_stamp_link(cli_connect(cli))
+/** Get the hold mark that burst N carried (0 = none) */
+#define cli_burst_stamp(cli)     con_burst_stamp(cli_connect(cli))
+/** Get the link incarnation the burst stamp was recorded for */
+#define cli_burst_stamp_serial(cli) con_burst_stamp_serial(cli_connect(cli))
+/** Get per-Client session ID (UUID v7 base64 — generated at make_client, adopted by bouncer on resume). */
+#define cli_session_id(cli)      ((cli)->cli_session_id)
+/** Get this Client's session-id index filing (sessid_index.h). */
+#define cli_sesslink(cli)         ((cli)->cli_sesslink)
+/** Get S2S batch ID from server */
+#define cli_s2s_batch_id(cli)	con_s2s_batch_id(cli_connect(cli))
+/** Get S2S batch type from server */
+#define cli_s2s_batch_type(cli)	con_s2s_batch_type(cli_connect(cli))
+/** Get active multiline batch ID. */
+#define cli_ml_batch_id(cli)	con_ml_batch_id(cli_connect(cli))
+#define cli_ml_dead_batch_id(cli)	con_ml_dead_batch_id(cli_connect(cli))
+/** Get multiline batch target. */
+#define cli_ml_target(cli)	con_ml_target(cli_connect(cli))
+/** Get multiline message list. */
+#define cli_ml_messages(cli)	con_ml_messages(cli_connect(cli))
+/** Get multiline message count. */
+#define cli_ml_msg_count(cli)	con_ml_msg_count(cli_connect(cli))
+/** Get multiline total bytes. */
+#define cli_ml_total_bytes(cli)	con_ml_total_bytes(cli_connect(cli))
+/** Get multiline batch start time. */
+#define cli_ml_batch_start(cli)	con_ml_batch_start(cli_connect(cli))
+/** Get accumulated lag during batch. */
+#define cli_ml_cooldown_until(cli) con_ml_cooldown_until(cli_connect(cli))
+/** Get label from BATCH +id for labeled-response. */
+#define cli_ml_label(cli)	con_ml_label(cli_connect(cli))
+/** Get client-only tags from BATCH open command. */
+#define cli_ml_client_tags(cli)	con_ml_client_tags(cli_connect(cli))
+/** Get batch rate limit window start time. */
+#define cli_batch_minute(cli)	con_batch_minute(cli_connect(cli))
+/** Get batch count in current rate limit window. */
+#define cli_batch_count(cli)	con_batch_count(cli_connect(cli))
+/** Get whether batch is NOTICE (1), PRIVMSG (0), or unset (-1). */
+#define cli_ml_is_notice(cli)	con_ml_is_notice(cli_connect(cli))
+/** Get current message @batch tag. */
+#define cli_msg_batch_tag(cli)	con_msg_batch_tag(cli_connect(cli))
+/** Get current message concat flag. */
+#define cli_msg_concat(cli)	con_msg_concat(cli_connect(cli))
+/** Get labeled batch flag (1 if labeled_batch_start opened a batch). */
+#define cli_labeled_batch(cli)	con_labeled_batch(cli_connect(cli))
+/** Get forwarded label FIFO array. */
+#define cli_fwd_labels(cli)	con_fwd_labels(cli_connect(cli))
+/** Get WebSocket partial frame buffer. */
+#define cli_ws_frame_buf(cli)	con_ws_frame_buf(cli_connect(cli))
+/** Get WebSocket partial frame buffer length. */
+#define cli_ws_frame_len(cli)	con_ws_frame_len(cli_connect(cli))
+/** Get WebSocket fragment reassembly buffer. */
+#define cli_ws_frag_buf(cli)	con_ws_frag_buf(cli_connect(cli))
+/** Get WebSocket fragment reassembly buffer length. */
+#define cli_ws_frag_len(cli)	con_ws_frag_len(cli_connect(cli))
+/** Get WebSocket first fragment opcode. */
+#define cli_ws_frag_opcode(cli)	con_ws_frag_opcode(cli_connect(cli))
+#define cli_ws_ctl_since(cli)	con_ws_ctl_since(cli_connect(cli))
+/** Get WebSocket handshake accumulation buffer. */
+#define cli_ws_hs_buf(cli)	con_ws_hs_buf(cli_connect(cli))
+/** Get WebSocket handshake accumulation buffer length. */
+#define cli_ws_hs_len(cli)	con_ws_hs_len(cli_connect(cli))
+/** Get per-class recv classifier state. */
+#define cli_recv_state(cli)     con_recv_state(cli_connect(cli))
+/** Get tag-region byte count for the in-flight wire line. */
+#define cli_recv_tag_bytes(cli) con_recv_tag_bytes(cli_connect(cli))
+/** Get message-region byte count for the in-flight wire line. */
+#define cli_recv_msg_bytes(cli) con_recv_msg_bytes(cli_connect(cli))
 /** Get client name. */
 #define cli_name(cli)		((cli)->cli_name)
 /** Get client username (ident). */
@@ -423,6 +816,8 @@ struct Client {
 #define cli_info(cli)		((cli)->cli_info)
 /** Get client account string. */
 #define cli_account(cli)       (cli_user(cli) ? cli_user(cli)->account : "0")
+/** Get the primary Client for an alias numeric (NULL if not an alias). */
+#define cli_alias_primary(cli) (cli_user(cli) ? cli_user(cli)->alias_primary : NULL)
 /** Get client connection IP address. */
 #define cli_connectip(cli)      ((cli)->cli_connectip)
 /** Get client connection host name. */
@@ -433,6 +828,9 @@ struct Client {
 #define cli_version(cli)        ((cli)->cli_version)
 /** Get a clients SSL fingerprint string. */
 #define cli_sslclifp(cli)       ((cli)->cli_sslclifp)
+#define cli_wsorigin(cli)       ((cli)->cli_wsorigin)
+/** Get a clients SSL certificate expiration timestamp. */
+#define cli_sslcliexp(cli)      ((cli)->cli_sslcliexp)
 /** Get a clients Kill block exemption mark. */
 #define cli_killmark(cli)       ((cli)->cli_killmark)
 /** Get all marks set for client. */
@@ -453,10 +851,29 @@ struct Client {
 #define cli_saslaccount(cli)    ((cli)->cli_saslaccount)
 /** Get SASL authenticated account timestamp. */
 #define cli_saslacccreate(cli)  ((cli)->cli_saslacccreate)
+/** Get SASL authenticated Keycloak user id (compact). */
+#define cli_saslkcid(cli)       ((cli)->cli_saslkcid)
+#define cli_saslkcidlive(cli)   ((cli)->cli_saslkcidlive)
 /** Get SASL session cookie. */
 #define cli_saslcookie(cli)     ((cli)->cli_saslcookie)
+/** Get SASL start timestamp. */
+#define cli_saslstart(cli)      ((cli)->cli_saslstart)
 /** Get Timer for SASL timeout. */
-#define cli_sasltimeout(cli)     ((cli)->cli_sasltimeout)
+#define cli_sasltimeout(cli)     con_sasltimeout(cli_connect(cli))
+/** Get local SASL session (may be NULL). */
+#define cli_saslsession(cli)     ((cli)->cli_saslsession)
+/** Get the REGISTER in-flight cookie (nonzero => a chain is outstanding). */
+#define cli_regcookie(cli)       ((cli)->cli_regcookie)
+/** Get client metadata list. */
+#define cli_metadata(cli)        ((cli)->cli_metadata)
+/** Get client metadata subscriptions. */
+#define cli_metadatasub(cli)     ((cli)->cli_metadatasub)
+/** Get time of last metadata command. */
+#define cli_metadata_lastcmd(cli) ((cli)->cli_metadata_lastcmd)
+/** Get metadata command count for current second. */
+#define cli_metadata_cmdcnt(cli)  ((cli)->cli_metadata_cmdcnt)
+/** Get/set the ephemeral PM ring pointer. */
+#define cli_ephemeral_pm(cli)    ((cli)->cli_ephemeral_pm)
 
 /** Get number of incoming bytes queued for client. */
 #define cli_count(cli)		con_count(cli_connect(cli))
@@ -468,12 +885,16 @@ struct Client {
 #define cli_error(cli)		con_error(cli_connect(cli))
 /** Get last SSL error string. */
 #define cli_sslerror(cli)       con_sslerror(cli_connect(cli))
+/** Get why a client's socket died ("" while it has not). */
+#define cli_exit_reason(cli)    con_exit_reason(cli_connect(cli))
 /** Get server notice mask for the client. */
 #define cli_snomask(cli)	con_snomask(cli_connect(cli))
 /** Get next time a nick change is allowed for the client. */
 #define cli_nextnick(cli)	con_nextnick(cli_connect(cli))
 /** Get next time a target change is allowed for the client. */
 #define cli_nexttarget(cli)	con_nexttarget(cli_connect(cli))
+/** Get next time an AWAY change is allowed for the client. */
+#define cli_nextaway(cli)	con_nextaway(cli_connect(cli))
 /** Get SendQ for client. */
 #define cli_sendQ(cli)		con_sendQ(cli_connect(cli))
 /** Get RecvQ for client. */
@@ -494,6 +915,8 @@ struct Client {
 #define cli_handler(cli)	con_handler(cli_connect(cli))
 /** Get LIST status for client. */
 #define cli_listing(cli)	con_listing(cli_connect(cli))
+/** Get chathistory replay status for client. */
+#define cli_replay(cli)		con_replay(cli_connect(cli))
 /** Get cached max SendQ for client. */
 #define cli_max_sendq(cli)	con_max_sendq(cli_connect(cli))
 /** Get cached max RecvQ for client. */
@@ -514,6 +937,8 @@ struct Client {
 #define cli_sock_ip(cli)	con_sock_ip(cli_connect(cli))
 /** Get the resolved hostname for the client. */
 #define cli_sockhost(cli)	con_sockhost(cli_connect(cli))
+/** Get the VAPID key id the client last saw in ISUPPORT. */
+#define cli_vapid_seen(cli)	con_vapid_seen(cli_connect(cli))
 /** Get the client's password. */
 #define cli_passwd(cli)		con_passwd(cli_connect(cli))
 /** Get the unprocessed input buffer for a client's connection.  */
@@ -549,6 +974,8 @@ struct Client {
 #define con_error(con)		((con)->con_error)
 /** Get last SSL error string. */
 #define con_sslerror(con)       ((con)->con_sslerror)
+/** Get why a connection's socket died ("" while it has not). */
+#define con_exit_reason(con)    ((con)->con_exit_reason)
 /** Get sentalong marker for connection. */
 #define con_sentalong(con)      ((con)->con_sentalong)
 /** Get server notice mask for connection. */
@@ -557,10 +984,14 @@ struct Client {
 #define con_nextnick(con)	((con)->con_nextnick)
 /** Get next new target time for connection. */
 #define con_nexttarget(con)	((con)->con_nexttarget)
+/** Get next AWAY change time for connection. */
+#define con_nextaway(con)	((con)->con_nextaway)
 /** Get last time we read from the connection. */
 #define con_lasttime(con)       ((con)->con_lasttime)
 /** Get last time we accepted a command from the connection. */
 #define con_since(con)          ((con)->con_since)
+/** Get the connection's unspent fake-lag credit. */
+#define con_lagcredit(con)      ((con)->con_lagcredit)
 /** Get SendQ for connection. */
 #define con_sendQ(con)		((con)->con_sendQ)
 /** Get RecvQ for connection. */
@@ -575,12 +1006,18 @@ struct Client {
 #define con_receiveB(con)	((con)->con_receiveB)
 /** Get listener that accepted the connection. */
 #define con_listener(con)	((con)->con_listener)
+/** Burst-gate deadline (legacy peers gated for bouncer convergence). */
+#define con_burst_gate_deadline(con)	((con)->con_burst_gate_deadline)
+/** As above, accessed by Client (forwards to its Connection). */
+#define cli_burst_gate_deadline(cli)	con_burst_gate_deadline(cli_connect(cli))
 /** Get list of ConfItems attached to the connection. */
 #define con_confs(con)		((con)->con_confs)
 /** Get command handler for the connection. */
 #define con_handler(con)	((con)->con_handler)
 /** Get the LIST status for the connection. */
 #define con_listing(con)	((con)->con_listing)
+/** Get the chathistory replay status for the connection. */
+#define con_replay(con)		((con)->con_replay)
 /** Get the maximum permitted SendQ size for the connection. */
 #define con_max_sendq(con)	((con)->con_max_sendq)
 /** Get the maximum permitted RecvQ size for the connection. */
@@ -599,6 +1036,8 @@ struct Client {
 #define con_sock_ip(con)	((con)->con_sock_ip)
 /** Get the resolved hostname for the connection. */
 #define con_sockhost(con)	((con)->con_sockhost)
+/** Get the VAPID key id the connection last saw in ISUPPORT. */
+#define con_vapid_seen(con)	((con)->con_vapid_seen)
 /** Get the password sent by the remote end of the connection.  */
 #define con_passwd(con)		((con)->con_passwd)
 /** Get the buffer of unprocessed incoming data from the connection. */
@@ -607,12 +1046,129 @@ struct Client {
 #define con_socket(con)		((con)->con_socket)
 /** Get the Timer for processing more data from the connection. */
 #define con_proc(con)		((con)->con_proc)
+/** Get the SASL timeout timer for the connection. */
+#define con_sasltimeout(con)	((con)->con_sasltimeout)
 /** Get the peer's capabilities for the connection. */
 #define con_capab(con)          (&(con)->con_capab)
-/** Get the active capabilities for the connection. */
+/** Get the active capabilities for the connection (union for bouncer sessions). */
 #define con_active(con)         (&(con)->con_active)
+/** Get this connection's own negotiated caps (not the session union). */
+#define con_active_own(con)     (&(con)->con_active_own)
+/** Get the CAP version for the connection (0, 301, 302). */
+#define con_capab_version(con)  ((con)->con_capab_version)
 /** Get the auth request for the connection. */
 #define con_auth(con)		((con)->con_auth)
+/** Get the current command label for labeled-response. */
+#define con_label(con)		((con)->con_label)
+/** Check if labeled response was sent for this command. */
+#define con_label_responded(con)	((con)->con_label_responded)
+/** Get the current batch reference ID. */
+#define con_batch_id(con)	((con)->con_batch_id)
+/** Get the batch sequence number. */
+#define con_batch_seq(con)	((con)->con_batch_seq)
+#define con_token_auth(con)	((con)->con_token_auth)
+/** Get the client-only tags buffer for TAGMSG relay. */
+#define con_client_tags(con)	((con)->con_client_tags)
+/** Get the S2S @time as epoch milliseconds from incoming message. */
+#define con_s2s_time_ms(con)	((con)->con_s2s_time_ms)
+/** Get the S2S @msgid tag from incoming message. */
+#define con_s2s_msgid(con)	((con)->con_s2s_msgid)
+/** Get the full multi-msgid string from incoming message. */
+#define con_s2s_multi_msgid(con) ((con)->con_s2s_multi_msgid)
+/** Get the client-only tags from compact-tag ,C segment of incoming S2S message. */
+#define con_s2s_client_tags(con) ((con)->con_s2s_client_tags)
+/** Get the bouncer session ID hint from compact-tag ,S segment of incoming S2S message. */
+#define con_s2s_sessid(con)      ((con)->con_s2s_sessid)
+/** Get the multiline framing (flag + batch reference) from compact-tag ,M segment of incoming S2S message. */
+#define con_s2s_ml(con)          ((con)->con_s2s_ml)
+/** Get the bouncer hold mark from compact-tag ,H segment of incoming S2S message. */
+#define con_s2s_held(con)        ((con)->con_s2s_held)
+/** Get the link our last burst N for this local client carried a hold mark to. */
+#define con_burst_stamp_link(con) ((con)->con_burst_stamp_link)
+/** Get the hold mark that burst N carried. */
+#define con_burst_stamp(con)     ((con)->con_burst_stamp)
+/** Get the link incarnation the burst stamp was recorded for. */
+#define con_burst_stamp_serial(con) ((con)->con_burst_stamp_serial)
+/** Get the S2S batch ID from server. */
+#define con_s2s_batch_id(con)	((con)->con_s2s_batch_id)
+/** Get the S2S batch type from server. */
+#define con_s2s_batch_type(con)	((con)->con_s2s_batch_type)
+/** Get the pre-registration away state. */
+#define con_pre_away(con)	((con)->con_pre_away)
+/** Get the pre-registration away message. */
+#define con_pre_away_msg(con)	((con)->con_pre_away_msg)
+/** Get the active draft/persistence profile name (per-connection). */
+#define con_active_profile(con)	((con)->con_active_profile)
+#define cli_active_profile(cli)	con_active_profile(cli_connect(cli))
+#define con_attach_cursor(con)	((con)->con_attach_cursor)
+#define cli_attach_cursor(cli)	con_attach_cursor(cli_connect(cli))
+/** Get the multiline batch ID. */
+#define con_ml_batch_id(con)	((con)->con_ml_batch_id)
+#define con_ml_dead_batch_id(con)	((con)->con_ml_dead_batch_id)
+/** Get the multiline batch target. */
+#define con_ml_target(con)	((con)->con_ml_target)
+/** Get the multiline message list. */
+#define con_ml_messages(con)	((con)->con_ml_messages)
+/** Get the multiline message count. */
+#define con_ml_msg_count(con)	((con)->con_ml_msg_count)
+/** Get the multiline total bytes. */
+#define con_ml_total_bytes(con)	((con)->con_ml_total_bytes)
+/** Get the multiline batch start time. */
+#define con_ml_batch_start(con)	((con)->con_ml_batch_start)
+/** Get the accumulated lag during batch (to apply at batch end). */
+#define con_ml_cooldown_until(con) ((con)->con_ml_cooldown_until)
+/** Get the label from BATCH +id for labeled-response on WARN. */
+#define con_ml_label(con)	((con)->con_ml_label)
+/** Get client-only tags from BATCH open command. */
+#define con_ml_client_tags(con)	((con)->con_ml_client_tags)
+/** Get the batch rate limit window start time. */
+#define con_batch_minute(con)	((con)->con_batch_minute)
+/** Get the batch count in current rate limit window. */
+#define con_batch_count(con)	((con)->con_batch_count)
+/** Get whether batch is NOTICE (1), PRIVMSG (0), or unset (-1). */
+#define con_ml_is_notice(con)	((con)->con_ml_is_notice)
+/** Get the current message @batch tag. */
+#define con_msg_batch_tag(con)	((con)->con_msg_batch_tag)
+/** Get the current message draft/multiline-concat flag. */
+#define con_msg_concat(con)	((con)->con_msg_concat)
+/** Get the labeled batch flag (1 if labeled_batch_start opened a batch). */
+#define con_labeled_batch(con)	((con)->con_labeled_batch)
+/** Get the forwarded label FIFO array. */
+#define con_fwd_labels(con)	((con)->con_fwd_labels)
+/** Get WebSocket partial frame buffer. */
+#define con_ws_frame_buf(con)	((con)->con_ws_frame_buf)
+/** Get WebSocket partial frame buffer length. */
+#define con_ws_frame_len(con)	((con)->con_ws_frame_len)
+/** Get WebSocket fragment reassembly buffer. */
+#define con_ws_frag_buf(con)	((con)->con_ws_frag_buf)
+/** Get WebSocket fragment reassembly buffer length. */
+#define con_ws_frag_len(con)	((con)->con_ws_frag_len)
+/** Get WebSocket first fragment opcode. */
+#define con_ws_frag_opcode(con)	((con)->con_ws_frag_opcode)
+#define con_ws_ctl_since(con)	((con)->con_ws_ctl_since)
+/** Get WebSocket handshake accumulation buffer. */
+#define con_ws_hs_buf(con)	((con)->con_ws_hs_buf)
+/** Get WebSocket handshake accumulation buffer length. */
+#define con_ws_hs_len(con)	((con)->con_ws_hs_len)
+#define con_ws_txrem(con)	((con)->con_ws_txrem)
+#define con_ws_txrem_len(con)	((con)->con_ws_txrem_len)
+#define con_ws_txrem_pos(con)	((con)->con_ws_txrem_pos)
+/** Status of the WebSocket Close this socket ends with (0 = none set). */
+#define con_ws_close_code(con)	((con)->con_ws_close_code)
+/** Reason text of the WebSocket Close this socket ends with. */
+#define con_ws_close_reason(con)	((con)->con_ws_close_reason)
+/** Non-zero once the WebSocket Close frame has gone out on this socket. */
+#define con_ws_close_sent(con)	((con)->con_ws_close_sent)
+/** Get per-class recv classifier state. */
+#define con_recv_state(con)     ((con)->con_recv_state)
+/** Get tag-region byte count for the in-flight wire line. */
+#define con_recv_tag_bytes(con) ((con)->con_recv_tag_bytes)
+/** Get message-region byte count for the in-flight wire line. */
+#define con_recv_msg_bytes(con) ((con)->con_recv_msg_bytes)
+
+/* recv classifier states (con_recv_state) */
+#define RECV_TAGS 0  /**< Inside @-region; before first SPACE on the line. */
+#define RECV_MSG  1  /**< Inside message region; until \r\n. */
 
 #define STAT_CONNECTING         0x001 /**< connecting to another server */
 #define STAT_HANDSHAKE          0x002 /**< pass - server sent */
@@ -699,12 +1255,46 @@ struct Client {
 #define IsBurstAck(x)           HasFlag(x, FLAG_BURST_ACK)
 /** Return non-zero if we are still bursting to the client. */
 #define IsBurstOrBurstAck(x)    (HasFlag(x, FLAG_BURST) || HasFlag(x, FLAG_BURST_ACK))
+/** Return non-zero if the outbound burst is gated awaiting peer's BX F. */
+#define IsBurstGated(x)         HasFlag(x, FLAG_BURST_GATED)
 /** Return non-zero if the client has set mode +k (channel service). */
 #define IsChannelService(x)     HasFlag(x, FLAG_CHSERV)
 /** Return non-zero if the client's socket is disconnected. */
 #define IsDead(x)               HasFlag(x, FLAG_DEADSOCKET)
 /** Return non-zero if the client has set mode +d (deaf). */
 #define IsDeaf(x)               HasFlag(x, FLAG_DEAF)
+/** Return non-zero if the client has set mode +Y (no history storage). */
+#define IsNoStorage(x)          HasFlag(x, FLAG_NOSTORAGE)
+#define IsPMOptout(x)           HasFlag(x, FLAG_PM_OPTOUT)
+/** Return non-zero if user prefers bouncer hold mode. */
+#define IsBncHoldPref(x)        HasFlag(x, FLAG_BNC_HOLDPREF)
+#define SetBncHoldPref(x)       SetFlag(x, FLAG_BNC_HOLDPREF)
+#define ClearBncHoldPref(x)     ClrFlag(x, FLAG_BNC_HOLDPREF)
+/** Return non-zero if client is a bouncer ghost (in HOLDING state). */
+#define IsBouncerHold(x)        HasFlag(x, FLAG_BOUNCER_HOLD)
+#define SetBouncerHold(x)       SetFlag(x, FLAG_BOUNCER_HOLD)
+#define ClearBouncerHold(x)     ClrFlag(x, FLAG_BOUNCER_HOLD)
+/** Return non-zero if client is an alias numeric for multi-server bouncer presence. */
+#define IsBouncerAlias(x)       HasFlag(x, FLAG_BOUNCER_ALIAS)
+#define SetBouncerAlias(x)      SetFlag(x, FLAG_BOUNCER_ALIAS)
+#define ClearBouncerAlias(x)    ClrFlag(x, FLAG_BOUNCER_ALIAS)
+/** Return non-zero if local_clients should NOT be decremented when this
+ *  Client is destroyed.  Set by bounce_hold_client after the inline
+ *  --local_clients (so destroy doesn't double-decrement), and by
+ *  bounce_create_ghost at boot (so destroy doesn't decrement a counter
+ *  that was never bumped).  Cleared by bounce_revive when a new socket
+ *  attaches and bumps local_clients again. */
+#define IsNoLcDecrement(x)      HasFlag(x, FLAG_NO_LC_DECREMENT)
+#define SetNoLcDecrement(x)     SetFlag(x, FLAG_NO_LC_DECREMENT)
+#define ClearNoLcDecrement(x)   ClrFlag(x, FLAG_NO_LC_DECREMENT)
+/** Return non-zero if client is being destroyed via bouncer-internal cleanup
+ *  (silent ghost destroy, BX P-handled retire, etc.).  Suppresses standard
+ *  QUIT broadcast on exit like FLAG_KILLED does, but does NOT trigger
+ *  session-destroy semantics — only an actual network KILL (FLAG_KILLED)
+ *  ends the entire session per design intent invariant #12. */
+#define IsBouncerInternalDestroy(x)    HasFlag(x, FLAG_BOUNCER_INTERNAL_DESTROY)
+#define SetBouncerInternalDestroy(x)   SetFlag(x, FLAG_BOUNCER_INTERNAL_DESTROY)
+#define ClearBouncerInternalDestroy(x) ClrFlag(x, FLAG_BOUNCER_INTERNAL_DESTROY)
 /** Return non-zero if the client has been IP-checked for clones. */
 #define IsIPChecked(x)          HasFlag(x, FLAG_IPCHECK)
 /** Return non-zero if we have received an ident response for the client. */
@@ -717,6 +1307,12 @@ struct Client {
 #define IsLocOp(x)              (MyConnect(x) && HasFlag(x, FLAG_LOCOP))
 /** Return non-zero if the client has set mode +o (global operator). */
 #define IsOper(x)               HasFlag(x, FLAG_OPER)
+/** Return non-zero if the client has pending async OPER verification. */
+#define IsOperPending(x)        HasFlag(x, FLAG_OPER_PENDING)
+/** Return non-zero if the client has pending async WEBIRC verification. */
+#define IsWebIRCPending(x)      HasFlag(x, FLAG_WEBIRC_PENDING)
+/** Return non-zero if the client has pending async SETHOST verification. */
+#define IsSetHostPending(x)     HasFlag(x, FLAG_SETHOST_PENDING)
 /** Return non-zero if the client has an active UDP ping request. */
 #define IsUPing(x)              HasFlag(x, FLAG_UPING)
 /** Return non-zero if the client has no '\n' in its buffer. */
@@ -727,14 +1323,34 @@ struct Client {
 #define SendServNotice(x)       HasFlag(x, FLAG_SERVNOTICE)
 /** Return non-zero if the client has set mode +w (wallops). */
 #define SendWallops(x)          HasFlag(x, FLAG_WALLOP)
+/** Return non-zero if the client has set mode +F (auto-follow relocations). */
 /** Return non-zero if the client claims to be a hub. */
 #define IsHub(x)                HasFlag(x, FLAG_HUB)
 /** Return non-zero if the client understands IPv6 addresses in P10. */
 #define IsIPv6(x)               HasFlag(x, FLAG_IPV6)
 /** Return non-zero if the client claims to be a services server. */
 #define IsService(x)            HasFlag(x, FLAG_SERVICE)
+/** A service bot: carries the channel-service user mode (+k) or sits on a
+ * server that announced itself as a service (SERVER ... +s).  Neither
+ * needs a U-line. */
+#define IsServiceClient(x)      (IsChannelService(x) \
+                                 || (cli_user(x) && cli_user(x)->server \
+                                     && IsService(cli_user(x)->server)))
 /** Return non-zero if the client has oplevels support. */
 #define IsOpLevels(x)           HasFlag(x, FLAG_OPLEVELS)
+/** Return non-zero if the server supports P10 multiline batches. */
+#define IsMultiline(x)          HasFlag(x, FLAG_MULTILINE)
+/** Return non-zero if the server speaks IRCv3 message-tag wire extensions. */
+#define IsIRCv3Aware(x)         HasFlag(x, FLAG_IRCV3AWARE)
+/** Return non-zero if the server applies/relays RENAME without being
+ * IRCv3-aware (e.g. X3 advertising 'r'). */
+#define IsRenameCapable(x)      HasFlag(x, FLAG_RENAME_CAPABLE)
+/** Return non-zero if the server emits BX F (reconcile-end) markers. */
+#define IsBxfAware(x)           HasFlag(x, FLAG_BXF_AWARE)
+/** Return non-zero if the server stamps and relays the bouncer hold mark. */
+#define IsHoldMark(x)           HasFlag(x, FLAG_HOLDMARK)
+/** Return non-zero if our SERVER line to this link announced 'H'. */
+#define IsHoldMarkSent(x)       HasFlag(x, FLAG_HOLDMARK_SENT)
 /** Return non-zero if the client has an account stamp. */
 #define IsAccount(x)            HasFlag(x, FLAG_ACCOUNT)
 /** Return non-zero if the client has set mode +x (hidden host). */
@@ -787,6 +1403,16 @@ struct Client {
 #define IsStartTLS(x)           HasFlag(x, FLAG_STARTTLS)
 /** Return non-zero if the client still needs SSL_accept(). */
 #define IsSSLNeedAccept(x)      HasFlag(x, FLAG_SSLNEEDACCEPT)
+#define IsSSLNeedConnect(x)     HasFlag(x, FLAG_SSLNEEDCONNECT)
+/** Return non-zero if the client is connected via WebSocket. */
+#define IsWebSocket(x)          HasFlag(x, FLAG_WEBSOCKET)
+/** Return non-zero if the client needs WebSocket handshake. */
+#define IsWSNeedHandshake(x)    HasFlag(x, FLAG_WSNEEDHANDSHAKE)
+/** Return non-zero if the WebSocket client uses text mode (vs binary). */
+#define IsWSText(x)             HasFlag(x, FLAG_WSTEXT)
+/** Return non-zero if the WebSocket client needs mode autodetection. */
+#define IsWSAutodetect(x)       HasFlag(x, FLAG_WSAUTODETECT)
+#define IsWSSniff(x)            HasFlag(x, FLAG_WSSNIFF)
 /** Return non-zero if the client is IPcheck exempt. */
 #define IsIPCheckExempt(x)      HasFlag(x, FLAG_IPCEXEMPT)
 /** Return non-zero if the client is not IPcheck exempt. */
@@ -811,6 +1437,8 @@ struct Client {
 #define IsServerNoop(x)         HasFlag(x, FLAG_SERVER_NOOP)
 /** Return non-zero if the client's CTCP VERSION reply has been sent out. */
 #define IsCVersionSent(x)       HasFlag(x, FLAG_SENT_CVERSION)
+/** Return non-zero if the client is exempt from blocks (native DNSBL whitelist). */
+#define IsDNSBLExempt(x)        HasFlag(x, FLAG_DNSBL_EXEMPT)
 /** Return non-zero if the client has an active PING request. */
 #define IsPingSent(x)           HasFlag(x, FLAG_PINGSENT)
 
@@ -823,10 +1451,15 @@ struct Client {
 #define SetBurst(x)             SetFlag(x, FLAG_BURST)
 /** Mark a client as being between EOB and EOB ACK. */
 #define SetBurstAck(x)          SetFlag(x, FLAG_BURST_ACK)
+/** Mark a server's outbound burst as gated on peer's BX F. */
+#define SetBurstGated(x)        SetFlag(x, FLAG_BURST_GATED)
 /** Mark a client as having mode +k (channel service). */
 #define SetChannelService(x)    SetFlag(x, FLAG_CHSERV)
 /** Mark a client as having mode +d (deaf). */
 #define SetDeaf(x)              SetFlag(x, FLAG_DEAF)
+/** Mark a client as having mode +Y (no history storage). */
+#define SetNoStorage(x)         SetFlag(x, FLAG_NOSTORAGE)
+#define SetPMOptout(x)          SetFlag(x, FLAG_PM_OPTOUT)
 /** Mark a client as having mode +g (debugging). */
 #define SetDebug(x)             SetFlag(x, FLAG_DEBUG)
 /** Mark a client as having ident looked up. */
@@ -841,10 +1474,17 @@ struct Client {
 #define SetLocOp(x)             SetFlag(x, FLAG_LOCOP)
 /** Mark a client as having mode +o (global operator). */
 #define SetOper(x)              SetFlag(x, FLAG_OPER)
+/** Mark a client as having pending async OPER verification. */
+#define SetOperPending(x)       SetFlag(x, FLAG_OPER_PENDING)
+/** Mark a client as having pending async WEBIRC verification. */
+#define SetWebIRCPending(x)     SetFlag(x, FLAG_WEBIRC_PENDING)
+/** Mark a client as having pending async SETHOST verification. */
+#define SetSetHostPending(x)    SetFlag(x, FLAG_SETHOST_PENDING)
 /** Mark a client as having a pending UDP ping. */
 #define SetUPing(x)             SetFlag(x, FLAG_UPING)
 /** Mark a client as having mode +w (wallops). */
 #define SetWallops(x)           SetFlag(x, FLAG_WALLOP)
+/** Mark a client as having mode +F (auto-follow relocations). */
 /** Mark a client as having mode +s (server notices). */
 #define SetServNotice(x)        SetFlag(x, FLAG_SERVNOTICE)
 /** Mark a client as being a hub server. */
@@ -855,6 +1495,18 @@ struct Client {
 #define SetService(x)           SetFlag(x, FLAG_SERVICE)
 /** Mark a client as having oplevels support. */
 #define SetOpLevels(x)          SetFlag(x, FLAG_OPLEVELS)
+/** Mark a server as supporting P10 multiline batches. */
+#define SetMultiline(x)         SetFlag(x, FLAG_MULTILINE)
+/** Mark a server as speaking IRCv3 message-tag wire extensions. */
+#define SetIRCv3Aware(x)        SetFlag(x, FLAG_IRCV3AWARE)
+/** Mark a server as applying/relaying RENAME without being IRCv3-aware. */
+#define SetRenameCapable(x)     SetFlag(x, FLAG_RENAME_CAPABLE)
+/** Mark a server as supporting the BX F handshake. */
+#define SetBxfAware(x)          SetFlag(x, FLAG_BXF_AWARE)
+/** Mark a server as stamping and relaying the bouncer hold mark. */
+#define SetHoldMark(x)          SetFlag(x, FLAG_HOLDMARK)
+/** Record that our SERVER line to this link announced 'H'. */
+#define SetHoldMarkSent(x)      SetFlag(x, FLAG_HOLDMARK_SENT)
 /** Mark a client as having an account stamp. */
 #define SetAccount(x)           SetFlag(x, FLAG_ACCOUNT)
 /** Mark a client as having mode +x (hidden host). */
@@ -907,6 +1559,16 @@ struct Client {
 #define SetStartTLS(x)          SetFlag(x, FLAG_STARTTLS)
 /** Mark a client as needing SSL_accept(). */
 #define SetSSLNeedAccept(x)     SetFlag(x, FLAG_SSLNEEDACCEPT)
+#define SetSSLNeedConnect(x)    SetFlag(x, FLAG_SSLNEEDCONNECT)
+/** Mark a client as connected via WebSocket. */
+#define SetWebSocket(x)         SetFlag(x, FLAG_WEBSOCKET)
+/** Mark a client as needing WebSocket handshake. */
+#define SetWSNeedHandshake(x)   SetFlag(x, FLAG_WSNEEDHANDSHAKE)
+/** Mark a WebSocket client as using text mode. */
+#define SetWSText(x)            SetFlag(x, FLAG_WSTEXT)
+/** Mark a WebSocket client as needing mode autodetection. */
+#define SetWSAutodetect(x)      SetFlag(x, FLAG_WSAUTODETECT)
+#define SetWSSniff(x)           SetFlag(x, FLAG_WSSNIFF)
 /** Mark a client as IPcheck exempt. */
 #define SetIPCheckExempt(x)     SetFlag(x, FLAG_IPCEXEMPT)
 /** Mark a client as not IPcheck exempt. */
@@ -931,6 +1593,8 @@ struct Client {
 #define SetServerNoop(x)        SetFlag(x, FLAG_SERVER_NOOP)
 /** Mark a client as having had it's CTCP VERSION sent out. */
 #define SetCVersionSent(x)      SetFlag(x, FLAG_SENT_CVERSION)
+/** Mark a client as exempt from blocks (native DNSBL whitelist). */
+#define SetDNSBLExempt(x)       SetFlag(x, FLAG_DNSBL_EXEMPT)
 /** Mark a client as having a pending PING. */
 #define SetPingSent(x)          SetFlag(x, FLAG_PINGSENT)
 
@@ -942,10 +1606,15 @@ struct Client {
 #define ClearBurst(x)           ClrFlag(x, FLAG_BURST)
 /** Clear the client's between EOB and EOB ACK flag. */
 #define ClearBurstAck(x)        ClrFlag(x, FLAG_BURST_ACK)
+/** Clear the burst-gated flag (peer sent BX F; finish bursting now). */
+#define ClearBurstGated(x)      ClrFlag(x, FLAG_BURST_GATED)
 /** Remove mode +k (channel service) from the client. */
 #define ClearChannelService(x)  ClrFlag(x, FLAG_CHSERV)
 /** Remove mode +d (deaf) from the client. */
 #define ClearDeaf(x)            ClrFlag(x, FLAG_DEAF)
+/** Remove mode +Y (no history storage) from the client. */
+#define ClearNoStorage(x)       ClrFlag(x, FLAG_NOSTORAGE)
+#define ClearPMOptout(x)        ClrFlag(x, FLAG_PM_OPTOUT)
 /** Remove mode +g (debugging) from the client. */
 #define ClearDebug(x)           ClrFlag(x, FLAG_DEBUG)
 /** Remove the client's IP-checked flag. */
@@ -956,10 +1625,17 @@ struct Client {
 #define ClearLocOp(x)           ClrFlag(x, FLAG_LOCOP)
 /** Remove mode +o (global operator) from the client. */
 #define ClearOper(x)            ClrFlag(x, FLAG_OPER)
+/** Clear the client's pending async OPER verification flag. */
+#define ClearOperPending(x)     ClrFlag(x, FLAG_OPER_PENDING)
+/** Clear the client's pending async WEBIRC verification flag. */
+#define ClearWebIRCPending(x)   ClrFlag(x, FLAG_WEBIRC_PENDING)
+/** Clear the client's pending async SETHOST verification flag. */
+#define ClearSetHostPending(x)  ClrFlag(x, FLAG_SETHOST_PENDING)
 /** Clear the client's pending UDP ping flag. */
 #define ClearUPing(x)           ClrFlag(x, FLAG_UPING)
 /** Remove mode +w (wallops) from the client. */
 #define ClearWallops(x)         ClrFlag(x, FLAG_WALLOP)
+/** Remove mode +F (auto-follow relocations) from the client. */
 /** Remove mode +s (server notices) from the client. */
 #define ClearServNotice(x)      ClrFlag(x, FLAG_SERVNOTICE)
 /** Remove mode +x (hidden host) from the client. */
@@ -1012,6 +1688,16 @@ struct Client {
 #define ClearStartTLS(x)        ClrFlag(x, FLAG_STARTTLS)
 /** Client no longer needs SSL_accept(). */
 #define ClearSSLNeedAccept(x)   ClrFlag(x, FLAG_SSLNEEDACCEPT)
+#define ClearSSLNeedConnect(x)  ClrFlag(x, FLAG_SSLNEEDCONNECT)
+/** Client no longer connected via WebSocket. */
+#define ClearWebSocket(x)       ClrFlag(x, FLAG_WEBSOCKET)
+/** Client no longer needs WebSocket handshake. */
+#define ClearWSNeedHandshake(x) ClrFlag(x, FLAG_WSNEEDHANDSHAKE)
+/** Clear WebSocket text mode flag. */
+#define ClearWSText(x)          ClrFlag(x, FLAG_WSTEXT)
+/** Clear WebSocket autodetect flag. */
+#define ClearWSAutodetect(x)    ClrFlag(x, FLAG_WSAUTODETECT)
+#define ClearWSSniff(x)         ClrFlag(x, FLAG_WSSNIFF)
 /** Clear the client's join restriction. */
 #define ClearRestrictJoin(x)    ClrFlag(x, FLAG_RESTRICT_JOIN)
 /** Clear the client's PRIVMSG/NOTICE restriction. */
@@ -1032,12 +1718,17 @@ struct Client {
 #define ClearHub(x)             ClrFlag(x, FLAG_HUB)
 /** Clear the client's OPLEVELS flag. */
 #define ClearOpLevels(x)        ClrFlag(x, FLAG_OPLEVELS)
+/** Clear the server's MULTILINE flag. */
+#define ClearMultiline(x)       ClrFlag(x, FLAG_MULTILINE)
 /** Clear the client's account status. */
 #define ClearAccount(x)         ClrFlag(x, FLAG_ACCOUNT)
+/** Clear the client's SASL authentication complete flag. */
+#define ClearSASLComplete(x)    ClrFlag(x, FLAG_SASLCOMPLETE)
 
 /* free flags */
 #define FREEFLAG_SOCKET	0x0001	/**< socket needs to be freed */
 #define FREEFLAG_TIMER	0x0002	/**< timer needs to be freed */
+#define FREEFLAG_SASLTIMER	0x0004	/**< SASL timer needs to be freed */
 
 /* server notice stuff */
 
@@ -1100,8 +1791,16 @@ struct Client {
 
 /** Test whether a client has a capability */
 #define HasCap(cli, cap)    CapHas(cli_capab(cli), (cap))
-/** Test whether a client has the capability active */
+/** Test whether a client has the capability active (union for bouncer sessions) */
 #define CapActive(cli, cap) CapHas(cli_active(cli), (cap))
+/** Test whether this specific connection has the capability (not the session union) */
+#define CapOwnHas(cli, cap) CapHas(cli_active_own(cli), (cap))
+
+/** Test whether a client has no-implicit-names (ratified or legacy draft form).
+ * IRCv3 spec ratified 2026-03-18 (#590); legacy draft/ form kept for
+ * backward compat with clients that haven't updated yet. */
+#define HasNoImplicitNames(cli) \
+  (HasCap((cli), CAP_NOIMPLICITNAMES) || HasCap((cli), CAP_NOIMPLICITNAMES_LEGACY))
 
 #define HIDE_IP 0 /**< Do not show IP address in get_client_name() */
 #define SHOW_IP 1 /**< Show ident and IP address in get_client_name() */
@@ -1123,6 +1822,15 @@ extern char *client_print_privs(struct Client *client);
 
 extern int client_modify_priv_by_name(struct Client *who, char *priv, int what);
 extern int clear_privs(struct Client *who);
+
+/* True for a privilege name that exists only in this fork's priv table
+ * (currently GITSYNC) and must never reach a legacy (non-IRCv3-aware)
+ * server link. */
+extern int priv_is_fork_only(const char *name);
+/* Copy the whitespace-separated PRIVS token list \a in into \a out,
+ * dropping any token (optionally '+'/'-'-prefixed, and/or a
+ * comma-separated name list) that names a fork-only privilege. */
+extern void privs_strip_fork_only(const char *in, char *out, size_t outlen);
 
 #endif /* INCLUDED_client_h */
 

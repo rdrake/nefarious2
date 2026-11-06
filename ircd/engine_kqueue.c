@@ -29,6 +29,7 @@
 #include "ircd_features.h"
 #include "ircd_log.h"
 #include "s_debug.h"
+#include "thread_pool.h"
 
 /* #include <assert.h> -- Now using assert in ircd_log.h */
 #include <errno.h>
@@ -203,7 +204,7 @@ set_or_clear(struct Socket* sock, unsigned int clear, unsigned int set)
   }
 
   if (kevent(kqueue_id, chglist, i, 0, 0, 0) < 0 && errno != EBADF)
-    event_generate(ET_ERROR, sock, errno); /* report error */
+    socket_error(sock, errno); /* delivered by the loop, not here */
 }
 
 /** Add a socket to the event engine.
@@ -317,6 +318,9 @@ engine_loop(struct Generators* gen)
   events = (struct kevent *)MyMalloc(sizeof(struct kevent) * events_count);
 
   while (running) {
+    /* Engine errors deferred since the last pass (socket_error()) */
+    socket_run_errors();
+
     if ((i = feature_int(FEAT_POLLS_PER_LOOP)) >= 20 && i != events_count) {
       events = (struct kevent *)MyRealloc(events, sizeof(struct kevent) * i);
       events_count = i;
@@ -325,6 +329,13 @@ engine_loop(struct Generators* gen)
     /* set up the sleep time */
     wait.tv_sec = timer_next(gen) ? (timer_next(gen) - CurrentTime) : -1;
     wait.tv_nsec = 0;
+    /* kevent() below passes NULL (infinite) when tv_sec < 0.  An OVERDUE
+     * next-timer makes (timer_next - CurrentTime) negative, sentinel'd to
+     * infinite — a quiet node sleeps forever, timer never fires (the
+     * engine_epoll coma class).  Clamp an overdue timer to 0 (poll now);
+     * the no-timers case keeps tv_sec = -1 (the infinite sentinel). */
+    if (timer_next(gen) && wait.tv_sec < 0)
+      wait.tv_sec = 0;
 
     Debug((DEBUG_ENGINE, "kqueue: delay: %Tu (%Tu) %Tu", timer_next(gen),
 	   CurrentTime, wait.tv_sec));
@@ -433,6 +444,7 @@ engine_loop(struct Generators* gen)
     }
 
     timer_run(); /* execute any pending timers */
+    thread_pool_poll(); /* process completed async tasks */
   }
 }
 

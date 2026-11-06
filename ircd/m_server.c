@@ -493,6 +493,10 @@ void set_server_flags(struct Client *cptr, const char *flags)
     case 's': SetService(cptr); break;
     case '6': SetIPv6(cptr); break;
     case 'o': SetOpLevels(cptr); break;
+    case 'v': SetIRCv3Aware(cptr); break;
+    case 'r': SetRenameCapable(cptr); break;
+    case 'F': SetBxfAware(cptr); break;
+    case 'H': SetHoldMark(cptr); break;
     }
 }
 
@@ -690,6 +694,11 @@ int ms_server(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
   unsigned short   prot;
   time_t           timestamp;
 
+  /* Only a server can introduce a server behind it. */
+  if (!IsServer(sptr))
+    return exit_client_msg(cptr, cptr, &me, "SERVER from non-server %s",
+                           cli_name(sptr));
+
   if (parc < 8)
   {
     return need_more_params(sptr, "SERVER");
@@ -768,9 +777,12 @@ int ms_server(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
     for (bcptr = cli_serv(acptr)->up; !IsMe(bcptr); bcptr = cli_serv(bcptr)->up)
       if (IsBurstOrBurstAck(bcptr))
           break;
-    if (IsMe(bcptr))
+    if (IsMe(bcptr)) {
       sendto_opmask_butone(0, SNO_NETWORK, "Net junction: %s %s",
                            cli_name(sptr), cli_name(acptr));
+      /* Start IRCv3 netjoin batch for local clients */
+      send_netjoin_batch_start(acptr, cli_serv(acptr)->up);
+    }
   }
   /*
    * Old sendto_serv_but_one() call removed because we now need to send
@@ -783,11 +795,15 @@ int ms_server(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
       continue;
     if (0 == match(cli_name(&me), cli_name(acptr)))
       continue;
-    sendcmdto_one(sptr, CMD_SERVER, bcptr, "%s %d 0 %s %s %s%s +%s%s%s%s :%s",
+    sendcmdto_one(sptr, CMD_SERVER, bcptr, "%s %d 0 %s %s %s%s +%s%s%s%s%s%s%s%s :%s",
                   cli_name(acptr), hop + 1, parv[4], parv[5],
                   NumServCap(acptr), IsHub(acptr) ? "h" : "",
                   IsService(acptr) ? "s" : "", IsIPv6(acptr) ? "6" : "",
-                  IsOpLevels(acptr) ? "o" : "", cli_info(acptr));
+                  IsOpLevels(acptr) ? "o" : "",
+                  IsIRCv3Aware(acptr) ? "v" : "",
+                  IsRenameCapable(acptr) ? "r" : "",
+                  IsBxfAware(acptr) ? "F" : "",
+                  IsHoldMark(acptr) ? "H" : "", cli_info(acptr));
   }
   return 0;
 }

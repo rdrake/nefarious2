@@ -160,7 +160,8 @@ enum AuthorizationCheckResult {
   ACR_TOO_MANY_IN_CLASS,  /**< Connection class was already full. */
   ACR_TOO_MANY_FROM_IP,   /**< User's IP already has max connections. */
   ACR_ALREADY_AUTHORIZED, /**< User already had an attached ConfItem. */
-  ACR_BAD_SOCKET          /**< Client has bad file descriptor. */
+  ACR_BAD_SOCKET,         /**< Client has bad file descriptor. */
+  ACR_SASL_UNAVAILABLE    /**< Class requires SASL but SASL service is unavailable. */
 };
 
 /** Target description for service commands. */
@@ -234,6 +235,16 @@ struct ExceptConf {
 #define EFLAG_TARGLIMIT 0x080   /**< Matching users are exempt from target limiting */
 #define EFLAG_LISTDELAY 0x100   /**< Matching users are exempt from LISTDELAY */
 
+#ifdef USE_SSL
+/** SNI certificate configuration for multi-certificate TLS support. */
+struct SSLCertConf {
+  struct SSLCertConf* next;     /**< Next SSLCertConf in sslCertConfList. */
+  char*               hostname; /**< SNI hostname to match. */
+  char*               certfile; /**< Path to certificate file. */
+  char*               keyfile;  /**< Path to private key file. */
+};
+#endif /* USE_SSL */
+
 /*
  * GLOBALS
  */
@@ -242,6 +253,9 @@ extern int              GlobalConfCount;
 extern struct s_map*    GlobalServiceMapList;
 extern struct qline*    GlobalQuarantineList;
 extern char *           GlobalForwards[256];
+#ifdef USE_SSL
+extern struct SSLCertConf* sslCertConfList;
+#endif
 
 /*
  * Proto types
@@ -276,7 +290,9 @@ extern void conf_parse_userhost(struct ConfItem *aconf, char *host);
 extern struct ConfItem *conf_debug_iline(const char *client);
 extern void free_mapping(struct s_map *smap);
 extern struct WebIRCConf* find_webirc_conf(struct Client *cptr, char *passwd, int* status);
+extern struct WebIRCConf* find_webirc_conf_by_host(struct Client *cptr);
 extern struct SHostConf* find_shost_conf(struct Client *cptr, char *host, char *passwd, int *status);
+extern struct SHostConf* find_shost_conf_by_host(struct Client *cptr, const char *host);
 extern int get_except_flags(struct Client *cptr);
 extern int find_except_conf(struct Client *cptr, int flags);
 extern int find_except_conf_by_ip(const struct irc_in_addr *addr, int flags);
@@ -290,5 +306,11 @@ extern int find_mark(struct Client* sptr, const char* dnsbl);
 extern int find_mark_match(struct Client* sptr, const char* mask);
 extern int add_mark(struct Client* sptr, const char* dnsbl);
 extern int del_marks(struct Client* sptr);
+
+#ifdef USE_SSL
+extern void clear_sslcert_confs(void);
+#endif
+
+extern int conf_get_error_flag(void);
 
 #endif /* INCLUDED_s_conf_h */

@@ -43,15 +43,19 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <limits.h>
+#include <sys/socket.h>
 #include <sys/uio.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #include <openssl/bio.h>
 #include <openssl/err.h>
 #include <openssl/rand.h>
 #include <openssl/ssl.h>
+
+void ssl_doerror_anon(void);
 
 #ifndef IOV_MAX
 #define IOV_MAX 1024
@@ -60,13 +64,37 @@
 SSL_CTX *ssl_server_ctx;
 SSL_CTX *ssl_client_ctx;
 
+/** Structure for SNI hostname to SSL_CTX mapping (linked list) */
+struct sni_cert {
+  char *hostname;         /**< Hostname to match */
+  SSL_CTX *ctx;           /**< SSL context with this certificate */
+  struct sni_cert *next;  /**< Next in linked list */
+};
+
+/** Linked list of SNI certificates (from SSL config block) */
+static struct sni_cert *sni_cert_list = NULL;
+
+/** SSL ex_data slot tracking the browser / client-cert decision for a
+ * connection (see ssl_client_hello_cb).  Values stored in the slot: */
+#define SSL_WS_EXDATA_NONE     ((void *)0) /**< not a websocket-capable port */
+#define SSL_WS_EXDATA_CAPABLE  ((void *)1) /**< websocket port, undecided */
+#define SSL_WS_EXDATA_BROWSER  ((void *)2) /**< ALPN seen: skip cert request */
+static int ssl_ws_ex_idx = -1;
+
 SSL_CTX *ssl_init_server_ctx(void);
 SSL_CTX *ssl_init_client_ctx(void);
+SSL_CTX *ssl_create_ctx_for_cert(const char *certfile, const char *keyfile);
 int ssl_verify_callback(int preverify_ok, X509_STORE_CTX *cert);
 void ssl_set_nonblocking(SSL *s);
 int ssl_smart_shutdown(SSL *ssl);
 void sslfail(char *txt);
 void binary_to_hex(unsigned char *bin, char *hex, int length);
+static int sni_callback(SSL *ssl, int *al, void *arg);
+static void sni_init_certs(void);
+static void sni_free_certs(void);
+#if OPENSSL_VERSION_NUMBER >= 0x10101000L
+static int ssl_client_hello_cb(SSL *ssl, int *al, void *arg);
+#endif
 
 int ssl_init(void)
 {
@@ -76,9 +104,15 @@ int ssl_init(void)
 
   Debug((DEBUG_NOTICE, "SSL: read %d bytes of randomness", RAND_load_file("/dev/urandom", 4096)));
 
+  ssl_ws_ex_idx = SSL_get_ex_new_index(0, "websocket listener", NULL, NULL, NULL);
+
   ssl_server_ctx = ssl_init_server_ctx();
   if (!ssl_server_ctx)
     return -1;
+
+  /* Initialize SNI certificates after server context is ready */
+  sni_init_certs();
+
   ssl_client_ctx = ssl_init_client_ctx();
   if (!ssl_client_ctx)
     return -1;
@@ -98,10 +132,16 @@ int ssl_reinit(int sig)
   if (!temp_ctx)
     return -1;
 
+  /* Free old SNI certificates before freeing old server context */
+  sni_free_certs();
+
   /* Now reinitialize server context for real. */
   SSL_CTX_free(temp_ctx);
   SSL_CTX_free(ssl_server_ctx);
   ssl_server_ctx = ssl_init_server_ctx();
+
+  /* Reload SNI certificates with new server context */
+  sni_init_certs();
 
   /* Attempt to reinitialize client context, return on error */
   temp_ctx = ssl_init_client_ctx();
@@ -139,6 +179,17 @@ SSL_CTX *ssl_init_server_ctx(void)
     SSL_CTX_set_options(server_ctx, SSL_OP_NO_TLSv1);
   SSL_CTX_set_verify(server_ctx, vrfyopts, ssl_verify_callback);
   SSL_CTX_set_session_cache_mode(server_ctx, SSL_SESS_CACHE_OFF);
+  /* Required for TLS session resumption under SSL_VERIFY_PEER: without a
+   * session id context OpenSSL refuses to resume ("session id context
+   * uninitialized" -- older versions fail the handshake, newer ones
+   * silently fall back to a full one), so every reconnect paid a full
+   * handshake.  TLS 1.3 tickets are stateless, so SSL_SESS_CACHE_OFF
+   * above does not conflict.  The SNI per-cert contexts must use the
+   * SAME value (see ssl_create_ctx_for_cert) or resumption breaks
+   * across a servername-driven context switch.  certfp survives
+   * resumption: the peer cert is restored from the original session. */
+  SSL_CTX_set_session_id_context(server_ctx,
+                                 (const unsigned char *)"nefarious", 9);
 
   if (SSL_CTX_use_certificate_chain_file(server_ctx, feature_str(FEAT_SSL_CERTFILE)) <= 0)
   {
@@ -187,6 +238,15 @@ SSL_CTX *ssl_init_server_ctx(void)
 #else
 #endif
   SSL_CTX_set_options(server_ctx, SSL_OP_SINGLE_ECDH_USE|SSL_OP_SINGLE_DH_USE);
+
+  /* Register SNI callback for multi-certificate support */
+  SSL_CTX_set_tlsext_servername_callback(server_ctx, sni_callback);
+
+#if OPENSSL_VERSION_NUMBER >= 0x10101000L
+  /* Spot browsers on websocket-capable listeners before the
+   * CertificateRequest is written (see ssl_client_hello_cb). */
+  SSL_CTX_set_client_hello_cb(server_ctx, ssl_client_hello_cb, NULL);
+#endif
 
   return server_ctx;
 }
@@ -254,12 +314,281 @@ int ssl_verify_callback(int preverify_ok, X509_STORE_CTX *cert)
   return 1;
 }
 
+/**
+ * SNI callback - called during TLS handshake when client sends SNI extension.
+ * Selects the appropriate SSL_CTX based on the requested hostname.
+ *
+ * @param ssl The SSL connection
+ * @param al Alert to send on error (unused)
+ * @param arg User data (unused)
+ * @return SSL_TLSEXT_ERR_OK if context switched, SSL_TLSEXT_ERR_NOACK otherwise
+ */
+#if OPENSSL_VERSION_NUMBER >= 0x10101000L
+/** ClientHello callback: runs after the ClientHello is parsed but before
+ * the server constructs its CertificateRequest — the last moment the
+ * client-cert decision can still be made per connection.
+ *
+ * Chromium (Chrome, Edge) cancels JS-initiated WebSocket handshakes
+ * outright when the TLS server requests a client certificate: there is
+ * no certificate picker for WebSockets ("WebSocket opening handshake
+ * was canceled").  Browsers always advertise ALPN (http/1.1) in their
+ * ClientHello, while native IRC clients essentially never send ALPN —
+ * so on websocket-capable listeners an ALPN-bearing ClientHello marks a
+ * browser and turns the certificate request off for just that
+ * connection.  Handshakes without ALPN keep SSL_VERIFY_PEER, so certfp
+ * on a `websocket = auto` port still works for IRC clients sharing it. */
+static int ssl_client_hello_cb(SSL *ssl, int *al, void *arg)
+{
+  const unsigned char *ext;
+  size_t extlen;
+
+  (void)al;   /* Unused */
+  (void)arg;  /* Unused */
+
+  if (ssl_ws_ex_idx < 0
+      || SSL_get_ex_data(ssl, ssl_ws_ex_idx) == SSL_WS_EXDATA_NONE)
+    return SSL_CLIENT_HELLO_SUCCESS;
+
+  if (SSL_client_hello_get0_ext(ssl, TLSEXT_TYPE_application_layer_protocol_negotiation,
+                                &ext, &extlen) && extlen > 0) {
+    Debug((DEBUG_DEBUG, "SSL: ALPN in ClientHello on websocket listener, "
+           "skipping client certificate request"));
+    SSL_set_ex_data(ssl, ssl_ws_ex_idx, SSL_WS_EXDATA_BROWSER);
+    SSL_set_verify(ssl, SSL_VERIFY_NONE, NULL);
+  }
+
+  return SSL_CLIENT_HELLO_SUCCESS;
+}
+#endif /* OPENSSL_VERSION_NUMBER >= 0x10101000L */
+
+static int sni_callback(SSL *ssl, int *al, void *arg)
+{
+  const char *hostname;
+  struct sni_cert *cert;
+
+  (void)al;   /* Unused */
+  (void)arg;  /* Unused */
+
+  hostname = SSL_get_servername(ssl, TLSEXT_NAMETYPE_host_name);
+  if (!hostname)
+    return SSL_TLSEXT_ERR_NOACK;  /* No SNI - use default cert */
+
+  Debug((DEBUG_DEBUG, "SNI: client requested hostname '%s'", hostname));
+
+  /* Search for matching hostname in SNI certificates */
+  for (cert = sni_cert_list; cert; cert = cert->next) {
+    if (cert->hostname && cert->ctx) {
+      if (!strcasecmp(cert->hostname, hostname)) {
+        Debug((DEBUG_DEBUG, "SNI: switching to certificate for '%s'", hostname));
+        SSL_set_SSL_CTX(ssl, cert->ctx);
+        /* SSL_set_SSL_CTX can adopt the new context's verify mode;
+         * re-apply the per-connection browser decision made in
+         * ssl_client_hello_cb (which runs before this callback). */
+        if (ssl_ws_ex_idx >= 0
+            && SSL_get_ex_data(ssl, ssl_ws_ex_idx) == SSL_WS_EXDATA_BROWSER)
+          SSL_set_verify(ssl, SSL_VERIFY_NONE, NULL);
+        return SSL_TLSEXT_ERR_OK;
+      }
+    }
+  }
+
+  /* No match found - use default certificate */
+  Debug((DEBUG_DEBUG, "SNI: no matching cert for '%s', using default", hostname));
+  return SSL_TLSEXT_ERR_NOACK;
+}
+
+/**
+ * Create an SSL_CTX for a specific certificate/key pair.
+ * Used for SNI hostname-specific certificates.
+ *
+ * @param certfile Path to certificate file
+ * @param keyfile Path to private key file
+ * @return SSL_CTX on success, NULL on failure
+ */
+SSL_CTX *ssl_create_ctx_for_cert(const char *certfile, const char *keyfile)
+{
+  SSL_CTX *ctx = NULL;
+
+  ctx = SSL_CTX_new(SSLv23_server_method());
+  if (!ctx) {
+    sslfail("SNI: Error creating context");
+    return NULL;
+  }
+
+  /* Apply same options as main server context */
+  if (feature_bool(FEAT_SSL_NOSSLV2))
+    SSL_CTX_set_options(ctx, SSL_OP_NO_SSLv2);
+  if (feature_bool(FEAT_SSL_NOSSLV3))
+    SSL_CTX_set_options(ctx, SSL_OP_NO_SSLv3);
+  if (feature_bool(FEAT_SSL_NOTLSV1))
+    SSL_CTX_set_options(ctx, SSL_OP_NO_TLSv1);
+
+  SSL_CTX_set_session_cache_mode(ctx, SSL_SESS_CACHE_OFF);
+  /* Same session id context as the main server ctx -- required for
+   * resumption to survive the SNI context switch (see ssl_init_server_ctx). */
+  SSL_CTX_set_session_id_context(ctx, (const unsigned char *)"nefarious", 9);
+
+  if (SSL_CTX_use_certificate_chain_file(ctx, certfile) <= 0) {
+    Debug((DEBUG_ERROR, "SNI: Error loading certificate '%s'", certfile));
+    sslfail("SNI: Error loading certificate");
+    SSL_CTX_free(ctx);
+    return NULL;
+  }
+
+  if (SSL_CTX_use_PrivateKey_file(ctx, keyfile, SSL_FILETYPE_PEM) <= 0) {
+    Debug((DEBUG_ERROR, "SNI: Error loading key '%s'", keyfile));
+    sslfail("SNI: Error loading key");
+    SSL_CTX_free(ctx);
+    return NULL;
+  }
+
+  if (!SSL_CTX_check_private_key(ctx)) {
+    sslfail("SNI: Certificate and key don't match");
+    SSL_CTX_free(ctx);
+    return NULL;
+  }
+
+  /* Apply ciphers if configured */
+  if (!EmptyString(feature_str(FEAT_SSL_CIPHERS))) {
+    if (SSL_CTX_set_cipher_list(ctx, feature_str(FEAT_SSL_CIPHERS)) == 0) {
+      sslfail("SNI: Error setting cipher list");
+      SSL_CTX_free(ctx);
+      return NULL;
+    }
+  }
+
+#if defined(SSL_CTX_set_ecdh_auto)
+  SSL_CTX_set_ecdh_auto(ctx, 1);
+#elif OPENSSL_VERSION_NUMBER < 0x10100000L
+  SSL_CTX_set_tmp_ecdh(ctx, EC_KEY_new_by_curve_name(NID_X9_62_prime256v1));
+#endif
+  SSL_CTX_set_options(ctx, SSL_OP_SINGLE_ECDH_USE|SSL_OP_SINGLE_DH_USE);
+
+  return ctx;
+}
+
+/**
+ * Initialize SNI certificates from SSL config block.
+ * Called from ssl_init() after the default context is created.
+ * Reads from sslCertConfList which is populated by the config parser.
+ */
+static void sni_init_certs(void)
+{
+  struct SSLCertConf *conf;
+  struct sni_cert *cert;
+  int count = 0;
+
+  /* Load SNI certificates from config list */
+  for (conf = sslCertConfList; conf; conf = conf->next) {
+    if (EmptyString(conf->hostname) || EmptyString(conf->certfile) || EmptyString(conf->keyfile))
+      continue;
+
+    SSL_CTX *ctx = ssl_create_ctx_for_cert(conf->certfile, conf->keyfile);
+    if (ctx) {
+      cert = (struct sni_cert *)MyMalloc(sizeof(*cert));
+      cert->hostname = strdup(conf->hostname);
+      cert->ctx = ctx;
+      cert->next = sni_cert_list;
+      sni_cert_list = cert;
+      count++;
+      Debug((DEBUG_NOTICE, "SNI: Loaded certificate for '%s'", conf->hostname));
+      sendto_opmask_butone(0, SNO_OLDSNO, "SNI: Certificate loaded for '%s'",
+                           conf->hostname);
+    } else {
+      Debug((DEBUG_ERROR, "SNI: Failed to load certificate for '%s'", conf->hostname));
+      sendto_opmask_butone(0, SNO_OLDSNO, "SNI: Failed to load certificate for '%s'",
+                           conf->hostname);
+    }
+  }
+
+  if (count > 0) {
+    Debug((DEBUG_NOTICE, "SNI: Loaded %d certificate(s)", count));
+  }
+}
+
+/**
+ * Free SNI certificates and their contexts.
+ * Called during ssl_reinit() to clean up before reloading.
+ */
+static void sni_free_certs(void)
+{
+  struct sni_cert *cert, *next;
+
+  for (cert = sni_cert_list; cert; cert = next) {
+    next = cert->next;
+    if (cert->ctx)
+      SSL_CTX_free(cert->ctx);
+    if (cert->hostname)
+      free(cert->hostname);
+    MyFree(cert);
+  }
+  sni_cert_list = NULL;
+}
+
+/** Empty this thread's OpenSSL error queue.
+ *
+ * SSL_get_error() reports any error already queued on the thread as
+ * SSL_ERROR_SSL (SSL_ERROR_SYSCALL for a system-library one) BEFORE it
+ * looks at the would-block state.  Other OpenSSL users leave errors
+ * behind -- a teardown's SSL_shutdown, a failed JWT signature check,
+ * libssh2 under GitSync, libcurl -- and one of them turned a TLS server
+ * link's normal SSL_ERROR_WANT_WRITE (errno EAGAIN) under a backlog into
+ * "Write error: Internal OpenSSL error or protocol error": the link was
+ * dropped.  SSL_get_error(3): the queue must be empty before the I/O or
+ * handshake call whose result is passed to it.  So call this immediately
+ * before every such call, and after a teardown so it leaves nothing
+ * behind.  Under DEBUGMODE what it drops is logged, which names any
+ * producer that still leaves errors.
+ * @param[in] where Where it was called, for the debug log.
+ */
+void ssl_clear_errors(const char *where)
+{
+#ifdef DEBUGMODE
+  unsigned long err;
+  char ebuf[256];
+
+  while ((err = ERR_get_error())) {
+    ERR_error_string_n(err, ebuf, sizeof(ebuf));
+    Debug((DEBUG_DEBUG, "SSL: queued OpenSSL error dropped (%s): %s",
+           where, ebuf));
+  }
+#else
+  (void)where;
+  ERR_clear_error();
+#endif
+}
+
 void ssl_abort(struct Client *cptr)
 {
+  SSL *ssl = cli_socket(cptr).ssl;
+
   Debug((DEBUG_DEBUG, "SSL: aborted"));
-  if (cli_socket(cptr).ssl)
-    SSL_free(cli_socket(cptr).ssl);
-  cli_socket(cptr).ssl = NULL;
+  /* The same teardown as ssl_free(), which this ends in: a close_notify
+   * when the handshake has finished, so the peer's TLS stack renders
+   * trailing ERROR/KILL records instead of reporting "unexpected eof
+   * while reading" / "transport error"; on a half-handshaked SSL the state
+   * is marked shut instead, so SSL_free's destruction doesn't emit an
+   * alert into the listener's CTX in an unexpected state -- the hazard
+   * the comment in ssl_accept() describes.
+   *
+   * And only while the socket still owns its fd.  The ET_ERROR branch of
+   * client_sock_callback() sets cli_fd to -1 on EBADF -- someone else
+   * closed the descriptor, and its number may already name a file another
+   * thread opened -- then falls through to here.  The BIO writes to the
+   * number it cached, so the close_notify would land in that file;
+   * ssl_free() frees the session without a word once s_fd (which is
+   * cli_fd) is -1.
+   *
+   * Reachable on the re-entrancy path 271ef19c guards: ET_ERROR
+   * synthesised from engine_set_events on a dead fd lands here
+   * mid-exit_client, and the guard suppresses exit_client_msg --
+   * leaving this as the only SSL-teardown site in that frame.  The
+   * deferred ET_DESTROY -> ssl_free runs later with ssl=NULL and
+   * no-ops, so close_notify must be emitted here or the peer never
+   * sees it. */
+  if (ssl && !SSL_is_init_finished(ssl))
+    SSL_set_shutdown(ssl, SSL_RECEIVED_SHUTDOWN | SSL_SENT_SHUTDOWN);
+  ssl_free(&(cli_socket(cptr)));
 }
 
 int ssl_accept(struct Client *cptr)
@@ -269,6 +598,7 @@ int ssl_accept(struct Client *cptr)
   if (!IsSSLNeedAccept(cptr))
     return -1;
 
+  ssl_clear_errors("before SSL_accept");
   if ((r = SSL_accept(cli_socket(cptr).ssl)) <= 0) {
     unsigned long err = SSL_get_error(cli_socket(cptr).ssl, r);
 
@@ -281,11 +611,22 @@ int ssl_accept(struct Client *cptr)
             return 1;
         default:
           cli_sslerror(cptr) = ssl_error_str(err, errno);
+          ssl_doerror_anon();
 
           Debug((DEBUG_ERROR, "SSL_accept: %s", cli_sslerror(cptr)));
 
+          /* Skip ssl_smart_shutdown on a failed-handshake SSL.  The
+           * handshake is by definition not finished here (SSL_accept
+           * returned <= 0 with SSL_ERROR_SSL), so calling SSL_shutdown
+           * would emit a TLS alert into the listener's CTX in an
+           * unexpected state.  Empirically that leaves the listener
+           * unable to complete future SSL_accept calls — every
+           * subsequent server-link reconnect after a failed handshake
+           * fails with the same "Internal OpenSSL error or protocol
+           * error" until the process is restarted.  SSL_set_shutdown
+           * still marks the state for the upcoming SSL_free; we just
+           * don't try to send an alert. */
           SSL_set_shutdown(cli_socket(cptr).ssl, SSL_RECEIVED_SHUTDOWN);
-          ssl_smart_shutdown(cli_socket(cptr).ssl);
           SSL_free(cli_socket(cptr).ssl);
           cli_socket(cptr).ssl = NULL;
 
@@ -303,11 +644,21 @@ int ssl_accept(struct Client *cptr)
   if (SSL_is_init_finished(cli_socket(cptr).ssl))
   {
     char *sslfp = ssl_get_fingerprint(cli_socket(cptr).ssl);
-    if (sslfp)
+    if (sslfp) {
       ircd_strncpy(cli_sslclifp(cptr), sslfp, BUFSIZE+1);
+      if (feature_bool(FEAT_CERT_EXPIRY_TRACKING))
+        cli_sslcliexp(cptr) = ssl_get_cert_expiry(cli_socket(cptr).ssl);
+    }
   }
 
   return -1;
+}
+
+/** Is the pending handshake waiting to WRITE (as opposed to read)?
+ *  Used to decide whether to keep writable interest during SSL_accept. */
+int ssl_want_write(struct Client *cptr)
+{
+  return cli_socket(cptr).ssl && SSL_want_write(cli_socket(cptr).ssl);
 }
 
 int ssl_starttls(struct Client *cptr)
@@ -334,31 +685,80 @@ void ssl_add_connection(struct Listener *listener, int fd)
     return;
   }
   SSL_set_fd(ssl, fd);
+
+  /* Dedicated WebSocket listeners serve browsers, and Chromium cancels a
+   * JS-initiated WebSocket handshake outright when the server requests a
+   * client certificate (there is no certificate picker for WebSockets;
+   * Firefox just continues without one).  So don't ask on these ports —
+   * same workaround the paste listener uses. */
+  if (listener_websocket(listener))
+    SSL_set_verify(ssl, SSL_VERIFY_NONE, NULL);
+
+  /* On `websocket = auto` ports the peer may be a browser or an IRC
+   * client wanting certfp, and nothing distinguishes them until the
+   * ClientHello arrives.  Mark the connection so ssl_client_hello_cb can
+   * decide per handshake (ALPN present == browser).  Dedicated websocket
+   * ports are marked too so the same path covers a browser whose cert
+   * request was already disabled above. */
+  if (ssl_ws_ex_idx >= 0
+      && (listener_websocket(listener) || listener_websocket_auto(listener)))
+    SSL_set_ex_data(ssl, ssl_ws_ex_idx, SSL_WS_EXDATA_CAPABLE);
+
   ssl_set_nonblocking(ssl);
 
   add_connection(listener, fd, ssl);
 }
 
+/** Report the queued OpenSSL errors and empty the queue, so the next
+ * caller does not report a stale one.  The first goes in @a ebuf.  When
+ * @a link names a server link, every one goes to the network log, whose
+ * notices (SNO_NETWORK) reach opers on servers that log nothing to a file
+ * (prod): a link dropped for an OpenSSL error then shows its real cause.
+ * Otherwise the rest is detail, for DEBUGMODE.  ERR_error_string() wants a
+ * 256-byte buffer: the bounded form is used.
+ * @return 1 if an error was queued. */
+static int ssl_take_error(char *ebuf, size_t len, const char *link)
+{
+  unsigned long err;
+  char estr[256];
+  int n = 0;
+
+  while ((err = ERR_get_error())) {
+    ERR_error_string_n(err, estr, sizeof(estr));
+    if (n++ == 0)
+      ircd_strncpy(ebuf, estr, len);
+    if (link) {
+      log_write(LS_NETWORK, L_NOTICE, 0, "TLS link %s: OpenSSL error %d: %s",
+                link, n, estr);
+    } else if (n > 1) {
+      Debug((DEBUG_ERROR, "  Error Queue: %lu -- %s", err, estr));
+    }
+  }
+  return n != 0;
+}
+
 void ssl_doerror(struct Client *cptr)
 {
-  unsigned long err = 0;
   char ebuf[120];
+  const char *link = (IsServer(cptr) || IsHandshake(cptr) || IsConnecting(cptr))
+                     ? cli_name(cptr) : NULL;
 
-  memset(&ebuf, 0, 120);
-  err = ERR_get_error();
-  ERR_error_string(err, (char *)&ebuf);
+  memset(&ebuf, 0, sizeof(ebuf));
+  if (!ssl_take_error(ebuf, sizeof(ebuf), link))
+    snprintf(ebuf, sizeof(ebuf), "no OpenSSL error queued (errno: %s)",
+             strerror(errno));
 
   sendto_opmask_butone(0, SNO_TCPCOMMON, "SSL Error for client %s: %s", cli_name(cptr), ebuf);
 }
 
 void ssl_doerror_anon(void)
 {
-  unsigned long err = 0;
   char ebuf[120];
 
-  memset(&ebuf, 0, 120);
-  err = ERR_get_error();
-  ERR_error_string(err, (char *)&ebuf);
+  memset(&ebuf, 0, sizeof(ebuf));
+  if (!ssl_take_error(ebuf, sizeof(ebuf), NULL))
+    snprintf(ebuf, sizeof(ebuf), "no OpenSSL error queued (errno: %s)",
+             strerror(errno));
 
   sendto_opmask_butone(0, SNO_TCPCOMMON, "SSL Error for unknown client: %s", ebuf);
 }
@@ -385,9 +785,10 @@ IOResult ssl_recv(struct Socket *socketh, struct Client *cptr, char* buf,
   *count_out = 0;
   errno = 0;
 
-  ERR_clear_error();
+  ssl_clear_errors("before SSL_read");
   res = SSL_read(socketh->ssl, buf, length);
-  switch (SSL_get_error(socketh->ssl, res)) {
+  err = SSL_get_error(socketh->ssl, res);
+  switch (err) {
   case SSL_ERROR_NONE:
     *count_out = (unsigned) res;
     return IO_SUCCESS;
@@ -402,10 +803,13 @@ IOResult ssl_recv(struct Socket *socketh, struct Client *cptr, char* buf,
     break;
   case SSL_ERROR_ZERO_RETURN: /* close_notify received */
     SSL_shutdown(socketh->ssl); /* Send close_notify back */
+    ssl_clear_errors("after SSL_shutdown");
     break;
   }
 
-  err = SSL_get_error(cli_socket(cptr).ssl, res);
+  /* err was captured BEFORE the ZERO_RETURN branch's SSL_shutdown above:
+   * re-calling SSL_get_error here would reflect the shutdown's close_notify
+   * write (e.g. WANT_WRITE) and mislabel a clean peer EOF as an SSL error. */
   cli_sslerror(cptr) = ssl_error_str(err, errno);
   cli_error(cptr) = errno;
 
@@ -413,6 +817,24 @@ IOResult ssl_recv(struct Socket *socketh, struct Client *cptr, char* buf,
     ssl_doerror(cptr);
 
   return IO_FAILURE;
+}
+
+/*
+ * ssl_pending - check if SSL layer has buffered data ready to read
+ *
+ * IMPORTANT: OpenSSL can decrypt multiple messages from a single TLS record
+ * into an internal buffer. After SSL_read() returns, there may be more data
+ * waiting that won't trigger epoll (since the kernel socket appears empty).
+ * Call this after ssl_recv() to check for buffered data.
+ *
+ * returns:
+ *   Number of bytes available in SSL buffer, 0 if none
+ */
+int ssl_pending(struct Socket *socketh)
+{
+  if (!socketh || !socketh->ssl)
+    return 0;
+  return SSL_pending(socketh->ssl);
 }
 
 /*
@@ -446,6 +868,7 @@ IOResult ssl_sendv(struct Socket *socketh, struct Client *cptr, struct MsgQ* buf
 
   count = msgq_mapiov(buf, iov, IOV_MAX, count_in);
   for (k = 0; k < count; k++) {
+    ssl_clear_errors("before SSL_write");
     res = SSL_write(socketh->ssl, iov[k].iov_base, iov[k].iov_len);
     ssl_err = SSL_get_error(socketh->ssl, res);
     Debug((DEBUG_DEBUG, "SSL_write returned %d, error code %d.", res, ssl_err));
@@ -461,11 +884,10 @@ IOResult ssl_sendv(struct Socket *socketh, struct Client *cptr, struct MsgQ* buf
       return retval;
     case SSL_ERROR_SSL:
       {
-          int errorValue;
+          /* ssl_doerror() reports the queued reason (and empties the
+           * queue); draining it here first left prod opers with "no
+           * OpenSSL error queued" for every such write failure. */
           Debug((DEBUG_ERROR, "SSL_write returned SSL_ERROR_SSL, errno %d, retval %d, res %d, ssl error code %d", errno, retval, res, ssl_err));
-          while((errorValue = ERR_get_error())) {
-            Debug((DEBUG_ERROR, "  Error Queue: %d -- %s", errorValue, ERR_error_string(errorValue, NULL)));
-          }
           cli_sslerror(cptr) = ssl_error_str(ssl_err, errno);
           cli_error(cptr) = errno;
           ssl_doerror(cptr);
@@ -495,6 +917,7 @@ IOResult ssl_sendv(struct Socket *socketh, struct Client *cptr, struct MsgQ* buf
       */
     case SSL_ERROR_ZERO_RETURN:
       SSL_shutdown(socketh->ssl);
+      ssl_clear_errors("after SSL_shutdown");
       return IO_FAILURE;
     default:
       Debug((DEBUG_DEBUG, "SSL_write return fell through - errno %d returning retval %d", errno, retval));
@@ -537,8 +960,25 @@ int ssl_murder(void *ssl, int fd, const char *buf)
   } else {
     if (buf)
       SSL_write((SSL *) ssl, buf, strlen(buf));
+    /* Send TLS close_notify before SSL_free so the peer sees a clean
+     * shutdown rather than a truncated record.  Pre-registration kill
+     * path (called from s_bsd.c throttle/glineship/zline/early-reject
+     * sites) — same close_notify rationale as ssl_free above.  Skip
+     * for a half-handshaked SSL: SSL_shutdown before init_finished
+     * emits alerts that can confuse OpenSSL's session-cache / CTX
+     * state and trip subsequent SSL_accept on the listener with
+     * "Internal OpenSSL error or protocol error". */
+    if (SSL_is_init_finished((SSL *) ssl))
+      ssl_smart_shutdown((SSL *) ssl);
     SSL_free((SSL *) ssl);
+    ssl_clear_errors("after ssl_murder");  /* the unchecked SSL_write */
   }
+  /* Graceful TCP close: send FIN via shutdown(SHUT_RDWR) so any
+   * buffered TLS close_notify and rejection message actually reach the
+   * peer, rather than getting discarded by an RST that close() on a
+   * socket with unread data can trigger on Linux.  Mirrors the pattern
+   * in close_connection (s_bsd.c). */
+  shutdown(fd, SHUT_RDWR);
   close(fd);
   return 0;
 }
@@ -547,7 +987,33 @@ void ssl_free(struct Socket *socketh)
 {
   if (!socketh->ssl)
     return;
+  /* Send TLS close_notify before tearing down the SSL state.  Without
+   * this the peer's TLS stack sees a truncated session and the
+   * application layer typically reports the close as a transport error
+   * (e.g. HexChat: "No such device or address") instead of rendering
+   * any application-layer messages (ERROR, KILL) that arrived in the
+   * trailing TLS records.  Pairs with the TCP-level graceful close in
+   * close_connection — shutdown(SHUT_RDWR) sends FIN, this sends the
+   * TLS close_notify that should precede it.
+   *
+   * Skip the SSL_shutdown if the handshake hasn't finished.  Calling
+   * SSL_shutdown on a half-handshaked SSL emits a TLS alert in a state
+   * the listener's CTX wasn't expecting, which leaves stale state that
+   * trips subsequent SSL_accept calls on the same listener with
+   * "Internal OpenSSL error or protocol error" — silently breaking
+   * server-link reconnects after a SQUIT cascade tears down a mid-
+   * handshake session.
+   *
+   * Only while the socket still owns its fd (s_fd >= 0).  The SSL's BIO
+   * writes to the fd NUMBER it was given; once the socket has let the fd
+   * go (s_fd -1: closed, or handed elsewhere), that number may already
+   * belong to a file another thread opened, and the close_notify would be
+   * written into it.  close_connection() calls this before it closes the
+   * fd; later the SSL is freed without a word (SSL_free sends nothing). */
+  if (socketh->s_fd >= 0 && SSL_is_init_finished(socketh->ssl))
+    ssl_smart_shutdown(socketh->ssl);
   SSL_free(socketh->ssl);
+  socketh->ssl = NULL;
 }
 
 char *ssl_get_cipher(SSL *ssl)
@@ -578,6 +1044,7 @@ int ssl_connect(struct Socket* sock, struct ConfItem *aconf)
     {
       if (SSL_set_cipher_list(sock->ssl, aconf->sslciphers) == 0)
       {
+        ssl_clear_errors("after SSL_set_cipher_list");
         return -2;
       }
     }
@@ -585,17 +1052,23 @@ int ssl_connect(struct Socket* sock, struct ConfItem *aconf)
     ssl_set_nonblocking(sock->ssl);
   }
 
+  ssl_clear_errors("before SSL_connect");
   r = SSL_connect(sock->ssl);
   if (r<=0) {
     if ((SSL_get_error(sock->ssl, r) == SSL_ERROR_WANT_WRITE) || (SSL_get_error(sock->ssl, r) == SSL_ERROR_WANT_READ))
       return 0; /* Needs to call SSL_connect() again */
     else if (SSL_get_error(sock->ssl, r) == SSL_ERROR_SSL) {
-      unsigned long e = ERR_get_error();
-      sendto_opmask_butone(0, SNO_TCPCOMMON, "SSL Error for connection attempt: %s", ERR_error_string(e, NULL));
+      char ebuf[120];
+
+      /* Every queued reason, not just the first (the rest stayed queued). */
+      if (!ssl_take_error(ebuf, sizeof(ebuf), aconf->name))
+        ircd_strncpy(ebuf, "no OpenSSL error queued", sizeof(ebuf));
+      sendto_opmask_butone(0, SNO_TCPCOMMON, "SSL Error for connection attempt: %s", ebuf);
       return -1; /* Fatal error */
     }
     else {
       sendto_opmask_butone(0, SNO_TCPCOMMON, "Unknown SSL error for connection attempt (%d)", SSL_get_error(sock->ssl, r));
+      ssl_clear_errors("after SSL_connect");
       return -1; /* Fatal error */
     }
   }
@@ -627,6 +1100,39 @@ char* ssl_get_fingerprint(SSL *ssl)
   return (hex);
 }
 
+/**
+ * Get the expiration time of the peer's SSL client certificate.
+ * @param ssl The SSL connection
+ * @return Unix timestamp of certificate expiration, or 0 if no certificate or error
+ */
+time_t ssl_get_cert_expiry(SSL *ssl)
+{
+  X509 *cert;
+  const ASN1_TIME *not_after;
+  struct tm tm_exp;
+  time_t exp_time = 0;
+
+  cert = SSL_get_peer_certificate(ssl);
+  if (!cert)
+    return 0;
+
+  not_after = X509_get0_notAfter(cert);
+  if (!not_after) {
+    X509_free(cert);
+    return 0;
+  }
+
+  /* Convert ASN1_TIME to struct tm */
+  memset(&tm_exp, 0, sizeof(tm_exp));
+  if (ASN1_TIME_to_tm(not_after, &tm_exp) == 1) {
+    /* Convert to time_t (timegm for UTC) */
+    exp_time = timegm(&tm_exp);
+  }
+
+  X509_free(cert);
+  return exp_time;
+}
+
 void ssl_set_nonblocking(SSL *s)
 {
   BIO_set_nbio(SSL_get_rbio(s),1);
@@ -643,11 +1149,30 @@ int ssl_smart_shutdown(SSL *ssl)
     char i;
     int rc;
     rc = 0;
+
+    /* A teardown sends our close_notify and stops: the descriptor is shut
+     * down and closed right after, so there is nothing to wait for, and
+     * nothing of the peer's may be read.  Without SSL_RECEIVED_SHUTDOWN
+     * the first SSL_shutdown() sends the close_notify and returns 0, and
+     * the second READS, waiting for the peer's: it swallowed the next
+     * application record, or, after close_connection()'s raw drain had
+     * stopped inside a record, parsed the record's middle as a header
+     * ("wrong version number", "bad record type") -- OpenSSL 3 sends no
+     * alert after its own close_notify, but the read is still a desynced
+     * parse of the peer's bytes.  Marked received, the first call sends
+     * the close_notify and returns 1 without reading. */
+    SSL_set_shutdown(ssl, SSL_get_shutdown(ssl) | SSL_RECEIVED_SHUTDOWN);
     for(i = 0; i < 4; i++) {
         if((rc = SSL_shutdown(ssl)))
             break;
     }
 
+    /* A teardown routinely fails, and the failure stays queued: a peer
+     * that already reset the connection (EPIPE / ECONNRESET), the second
+     * SSL_shutdown's read on a non-blocking socket, or a peer that closed
+     * without its close_notify ("unexpected eof while reading").  Leave
+     * nothing for the next connection's SSL_get_error(). */
+    ssl_clear_errors("after SSL_shutdown");
     return rc;
 }
 
@@ -668,7 +1193,11 @@ char *ssl_error_str(int err, int my_errno)
       break;
     case SSL_ERROR_SSL:
       ssl_errstr = "Internal OpenSSL error or protocol error";
-      ssl_doerror_anon();
+      /* Do NOT drain the OpenSSL error queue here: callers that follow
+       * up with ssl_doerror(cptr) need the queued reason.  (This used
+       * to call ssl_doerror_anon(), which popped the queue -- every
+       * real error printed as "unknown client" and the subsequent named
+       * notice printed an empty 00000000 reason.) */
       break;
     case SSL_ERROR_WANT_READ:
       ssl_errstr = "OpenSSL functions requested a read()";
@@ -704,13 +1233,13 @@ const char* ssl_get_verify_result(SSL *ssl)
 
 void sslfail(char *txt)
 {
-  unsigned long err = ERR_get_error();
   char string[120];
 
-  if (!err) {
+  /* ssl_take_error() empties the queue: a context that failed to load
+   * left more than one reason behind. */
+  if (!ssl_take_error(string, sizeof(string), NULL)) {
     Debug((DEBUG_DEBUG, "%s: poof", txt));
   } else {
-    ERR_error_string(err, string);
     Debug((DEBUG_FATAL, "%s: %s", txt, string));
   }
 }

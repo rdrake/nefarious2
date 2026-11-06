@@ -25,6 +25,7 @@
 
 #include "config.h"
 
+#include "capab.h"
 #include "channel.h"
 #include "class.h"
 #include "client.h"
@@ -35,14 +36,19 @@
 #include "ircd_features.h"
 #include "ircd_log.h"
 #include "ircd_reply.h"
+#include "ircd_snprintf.h"
 #include "ircd_string.h"
 #include "msg.h"
 #include "numeric.h"
 #include "numnicks.h"
+#include "metadata.h"
+#include "persistence_profile.h"
 #include "s_debug.h"
 #include "s_user.h"
 #include "send.h"
 #include "sys.h"
+#include "handlers.h"
+#include "bouncer_session.h"
 
 /* #include <assert.h> -- Now using assert in ircd_log.h */
 #include <stdlib.h>
@@ -130,8 +136,10 @@ void do_join(struct Client *cptr, struct Client *sptr, struct JoinBuf *join,
     if (!(chptr = get_channel(sptr, chan, CGT_CREATE)))
       return;
 
-    /* Try to add the new channel as a recent target for the user. */
-    if (check_target_limit(sptr, chptr, chptr->chname, 0)) {
+    /* Try to add the new channel as a recent target for the user.
+     * Skip when sptr was rewritten from alias to remote primary — the
+     * local alias is already rate-limited by its own connection. */
+    if (MyUser(sptr) && check_target_limit(sptr, chptr, chptr->chname, 0)) {
       chptr->members = 0;
       destruct_channel(chptr);
       return;
@@ -140,7 +148,7 @@ void do_join(struct Client *cptr, struct Client *sptr, struct JoinBuf *join,
     joinbuf_join(create, chptr, CHFL_CHANOP | CHFL_CHANNEL_MANAGER);
   } else if (find_member_link(chptr, sptr)) {
     return; /* already on channel */
-  } else if (check_target_limit(sptr, chptr, chptr->chname, 0)) {
+  } else if (MyUser(sptr) && check_target_limit(sptr, chptr, chptr->chname, 0)) {
     return;
   } else {
     int flags = CHFL_DEOPPED;
@@ -171,7 +179,8 @@ void do_join(struct Client *cptr, struct Client *sptr, struct JoinBuf *join,
 
     /* Check Apass/Upass -- since we only ever look at a single
      * "key" per channel now, this hampers brute force attacks. */
-    if (feature_bool(FEAT_CHMODE_Z_STRICT) && (chptr->mode.exmode & EXMODE_SSLONLY) && !IsSSL(sptr))
+    if (feature_bool(FEAT_CHMODE_Z_STRICT) && (chptr->mode.exmode & EXMODE_SSLONLY) &&
+        (!IsSSL(sptr) || bounce_session_has_plaintext(sptr)))
       err = ERR_SSLONLYCHAN;
     else if (key && !strcmp(key, chptr->mode.apass))
       flags = CHFL_CHANOP | CHFL_CHANNEL_MANAGER;
@@ -183,7 +192,8 @@ void do_join(struct Client *cptr, struct Client *sptr, struct JoinBuf *join,
       chptr->creationtime++;
     } else if (IsXtraOp(sptr)) {
       /* XtraOp bypasses all other checks. */
-    } else if ((chptr->mode.exmode & EXMODE_SSLONLY) && !IsSSL(sptr))
+    } else if ((chptr->mode.exmode & EXMODE_SSLONLY) &&
+               (!IsSSL(sptr) || bounce_session_has_plaintext(sptr)))
       err = ERR_SSLONLYCHAN;
     else if (IsInvited(sptr, chptr)) {
       /* Invites bypass these other checks. */
@@ -272,15 +282,113 @@ void do_join(struct Client *cptr, struct Client *sptr, struct JoinBuf *join,
     }
   }
 
-  del_invite(sptr, chptr);
+  /* evilnet/channel-relocate, "Status preservation": a former member who
+   * follows to the new channel within the grace period gets back the
+   * op/halfop/voice (and oplevel) they held in the old channel at rename
+   * time.  Applies to BOTH branches above (an existing #new, or one this
+   * join just (re)created) -- relocate_snap_lookup() matches on chptr's
+   * name regardless of which branch got us here, and a member who just
+   * created the channel already has full CHFL_CHANOP status from that, so
+   * the "no status yet" gate below is a no-op for them.
+   *
+   * Only the joining user's OWN server performs this.  Every server that
+   * sees this JOIN reconstructs its own tombstone/snapshot list from its
+   * own local membership walk at relocate_execute() time (Task 2/3's
+   * per-server contract), so if every server tried to grant the restore
+   * independently off its own copy, each would broadcast its own MODE for
+   * what is really one event.  Gating on MyUser(sptr) makes this run
+   * exactly once, on the server the follow-join actually landed on; the
+   * MODE it broadcasts below is a perfectly ordinary network mode change,
+   * and every OTHER server applies it through the normal MODE path when it
+   * arrives, exactly as it would for a services-issued grant -- no special
+   * handling is needed anywhere else.  A remote sptr here (a bouncer alias
+   * whose primary lives elsewhere -- see the alias rewrite in m_join())
+   * simply does not get this treatment; that is a known gap, not a bug: the
+   * primary's own server never runs do_join() for this join at all (it
+   * sees ms_join() instead), so there is no second chance to apply it. */
+  if (MyUser(sptr)) {
+    struct Membership *rmember = find_member_link(chptr, sptr);
+    unsigned int rflags = 0;
+    int roplevel = 0;
 
-  if (chptr->topic[0]) {
-    send_reply(sptr, RPL_TOPIC, chptr->chname, chptr->topic);
-    send_reply(sptr, RPL_TOPICWHOTIME, chptr->chname, chptr->topic_nick,
-               chptr->topic_time);
+    /* "no status in the new channel" is CHFL_VOICED_OR_OPPED being clear --
+     * a member who already has any of op/halfop/voice from the join itself
+     * (channel creator, apass/upass match, etc.) keeps what the join gave
+     * them; this never downgrades, and consuming the snapshot here would
+     * otherwise burn it on a join that had no need for it.  rflags != 0 is
+     * checked too (review round 1, M1): a plain member's own snapshot
+     * carries flags == 0 (every member is snapshotted at relocate_execute()
+     * time, not just former op/halfop/voice holders), and there is nothing
+     * to grant or broadcast for that -- the lookup above still consumes it
+     * (it was that member's one shot at a restore either way), this just
+     * skips doing work for an empty grant. */
+    if (rmember && !(rmember->status & CHFL_VOICED_OR_OPPED)
+        && relocate_snap_lookup(chptr->chname, sptr, &rflags, &roplevel)
+        && rflags != 0) {
+      struct ModeBuf mbuf;
+
+      /* Reveal a +D (delayed-join) member BEFORE writing status, mirroring
+       * mode_process_clients() (channel.c:4678-4679) exactly.  This is the
+       * COMMON case for a channel that carries MODE_DELJOINS, not an edge
+       * case: joinbuf_join() (channel.c:5431-5433) always adds a follow-
+       * joiner to a +D channel with CHFL_DELAYED set (the entry flags here
+       * are CHFL_DEOPPED, which is not in CHFL_VOICED_OR_OPPED), so
+       * relocate_snap_lookup() runs -- and can hit -- before this member has
+       * ever been revealed.  Without this, a granted CHFL_CHANOP would sit
+       * on a membership nobody's client has been told exists: a MODE for a
+       * nick absent from every local NAMES/JOIN view, and CHFL_DELAYED
+       * sitting alongside CHFL_CHANOP on the same Membership. */
+      if (IsDelayedJoin(rmember) && !IsZombie(rmember))
+        RevealDelayedJoin(rmember);
+
+      /* Clear CHFL_DEOPPED alongside granting status, mirroring the
+       * equivalent burst-revealed-chanop transition in m_burst.c (~494,
+       * ~519, ~563): a member who just joined deopped-by-server and is now
+       * being handed op/halfop/voice back is no longer "deopped". */
+      rmember->status = (rmember->status & ~CHFL_DEOPPED) | rflags;
+      SetOpLevel(rmember, roplevel);
+
+      /* Every OTHER client-mode grant in this codebase (channel.c:4692,
+       * m_clearmode.c:271) syncs the primary's bouncer aliases and marks
+       * the session dirty in the same breath; this grant is otherwise
+       * indistinguishable from those to a bouncer user's secondary
+       * connections, and skipping it would leave them with no @#chan
+       * delivery and no op perms until an unrelated mode change happened
+       * to resync. */
+      bounce_sync_alias_chanmodes(chptr, sptr);
+      bounce_mark_dirty(sptr);
+
+      modebuf_init(&mbuf, &me, cptr, chptr,
+                  MODEBUF_DEST_CHANNEL | MODEBUF_DEST_SERVER);
+      if (rflags & CHFL_CHANOP)
+        modebuf_mode_client(&mbuf, MODE_ADD | MODE_CHANOP, sptr, roplevel);
+      if (rflags & CHFL_HALFOP)
+        modebuf_mode_client(&mbuf, MODE_ADD | MODE_HALFOP, sptr, roplevel);
+      if (rflags & CHFL_VOICE)
+        modebuf_mode_client(&mbuf, MODE_ADD | MODE_VOICE, sptr, roplevel);
+      modebuf_flush(&mbuf);
+    }
   }
 
-  do_names(sptr, chptr, NAMES_ALL|NAMES_EON); /* send /names list */
+  del_invite(sptr, chptr);
+
+  /* Post-JOIN replies (TOPIC, MARKREAD, NAMES).
+   * For bouncer accounts: bounce_send_alias_join_replies() handles both
+   * the primary and aliases with per-connection caps.
+   * It's called from joinbuf_join after the JOIN echo.
+   * For non-bouncer users: send here directly. */
+  if (!IsAccount(sptr)) {
+    if (chptr->topic[0]) {
+      send_reply(sptr, RPL_TOPIC, chptr->chname, chptr->topic);
+      send_reply(sptr, RPL_TOPICWHOTIME, chptr->chname, chptr->topic_nick,
+                 chptr->topic_time);
+    }
+
+    send_markread_on_join(sptr, chptr->chname);
+
+    if (!HasNoImplicitNames(sptr))
+      do_names(sptr, chptr, NAMES_ALL|NAMES_EON);
+  }
 }
 
 /** Handle a JOIN message from a client connection.
@@ -298,6 +406,16 @@ int m_join(struct Client *cptr, struct Client *sptr, int parc, char *parv[])
   char *chanlist;
   char *name;
   char *keys;
+  struct Client *alias_source = NULL;
+
+  /* Alias JOIN means the user is joining — rewrite to primary so
+   * add_user_to_channel adds the primary (triggering bounce_sync_alias_join
+   * to add all aliases), and the J/C token carries the primary numeric.
+   * For remote primaries, jb_alias_source enables split S2S delivery. */
+  if (IsBouncerAlias(sptr) && cli_alias_primary(sptr)) {
+    alias_source = sptr;
+    sptr = cli_alias_primary(sptr);
+  }
 
   if (parc < 2 || *parv[1] == '\0')
     return need_more_params(sptr, "JOIN");
@@ -307,49 +425,127 @@ int m_join(struct Client *cptr, struct Client *sptr, int parc, char *parv[])
     return 0;
   }
 
-  joinbuf_init(&join, sptr, cptr, JOINBUF_TYPE_JOIN, 0, 0);
-  joinbuf_init(&create, sptr, cptr, JOINBUF_TYPE_CREATE, 0, TStime());
+  {
+    int lb = labeled_batch_start(sptr);
 
-  chanlist = last0(cptr, sptr, parv[1]); /* find last "JOIN 0" */
-
-  keys = parv[2]; /* remember where keys are */
-
-  for (name = ircd_strtok(&p, chanlist, ","); name;
-       name = ircd_strtok(&p, 0, ",")) {
-    char *key = 0;
-
-    /* If we have any more keys, take the first for this channel. */
-    if (!BadPtr(keys)
-        && (keys = strchr(key = keys, ',')))
-      *keys++ = '\0';
-
-    /* Empty keys are the same as no keys. */
-    if (key && !key[0])
-      key = 0;
-
-    if (!IsChannelName(name) || !strIsIrcCh(name))
-    {
-      /* bad channel name */
-      send_reply(sptr, ERR_NOSUCHCHANNEL, name);
-      continue;
+    joinbuf_init(&join, sptr, cptr, JOINBUF_TYPE_JOIN, 0, 0);
+    joinbuf_init(&create, sptr, cptr, JOINBUF_TYPE_CREATE, 0, TStime());
+    if (alias_source && !MyConnect(sptr)) {
+      join.jb_alias_source = alias_source;
+      create.jb_alias_source = alias_source;
     }
 
-    if (feature_bool(FEAT_VALID_UTF8_CHANNELS_ONLY) && !string_character_structure_is_sane(name)) {
+    chanlist = last0(cptr, sptr, parv[1]); /* find last "JOIN 0" */
+
+    keys = parv[2]; /* remember where keys are */
+
+    for (name = ircd_strtok(&p, chanlist, ","); name;
+         name = ircd_strtok(&p, 0, ",")) {
+      char *key = 0;
+
+      /* If we have any more keys, take the first for this channel. */
+      if (!BadPtr(keys)
+          && (keys = strchr(key = keys, ',')))
+        *keys++ = '\0';
+
+      /* Empty keys are the same as no keys. */
+      if (key && !key[0])
+        key = 0;
+
+      if (!IsChannelName(name) || !strIsIrcCh(name))
+      {
+        /* bad channel name */
         send_reply(sptr, ERR_NOSUCHCHANNEL, name);
         continue;
+      }
+
+      if (feature_bool(FEAT_VALID_UTF8_CHANNELS_ONLY) && !string_character_structure_is_sane(name)) {
+          send_reply(sptr, ERR_NOSUCHCHANNEL, name);
+          continue;
+      }
+
+      /* A device of another server's primary cannot join a local (&)
+       * channel of ours: the JOIN is its primary's, and our local channel
+       * does not exist on the primary's server -- it answers 403 for it, as
+       * we do here, to the device that asked (W3 Task 11 fix 1, ruling
+       * W3-T11-f1a).  Joined, a client of another server would sit in a
+       * channel only we have: every member's line in it routed there and
+       * answered 403. */
+      if (alias_source && !MyConnect(sptr) && IsLocalChannel(name)) {
+        send_reply(alias_source, ERR_NOSUCHCHANNEL, name);
+        continue;
+      }
+
+      if (cli_user(sptr)->joined >= get_client_maxchans(sptr)
+          && !HasPriv(sptr, PRIV_CHAN_LIMIT)) {
+        send_reply(sptr, ERR_TOOMANYCHANNELS, name);
+        break; /* no point processing the other channels */
+      }
+
+      /* draft/persistence M4a: pre-grow the active profile's channel
+       * list BEFORE do_join, so the JOIN broadcast through the M3
+       * per-delivery filter doesn't drop the joiner's own JOIN echo.
+       * Only when filtering is active (effective channel set
+       * non-empty); empty effective set = no filter, leave alone.
+       * Uses alias_source if the JOIN was issued by an alias — the
+       * active profile is a per-connection attribute.
+       * M5: effective-set check honours inheritance, so a child
+       * profile whose effective set comes entirely from a parent
+       * still triggers auto-grow. */
+      if (MyConnect(alias_source ? alias_source : sptr)
+          && IsAccount(alias_source ? alias_source : sptr)) {
+        struct Client *src = alias_source ? alias_source : sptr;
+        const char *prof = cli_active_profile(src);
+        char effective[METADATA_VALUE_LEN];
+        if (!prof || !prof[0])
+          prof = PERSISTENCE_PROFILE_DEFAULT;
+        if (persistence_profile_channels_effective(cli_account(src), prof,
+                                                    effective,
+                                                    sizeof(effective)) == 0
+            && effective[0])
+          persistence_profile_channels_add(cli_account(src), prof, name);
+      }
+
+      /* M4b: snapshot whether the primary is already a channel
+       * member BEFORE do_join.  If yes, do_join short-circuits and
+       * we owe the joining alias a synthetic JOIN + single-channel
+       * state burst (the user typed /JOIN; their client expects
+       * feedback even though the network membership didn't change). */
+      {
+        struct Channel *snap_chptr = FindChannel(name);
+        int already_member = snap_chptr && find_member_link(snap_chptr, sptr);
+
+        do_join(cptr, sptr, &join, &create, name, key, 0);
+
+        if (already_member && alias_source && MyConnect(alias_source)) {
+          struct Channel *chptr2 = FindChannel(name);
+          if (chptr2 && IsBouncerAlias(alias_source)) {
+            char alias_full[6];
+            ircd_snprintf(0, alias_full, sizeof(alias_full), "%s%s",
+                          cli_yxx(&me), cli_yxx(alias_source));
+            bounce_visibility_membership(alias_full, chptr2->chname, 1);
+            /* Single-channel state burst so the joining alias sees
+             * the same TOPIC + NAMES it would after a fresh JOIN. */
+            if (chptr2->topic[0]) {
+              send_reply(alias_source, RPL_TOPIC,
+                         chptr2->chname, chptr2->topic);
+              send_reply(alias_source, RPL_TOPICWHOTIME,
+                         chptr2->chname, chptr2->topic_nick,
+                         chptr2->topic_time);
+            }
+            if (!CapRecipientHas(alias_source, CAP_NOIMPLICITNAMES)
+                && !CapRecipientHas(alias_source, CAP_NOIMPLICITNAMES_LEGACY))
+              do_names(alias_source, chptr2, NAMES_ALL|NAMES_EON);
+          }
+        }
+      }
     }
 
-    if (cli_user(sptr)->joined >= get_client_maxchans(sptr)
-	&& !HasPriv(sptr, PRIV_CHAN_LIMIT)) {
-      send_reply(sptr, ERR_TOOMANYCHANNELS, name);
-      break; /* no point processing the other channels */
-    }
+    joinbuf_flush(&join); /* must be first, if there's a JOIN 0 */
+    joinbuf_flush(&create);
 
-    do_join(cptr, sptr, &join, &create, name, key, 0);
+    if (lb) labeled_batch_end(sptr);
   }
-
-  joinbuf_flush(&join); /* must be first, if there's a JOIN 0 */
-  joinbuf_flush(&create);
 
   return 0;
 }
@@ -371,6 +567,15 @@ int ms_join(struct Client *cptr, struct Client *sptr, int parc, char *parv[])
   char *p = 0;
   char *chanlist;
   char *name;
+  struct Client *alias_source = NULL;
+
+  /* Alias JOIN — rewrite to primary unconditionally.  On the primary's
+   * server, add_user_to_channel triggers bounce_sync_alias_join.
+   * jb_alias_source enables split S2S delivery for further relay. */
+  if (IsBouncerAlias(sptr) && cli_alias_primary(sptr)) {
+    alias_source = sptr;
+    sptr = cli_alias_primary(sptr);
+  }
 
   if (IsServer(sptr))
   {
@@ -389,11 +594,24 @@ int ms_join(struct Client *cptr, struct Client *sptr, int parc, char *parv[])
     creation = atoi(parv[2]);
 
   joinbuf_init(&join, sptr, cptr, JOINBUF_TYPE_JOIN, 0, 0);
+  if (alias_source && !MyConnect(sptr))
+    join.jb_alias_source = alias_source;
+
+  /* Per-channel msgids from the incoming S2S tag (positional match to
+   * the channel list, as ms_part / ms_create do).  Without this every
+   * server minted its own msgid for a remote JOIN, so the same event
+   * lived under a different msgid on each storage server. */
+  {
+  char incoming_msgids[MAXJOINARGS][16];
+  int chan_idx = 0;
+  (void)joinbuf_load_s2s_msgids(cptr, incoming_msgids, MAXJOINARGS);
+  if (cli_s2s_time_ms(cptr))
+    join.jb_msgid_time_ms = cli_s2s_time_ms(cptr);
 
   chanlist = last0(cptr, sptr, parv[1]); /* find last "JOIN 0" */
 
   for (name = ircd_strtok(&p, chanlist, ","); name;
-       name = ircd_strtok(&p, 0, ",")) {
+       name = ircd_strtok(&p, 0, ","), chan_idx++) {
 
     flags = CHFL_DEOPPED;
 
@@ -461,6 +679,9 @@ int ms_join(struct Client *cptr, struct Client *sptr, int parc, char *parv[])
 
         modebuf_mode(&mbuf, MODE_DEL | chptr->mode.mode);
         chptr->mode.mode &= MODE_BURSTADDED | MODE_WASDELJOINS;
+        /* mode.exmode (+H/+P and friends) is deliberately NOT wiped here:
+         * a pre-#114 legacy winner has no letters for the fork-only
+         * extended modes and could not have meant to clear them. */
 
         if (chptr->mode.limit) {
           modebuf_mode_uint(&mbuf, MODE_DEL | MODE_LIMIT, chptr->mode.limit);
@@ -501,8 +722,20 @@ int ms_join(struct Client *cptr, struct Client *sptr, int parc, char *parv[])
       }
     }
 
+    /* Pre-populate this channel's msgid from the incoming S2S tag.  A
+     * channel past its MAXJOINARGS slots, or one whose slot is empty,
+     * mints its own: a JOIN joinbuf never flushes, so every channel
+     * uses slot 0, and without the clear it reused the msgid the
+     * previous channel left there. */
+    if (chan_idx < MAXJOINARGS && incoming_msgids[chan_idx][0])
+      ircd_strncpy(join.jb_msgids[join.jb_count], incoming_msgids[chan_idx],
+                    sizeof(join.jb_msgids[0]));
+    else
+      join.jb_msgids[join.jb_count][0] = '\0';
+
     joinbuf_join(&join, chptr, flags);
   }
+  } /* end incoming_msgids/chan_idx scope */
 
   joinbuf_flush(&join); /* flush joins... */
 

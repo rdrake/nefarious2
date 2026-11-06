@@ -33,6 +33,7 @@
 #ifdef USE_SSL
 
 #include <openssl/ssl.h>
+#include <time.h>
 
 struct Socket;
 struct Listener;
@@ -43,18 +44,23 @@ extern int ssl_reinit(int sig);
 extern void ssl_add_connection(struct Listener *listener, int fd);
 extern int ssl_murder(void *ssl, int fd, const char *buf);
 extern void ssl_free(struct Socket *socketh);
+extern void ssl_set_nonblocking(SSL *s);
 extern int ssl_connect(struct Socket* sock, struct ConfItem *aconf);
 extern int ssl_is_init_finished(SSL *s);
 extern int ssl_starttls(struct Client *cptr);
 extern void ssl_abort(struct Client *cptr);
 extern int ssl_accept(struct Client *cptr);
+extern int ssl_want_write(struct Client *cptr);
+extern void ssl_clear_errors(const char *where);
 
 extern IOResult ssl_recv(struct Socket *socket, struct Client *cptr, char* buf, unsigned int length, unsigned int* count_out);
 extern IOResult ssl_sendv(struct Socket *socket, struct Client *cptr, struct MsgQ* buf, unsigned int* count_in, unsigned int* count_out);
 extern int ssl_send(struct Client *cptr, const char *buf, unsigned int len);
+extern int ssl_pending(struct Socket *socket);
 
 extern char  *ssl_get_cipher(SSL *ssl);
 extern char* ssl_get_fingerprint(SSL *ssl);
+extern time_t ssl_get_cert_expiry(SSL *ssl);
 extern const char* ssl_get_verify_result(SSL *ssl);
 extern char *ssl_error_str(int err, int my_errno);
 

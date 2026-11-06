@@ -95,6 +95,8 @@
 #include "send.h"
 #include "s_conf.h"
 
+#include <stdlib.h>  /* for strtoul */
+
 /* #include <assert.h> -- Now using assert in ircd_log.h */
 
 /*
@@ -106,6 +108,9 @@ int ms_mark(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
 
   if (!IsServer(sptr))
     return protocol_violation(sptr, "MARK from non-server %s", cli_name(sptr));
+
+  if (parc < 3)
+    return protocol_violation(sptr, "MARK received too few parameters (%u)", parc);
 
   if (!strcmp(parv[2], MARK_WEBIRC)) {
     if(parc < 4)
@@ -141,6 +146,17 @@ int ms_mark(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
        ircd_strncpy(cli_sslclifp(acptr), parv[3], BUFSIZE + 1);
        sendcmdto_serv_butone(sptr, CMD_MARK, cptr, "%s %s :%s", cli_name(acptr), MARK_SSLCLIFP, parv[3]);
     }
+  } else if (!strcmp(parv[2], MARK_SSLCLIEXP)) {
+    if(parc < 4)
+      return protocol_violation(sptr, "MARK SSL client certificate expiry received too few parameters (%u)", parc);
+
+    if ((acptr = FindUser(parv[1]))) {
+       cli_sslcliexp(acptr) = strtoul(parv[3], NULL, 10);
+       /* Fork-only MARK type: legacy peers don't know SSLCLIEXP and
+        * just drop it as noise, but the wire-hygiene rule is that a
+        * legacy peer never receives what it does not understand. */
+       sendcmdto_serv_butone_v3(sptr, CMD_MARK, cptr, "%s %s :%s", cli_name(acptr), MARK_SSLCLIEXP, parv[3]);
+    }
   } else if (!strcmp(parv[2], MARK_KILL)) {
     if(parc < 4)
       return protocol_violation(sptr, "MARK kill received too few parameters (%u)", parc);
@@ -148,6 +164,20 @@ int ms_mark(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
     if ((acptr = FindUser(parv[1]))) {
       ircd_strncpy(cli_killmark(acptr), parv[3], BUFSIZE + 1);
       sendcmdto_serv_butone(sptr, CMD_MARK, cptr, "%s %s :%s", cli_name(acptr), MARK_KILL, parv[3]);
+    }
+  } else if (!strcmp(parv[2], MARK_WEBSOCKET)) {
+    if(parc < 4)
+      return protocol_violation(sptr, "MARK websocket received too few parameters (%u)", parc);
+
+    if ((acptr = FindUser(parv[1]))) {
+      /* Store the origin only — do NOT SetWebSocket on a remote user:
+       * FLAG_WEBSOCKET is a behavioral flag (drives frame encoding in
+       * deliver_it for LOCAL sockets), meaningless and wrong on a remote
+       * client.  A non-empty cli_wsorigin is itself the "is WS" signal
+       * the WHOIS render gates on. */
+      ircd_strncpy(cli_wsorigin(acptr), parv[3], sizeof(cli_wsorigin(acptr)));
+      /* Fork-only MARK type: see the SSLCLIEXP comment above. */
+      sendcmdto_serv_butone_v3(sptr, CMD_MARK, cptr, "%s %s :%s", cli_name(acptr), MARK_WEBSOCKET, parv[3]);
     }
   } else if (!strcmp(parv[2], MARK_MARK) || !strcmp(parv[2], MARK_DNSBL_DATA)) {
     if(parc < 4)

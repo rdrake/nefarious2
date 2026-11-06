@@ -30,12 +30,14 @@
 #include <sys/types.h>
 #define INCLUDED_sys_types_h
 #endif
+#include <sys/time.h>
 #ifndef INCLUDED_res_h
 #include "res.h"
 #endif
 
 struct SLink;
 struct Client;
+struct MetadataEntry;
 
 /*
  * General defines
@@ -80,6 +82,8 @@ struct Client;
 					 * channel 
 					 */
 #define CHFL_DELAYED            0x40000 /**< User's join message is delayed */
+#define CHFL_HOLDING            0x80000 /**< User membership held during bouncer disconnect */
+#define CHFL_ALIAS              0x100000 /**< Alias numeric — invisible member for multi-server bouncer */
 
 #define CHFL_BURST_ALREADY_HALFOPPED	0x400000
 					/**< In oob BURST, but was already
@@ -145,13 +149,15 @@ struct Client;
 #define EXMODE_NOMULTITARG  0x00000100  /**< +T Block messages with a list of targets */
 #define EXMODE_NOCOLOR      0x00000200  /**< +c Block messages containing color */
 #define EXMODE_STRIPCOLOR   0x00000400  /**< +S Strip color from messages */
+#define EXMODE_PUBLICHISTORY 0x00000800 /**< +H Public history (bypass membership checks) */
+#define EXMODE_NOSTORAGE    0x00001000  /**< +P No message storage in chathistory */
 
 /** mode flags which take another parameter (With PARAmeterS)
  */
 #define MODE_WPARAS     (MODE_CHANOP|MODE_HALFOP|MODE_VOICE|MODE_BAN|MODE_KEY|MODE_LIMIT|MODE_APASS|MODE_UPASS)
 
 /** Available Channel modes */
-#define infochanmodes feature_bool(FEAT_OPLEVELS) ? "AabCcDdhikLlMmNnOopQRrSsTtUvZz" : "abCcDdhikLlMmNnOopQRrSsTtvZz"
+#define infochanmodes feature_bool(FEAT_OPLEVELS) ? "AabCcDdhHikLlMmNnOopPQRrSsTtUvZz" : "abCcDdhHikLlMmNnOopPQRrSsTtvZz"
 /** Available Channel modes that take parameters */
 #define infochanmodeswithparams feature_bool(FEAT_OPLEVELS) ? \
                                 (feature_bool(FEAT_HALFOPS) ? "AbhkLloUv" : "AbkLloUv") : \
@@ -232,6 +238,8 @@ struct Membership {
   unsigned int       status;		/**< Flags for op'd, voice'd, etc */
   unsigned int       banflags;          /**< Ban cache flags */
   unsigned short     oplevel;		/**< Op level */
+  char               join_msgid[16];    /**< Msgid from the original JOIN */
+  struct timeval     join_tv;           /**< Timestamp of the original JOIN */
 };
 
 #define MAXOPLEVELDIGITS    3
@@ -256,6 +264,12 @@ struct Membership {
 #define IsChannelManager(x) ((x)->status & CHFL_CHANNEL_MANAGER)
 #define IsUserParting(x)    ((x)->status & CHFL_USER_PARTING)
 #define IsDelayedJoin(x)    ((x)->status & CHFL_DELAYED)
+#define IsMemberHolding(x)  ((x)->status & CHFL_HOLDING)
+#define SetMemberHolding(x) ((x)->status |= CHFL_HOLDING)
+#define ClearMemberHolding(x) ((x)->status &= ~CHFL_HOLDING)
+#define IsMemberAlias(x)    ((x)->status & CHFL_ALIAS)
+#define SetMemberAlias(x)   ((x)->status |= CHFL_ALIAS)
+#define ClearMemberAlias(x) ((x)->status &= ~CHFL_ALIAS)
 #define IsExcepted(x)       ((x)->banflags & MBFL_EXCEPTED)
 #define IsExceptValid(x)    ((x)->banflags & MBFL_EXCEPTVALID)
 #define IsExceptedQuiet(x)  ((x)->banflags & MBFL_EXCEPTED_QUIET)
@@ -378,6 +392,8 @@ struct Channel {
   time_t             topic_time;   /**< Modification time of the topic */
   unsigned int       users;	   /**< Number of clients on this channel */
   unsigned int       nonsslusers;  /**< Number of clients without user mode +z */
+  unsigned int       authusers;    /**< Number of authenticated (logged-in) members */
+  unsigned int       aliases;      /**< Number of CHFL_ALIAS members (not counted in users) */
   struct Membership* members;	   /**< Pointer to the clients on this channel*/
   struct SLink*      invites;	   /**< List of invites on this channel */
   struct Ban*        banlist;      /**< List of bans on this channel */
@@ -387,6 +403,7 @@ struct Channel {
   char               topic_nick[NICKLEN + USERLEN + HOSTLEN + 3]; /**< Nick of the person who set
 						*  The topic
 						*/
+  struct MetadataEntry* metadata;  /**< Channel metadata (draft/metadata-2) */
   char               chname[1];	   /**< Dynamically allocated string of the
 				     * channel name
 				     */
@@ -403,6 +420,7 @@ struct ListingArgs {
   time_t min_topic_time;
   unsigned int bucket;
   char wildcard[CHANNELLEN + 1];
+  char batch_id[16]; /**< Labeled-response batch ID for async LIST */
 };
 
 struct ModeBuf {
@@ -456,6 +474,9 @@ struct JoinBuf {
   time_t		jb_create;	/**< Creation timestamp */
   unsigned int		jb_count;	/**< Number of channels */
   unsigned int		jb_strlen;	/**< length so far */
+  struct Client	       *jb_alias_source; /**< Alias for split S2S delivery (NULL if none) */
+  char			jb_msgids[MAXJOINARGS][16]; /**< Per-channel msgids for S2S relay */
+  uint64_t		jb_msgid_time_ms; /**< Timestamp for S2S tags (ms since epoch) */
   struct Channel       *jb_channels[MAXJOINARGS];
 					/**< channels joined or whatever */
 };
@@ -481,6 +502,27 @@ extern void send_hack_notice(struct Client *cptr, struct Client *sptr,
                              int parc, char *parv[], int badop, int mtype);
 extern struct Channel *get_channel(struct Client *cptr,
                                    char *chname, ChannelGetType flag);
+extern int rename_channel(struct Channel **chptr_p, const char *newname);
+
+/* Pending rename infrastructure (for services-authorized renames) */
+struct PendingRename;
+extern struct PendingRename *pending_rename_find(unsigned int cookie);
+extern void pending_rename_complete(struct PendingRename *pr);
+extern void pending_rename_deny(struct PendingRename *pr, const char *reason);
+extern void pending_rename_client_exit(struct Client *cptr);
+
+/* Relocation tombstones (evilnet/channel-relocate).  Called from
+ * destruct_channel() so a tombstone channel that dies before its grace
+ * period elapses takes its record and grace timer with it. */
+extern void relocate_tombstone_channel_gone(struct Channel *chptr);
+
+/* Grace-period member status restore (spec, "Status preservation").  Called
+ * from do_join() once a join to an existing channel has completed; looks up
+ * and CONSUMES a status snapshot for `who` in whichever live tombstone (if
+ * any) currently redirects to `newname`. */
+extern int relocate_snap_lookup(const char *newname, struct Client *who,
+                                unsigned int *flags, int *oplevel);
+
 extern struct Membership* find_member_link(struct Channel * chptr,
                                            const struct Client* cptr);
 extern int sub1_from_channel(struct Channel* chptr);
@@ -501,6 +543,7 @@ extern int client_can_send_to_channel(struct Client *cptr, struct Channel *chptr
 
 extern void remove_user_from_channel(struct Client *sptr, struct Channel *chptr);
 extern void remove_user_from_all_channels(struct Client* cptr);
+extern void channel_account_adjust(struct Client *cptr, int delta);
 
 extern int is_chan_op(struct Client *cptr, struct Channel *chptr);
 extern int is_zombie(struct Client *cptr, struct Channel *chptr);
@@ -554,6 +597,8 @@ extern int mode_parse(struct ModeBuf *mbuf, struct Client *cptr,
 #define MODE_PARSE_BURST	0x80	/**< be even more strict w/extra args */
 #define MODE_PARSE_ISHALFOP	0x100	/**< op and halfop differentiation */
 
+extern int joinbuf_load_s2s_msgids(struct Client *cptr, char out[][16],
+                                   int max);
 extern void joinbuf_init(struct JoinBuf *jbuf, struct Client *source,
 			 struct Client *connect, unsigned int type,
 			 char *comment, time_t create);

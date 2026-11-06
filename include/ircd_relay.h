@@ -27,6 +27,10 @@
  * @version $Id: ircd_relay.h 1231 2004-10-05 04:21:37Z entrope $
  */
 
+#include <stddef.h>            /* size_t — this header is the first include
+                                  in some translation units (e.g. ircd_relay.c),
+                                  so it cannot rely on a later header for this. */
+
 struct Client;
 
 extern void relay_channel_message(struct Client* sptr, const char* name, const char* text, int targets);
@@ -44,5 +48,18 @@ extern void server_relay_masked_message(struct Client* sptr, const char* mask, c
 extern void server_relay_masked_notice(struct Client* sptr, const char* mask, const char* text);
 extern void server_relay_private_message(struct Client* sptr, const char* name, const char* text);
 extern void server_relay_private_notice(struct Client* sptr, const char* name, const char* text);
+
+/* DM chathistory identity keying (F-CH1): account when authenticated,
+ * else the per-connection session id.  NEVER the nick. */
+extern void history_pm_identity(struct Client *cli, char *buf, size_t buflen);
+#include "history.h"  /* enum HistoryMessageType for the prototype below */
+
+extern int  has_pm_optout(struct Client *cptr);
+extern void store_private_history(struct Client *sptr, struct Client *acptr,
+                                  const char *text, enum HistoryMessageType type,
+                                  const char *msgid, const char *timestamp,
+                                  const char *client_tags);
+extern int  history_pm_identity_matches(struct Client *cli,
+                                        const char *half, size_t half_len);
 
 #endif /* INCLUDED_IRCD_RELAY_H */

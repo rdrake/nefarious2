@@ -101,6 +101,10 @@ depend: ${IRCD_MAKEFILES}
 		cd $$i && ${MAKE} depend || exit 1; cd ..; \
 	done
 
+test: ${IRCD_MAKEFILES}
+	@echo "Running unit tests..."
+	cd ircd/test && ${MAKE} test
+
 install: ${IRCD_MAKEFILES}
 	test -d ${prefix} || mkdir ${prefix}
 	@for i in ${SUBDIRS}; do \

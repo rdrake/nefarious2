@@ -32,6 +32,7 @@
 #include "msg.h"
 #include "numnicks.h"
 #include "send.h"
+#include "bouncer_session.h"
 #include "s_conf.h"
 #include "s_user.h"
 
@@ -47,7 +48,9 @@ int ms_svsinfo(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
 {
   struct Client *acptr;
 
-  if (parc < 2)
+  /* The info line is parv[2]: a line without it ("SI <numeric>") must
+   * stop here, or the copy below reads a NULL parv[2]. */
+  if (parc < 3)
     return need_more_params(sptr, "SVSINFO");
 
   if (!(acptr = findNUser(parv[1])))
@@ -60,6 +63,7 @@ int ms_svsinfo(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
      be truncated */
   ircd_strncpy(acptr->cli_info, parv[2], REALLEN + 1);
 
+  bounce_emit_alias_update(acptr, "realname", acptr->cli_info);
 
   sendcmdto_serv_butone(sptr, CMD_SVSINFO, cptr, "%C :%s", acptr, acptr->cli_info);
 

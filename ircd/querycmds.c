@@ -27,6 +27,7 @@
 #include "config.h"
 
 #include "client.h"
+#include "ircd_log.h"
 #include "ircd_snprintf.h"
 #include "querycmds.h"
 #include "s_debug.h"
@@ -47,6 +48,28 @@ void init_counters(void)
   UserStats.servers = 1;
 }
 
+/** Log + skip a UserStats.unknowns underflow.
+ *
+ * Called from the Count_unknown* macros when the requested decrement would
+ * wrap the unsigned counter past zero. Reaching this code means the
+ * caller's path has run a Count_unknown* decrement without a matching
+ * earlier Count_newunknown — an accounting bug. We log the offending
+ * caller's file:line and the named operation, then return without
+ * decrementing so the counter stays at zero rather than wrapping to
+ * UINT_MAX.
+ */
+void count_unknowns_underflow(const char *file, int line, const char *what)
+{
+  log_write(LS_SYSTEM, L_ERROR, 0,
+            "UserStats.unknowns underflow guard: %s at %s:%d "
+            "(unknowns already 0 — refusing to decrement). "
+            "Some prior path decremented without a matching Count_newunknown.",
+            what, file, line);
+  sendto_opmask_butone(0, SNO_OLDSNO,
+                       "UserStats.unknowns underflow: %s at %s:%d",
+                       what, file, line);
+}
+
 /** Saves the tunefile which keeps the current local and global
  * max user counts.
  */
@@ -64,6 +87,13 @@ void save_tunefile(void)
   }
   fprintf(tunefile, "%d\n", UserStats.local_clients_max);
   fprintf(tunefile, "%d\n", UserStats.clients_max);
+  /* Announced-count maxes appended for backwards compatibility:
+   * an older nefarious binary reading this tunefile sees the first
+   * two lines and silently ignores the rest.  A new binary reading
+   * an older tunefile gets zero defaults for the announced fields
+   * (load_tunefile checks fgets return value). */
+  fprintf(tunefile, "%d\n", UserStats.local_announced_clients_max);
+  fprintf(tunefile, "%d\n", UserStats.announced_clients_max);
   fclose(tunefile);
 }
 
@@ -87,6 +117,13 @@ void load_tunefile(void)
   UserStats.local_clients_max = atol(buf);
   (void)!fgets(buf, 1023, tunefile);
   UserStats.clients_max = atol(buf);
+  /* Announced-count maxes — absent in pre-fork tunefiles; default
+   * to 0 in that case (the new counters will accumulate fresh
+   * peaks after the upgrade). */
+  if (fgets(buf, 1023, tunefile))
+    UserStats.local_announced_clients_max = atol(buf);
+  if (fgets(buf, 1023, tunefile))
+    UserStats.announced_clients_max = atol(buf);
   fclose(tunefile);
 }
 

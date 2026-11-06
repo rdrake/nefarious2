@@ -82,12 +82,14 @@
  */
 #include "config.h"
 
+#include "capab.h"
 #include "client.h"
 #include "ircd.h"
 #include "ircd_features.h"
 #include "ircd_log.h"
 #include "ircd_reply.h"
 #include "ircd_string.h"
+#include "list.h"
 #include "ircd_snprintf.h"
 #include "msg.h"
 #include "numeric.h"
@@ -97,6 +99,7 @@
 #include "s_auth.h"
 #include "s_misc.h"
 #include "s_user.h"
+#include "sasl_auth.h"
 
 /* #include <assert.h> -- Now using assert in ircd_log.h */
 
@@ -115,19 +118,95 @@ int m_authenticate(struct Client* cptr, struct Client* sptr, int parc, char* par
   if (parc < 2) /* have enough parameters? */
     return need_more_params(cptr, "AUTHENTICATE");
 
-  if (strlen(parv[1]) > 400)
+  if (strlen(parv[1]) > 400) {
+    if (CapActive(cptr, CAP_STANDARDREPLIES))
+      send_fail(cptr, "AUTHENTICATE", "TOO_LONG", NULL, "SASL message too long");
     return send_reply(cptr, ERR_SASLTOOLONG);
+  }
 
-  if (IsSASLComplete(cptr))
-    return send_reply(cptr, ERR_SASLALREADY);
+  /* Handle AUTHENTICATE * to abort SASL session (IRCv3 spec) */
+  if (parv[1][0] == '*' && parv[1][1] == '\0') {
+    /* Only abort if there's an active session */
+    if (cli_saslcookie(cptr) && !IsSASLComplete(cptr)) {
+      /* Local SASL session takes priority */
+      if (cli_saslsession(cptr)) {
+        /* RFC 7628 §3.2.3: after an error challenge, client sends "*"
+         * to acknowledge failure — reply with SASLFAIL, not SASLABORTED. */
+        if (cli_saslsession(cptr)->state == SASL_STATE_FAILED)
+          send_reply(cptr, ERR_SASLFAIL, "");
+        else
+          send_reply(cptr, ERR_SASLABORTED);
+        /* Resumes registration; may exit cptr, so return its result. */
+        return sasl_abort_local(cptr);
+      }
+      /* Notify IAuth if applicable */
+      if (auth_iauth_handles_sasl())
+        auth_send_sasl_abort(cptr);
+      /* abort_sasl handles P10 notification and state cleanup; it only
+       * drops the registration hold, so resume registration here.  This
+       * may exit cptr, so return its result. */
+      abort_sasl(cptr, 0);
+      if (cli_auth(cptr))
+        return auth_sasl_done(cli_auth(cptr));
+    }
+    return 0;
+  }
 
-  /* Check if IAuth handles SASL */
+  /* A client that already has an account -- SASL completed, or an account
+   * set by services -- may re-authenticate only with a token-based
+   * mechanism: OAUTHBEARER supports token refresh and a change of account.
+   * Other mechanisms (PLAIN, EXTERNAL, SCRAM-*) get ERR_SASLALREADY per the
+   * IRCv3 spec.  Testing the account too keeps the rule after a failed
+   * OAUTHBEARER attempt, which clears the SASL-complete flag below.  A
+   * registered client with no account may authenticate with any mechanism.
+   * The rule applies when an exchange starts, not to the data lines of one
+   * in progress (a local session, or a cookie for the IAuth and P10 tiers;
+   * both are cleared when the exchange completes or is aborted).
+   */
+  if (!cli_saslsession(cptr) && !cli_saslcookie(cptr)
+      && (IsSASLComplete(cptr) || IsAccount(cptr))) {
+    /* Only allow re-authentication for token-based mechanisms */
+    if (ircd_strcmp(parv[1], "OAUTHBEARER") != 0) {
+      if (CapActive(cptr, CAP_STANDARDREPLIES))
+        send_fail(cptr, "AUTHENTICATE", "ALREADY_AUTHENTICATED", NULL,
+                  "You have already completed SASL authentication");
+      return send_reply(cptr, ERR_SASLALREADY);
+    }
+    /* Clear the SASLComplete flag to allow token refresh */
+    ClearSASLComplete(cptr);
+    /* Clear old SASL session state */
+    if ((cli_saslagent(cptr) != NULL) && cli_saslagentref(cli_saslagent(cptr)))
+      cli_saslagentref(cli_saslagent(cptr))--;
+    cli_saslagent(cptr) = NULL;
+    cli_saslcookie(cptr) = 0;
+    cli_saslstart(cptr) = 0;
+    if (t_active(&cli_sasltimeout(cptr)))
+      timer_del(&cli_sasltimeout(cptr));
+  }
+
+  /* Path 1: Local Keycloak-based SASL (highest priority) */
+  if (sasl_local_available()) {
+    if (cli_saslsession(cptr)) {
+      /* Continuation of an existing local SASL session */
+      return sasl_continue(cptr, parv[1]);
+    }
+    /* New session — sasl_start() returns 0 on success, -1 if mechanism
+     * is unsupported (fall through to IAuth/P10 for unknown mechanisms) */
+    if (sasl_start(cptr, parv[1]) == 0)
+      return 0;
+    /* Fall through to IAuth/P10 if sasl_start returned -1 */
+  }
+
+  /* Path 2: IAuth SASL */
   if (auth_iauth_handles_sasl()) {
     /* Route SASL to IAuth */
     if (!cli_saslcookie(cptr)) {
       do {
         cli_saslcookie(cptr) = ircrandom() & 0x7fffffff;
       } while (!cli_saslcookie(cptr));
+      cli_saslstart(cptr) = CurrentTime;
+      if (cli_auth(cptr))
+        auth_sasl_start(cli_auth(cptr));
       first = 1;
     }
 
@@ -151,9 +230,11 @@ int m_authenticate(struct Client* cptr, struct Client* sptr, int parc, char* par
       auth_send_sasl_data(cptr, parv[1]);
     }
 
-    if (!t_active(&cli_sasltimeout(cptr)))
-      timer_add(timer_init(&cli_sasltimeout(cptr)), sasl_timeout_callback, (void*) cptr,
+    if (!t_active(&cli_sasltimeout(cptr))) {
+      cli_freeflag(cptr) |= FREEFLAG_SASLTIMER;
+      timer_add(&cli_sasltimeout(cptr), sasl_timeout_callback, cli_connect(cptr),
                 TT_RELATIVE, feature_int(FEAT_SASL_TIMEOUT));
+    }
 
     return 0;
   }
@@ -168,8 +249,26 @@ int m_authenticate(struct Client* cptr, struct Client* sptr, int parc, char* par
       acptr = NULL;
   }
 
-  if (!acptr && strcmp(feature_str(FEAT_SASL_SERVER), "*"))
+  /* Validate agent is still a valid, connected server */
+  if (acptr && (IsDead(acptr) || !IsServer(acptr))) {
+    /* Clear stale agent reference */
+    if (cli_saslagent(cptr) == acptr) {
+      if (cli_saslagentref(acptr))
+        cli_saslagentref(acptr)--;
+      cli_saslagent(cptr) = NULL;
+    }
+    /* Try to find a new agent */
+    if (strcmp(feature_str(FEAT_SASL_SERVER), "*"))
+      acptr = find_match_server((char *)feature_str(FEAT_SASL_SERVER));
+    else
+      acptr = NULL;
+  }
+
+  if (!acptr && strcmp(feature_str(FEAT_SASL_SERVER), "*")) {
+    if (CapActive(cptr, CAP_STANDARDREPLIES))
+      send_fail(cptr, "AUTHENTICATE", "SASL_FAIL", NULL, "SASL service unavailable");
     return send_reply(cptr, ERR_SASLFAIL, ": service unavailable");
+  }
 
   /* If it's to us, do nothing; otherwise, forward the query */
   if (acptr && IsMe(acptr))
@@ -180,6 +279,9 @@ int m_authenticate(struct Client* cptr, struct Client* sptr, int parc, char* par
     do {
       cli_saslcookie(cptr) = ircrandom() & 0x7fffffff;
     } while (!cli_saslcookie(cptr));
+    cli_saslstart(cptr) = CurrentTime;
+    if (cli_auth(cptr))
+      auth_sasl_start(cli_auth(cptr));
     first = 1;
   }
 
@@ -228,28 +330,68 @@ int m_authenticate(struct Client* cptr, struct Client* sptr, int parc, char* par
     }
   }
 
-  if (!t_active(&cli_sasltimeout(cptr)))
-    timer_add(timer_init(&cli_sasltimeout(cptr)), sasl_timeout_callback, (void*) cptr,
+  if (!t_active(&cli_sasltimeout(cptr))) {
+    cli_freeflag(cptr) |= FREEFLAG_SASLTIMER;
+    timer_add(&cli_sasltimeout(cptr), sasl_timeout_callback, cli_connect(cptr),
               TT_RELATIVE, feature_int(FEAT_SASL_TIMEOUT));
+  }
 
   return 0;
 }
 
 /** Timeout a given SASL auth request.
- * @param[in] ev A timer event whose associated data is the expired
- *   struct AuthRequest.
+ * The timer lives in the client's Connection and keeps it allocated
+ * (FREEFLAG_SASLTIMER) until the ET_DESTROY event, the same way the
+ * process timer does: resuming registration from ET_EXPIRE may exit
+ * the client, and timer_run() still touches the timer afterwards.
+ * @param[in] ev A timer event whose associated data is the
+ *   struct Connection.
  */
 static void sasl_timeout_callback(struct Event* ev)
 {
   struct Client *cptr;
+  struct Connection *con;
 
   assert(0 != ev_timer(ev));
   assert(0 != t_data(ev_timer(ev)));
+  assert(ET_DESTROY == ev_type(ev) || ET_EXPIRE == ev_type(ev));
 
-  if (ev_type(ev) == ET_EXPIRE) {
-    cptr = (struct Client*) t_data(ev_timer(ev));
+  con = (struct Connection*) t_data(ev_timer(ev));
+  cptr = con_client(con);
 
-   abort_sasl(cptr, 1);
+  assert(0 == cptr || con == cli_connect(cptr));
+
+  if (ev_type(ev) == ET_DESTROY) {
+    con_freeflag(con) &= ~FREEFLAG_SASLTIMER;
+
+    if (!con_freeflag(con) && !cptr)
+      free_connection(con); /* client is being destroyed */
+  } else if (cptr) {
+    abort_sasl(cptr, 1);
+    /* SASL no longer holds registration; let it continue.  This may
+     * exit cptr; nothing below touches it. */
+    if (cli_auth(cptr))
+      auth_sasl_done(cli_auth(cptr));
   }
+}
+
+/** Resume a client's registration from the event loop rather than from
+ * the caller's stack.  The SASL timer is re-armed to fire at once; its
+ * callback finds the exchange already cleared (abort_sasl() is then a
+ * no-op) and calls auth_sasl_done().  For callers that must not run
+ * registration inline, such as free_client() of a services server that
+ * split mid-exchange: registration broadcasts to the network and may
+ * exit clients.
+ * @param[in] cptr Local client whose SASL hold was dropped.
+ */
+void sasl_resume_registration_later(struct Client *cptr)
+{
+  if (!MyConnect(cptr) || !cli_auth(cptr))
+    return;
+  if (t_active(&cli_sasltimeout(cptr)))
+    timer_del(&cli_sasltimeout(cptr));
+  cli_freeflag(cptr) |= FREEFLAG_SASLTIMER;
+  timer_add(&cli_sasltimeout(cptr), sasl_timeout_callback, cli_connect(cptr),
+            TT_RELATIVE, 0);
 }
 

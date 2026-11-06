@@ -12,11 +12,35 @@
 #include <time.h>	/* time_t */
 #define INCLUDED_time_h
 #endif
+#ifndef INCLUDED_stdint_h
+#include <stdint.h>	/* uint64_t */
+#define INCLUDED_stdint_h
+#endif
 
 struct Channel;
 struct Client;
 struct DBuf;
 struct MsgBuf;
+
+/** Context for per-connection cap routing in channel send functions.
+ *
+ * Channel send functions set stc_active around their member loops so
+ * send_buffer() can apply per-connection cap filtering (withcap/skipcap)
+ * and suppress alias mirroring (aliases get channel messages through
+ * their own CHFL_ALIAS membership).
+ */
+struct CapRouteContext {
+  int             stc_active;    /**< Non-zero when context is valid */
+  int             stc_withcap;   /**< Cap routing: deliver only to connections WITH this cap (CAP_NONE=disabled) */
+  int             stc_skipcap;   /**< Cap routing: skip connections WITH this cap (CAP_NONE=disabled) */
+};
+
+/** Global tag context — set by channel send functions around
+ * their member loops, read by send_buffer() for per-connection
+ * cap routing and alias mirror suppression.
+ * Single-threaded IRCd makes a global safe.
+ */
+extern struct CapRouteContext cap_route_ctx;
 
 /*
  * Prototypes
@@ -28,16 +52,122 @@ extern void send_buffer(struct Client* to, struct MsgBuf* buf, int prio);
 extern void kill_highest_sendq(int servers_too);
 extern void flush_connections(struct Client* cptr);
 extern void send_queued(struct Client *to);
+extern void client_reconcile_sendq(struct Client *to);
 
 /* Send a raw message to one client; USE ONLY IF YOU MUST SEND SOMETHING
  * WITHOUT A PREFIX!
  */
 extern void sendrawto_one(struct Client *to, const char *pattern, ...);
 
+/** Send a BATCH command to a client if it has CAP_BATCH.
+ * Checks per-connection caps (CapOwnHas) to decide delivery.
+ * @param[in] acptr  Local user client.
+ * @param[in] fmt    Format string for BATCH arguments (e.g., "+%s netsplit %s %s").
+ */
+extern void send_batch_perconn(struct Client *acptr, const char *fmt, ...);
+
+
+/* Override S2S tag source connection for alias source rewriting */
+extern void sendcmdto_set_s2s_cptr(struct Client *cptr);
+extern void sendcmdto_set_alias_source(struct Client *alias);
+/* Opt-in S2S tags for the next sendcmdto_serv_butone() call */
+extern void sendcmdto_want_s2s_tags(int want);
+/* Override batch ID for forwarded label responses (auto-cleared after use) */
+extern void sendcmdto_set_fwd_batch(const char *batch_id);
+/* Override msgid for client-side channel broadcasts (caller must clear after use) */
+extern void sendcmdto_set_client_msgid(const char *msgid);
+/** Second required cap for the next channel-capab send (consumed by it). */
+extern void sendcmdto_set_extra_withcap(int cap);
+/* Override server-time for client-side tag formatting (caller must clear after use) */
+extern void sendcmdto_set_client_time(const char *timestr);
+/** Arm the client msgid AND the event's time (epoch ms) for the
+ * client-facing @time tag; cleared by sendcmdto_set_client_msgid(NULL). */
+extern void sendcmdto_set_client_event(const char *msgid, uint64_t event_ms);
+/* Override S2S compact tag time/msgid for forwarded commands (auto-cleared) */
+extern void sendcmdto_set_s2s_tags(uint64_t time_ms, const char *msgid);
+/* Override S2S compact tag bouncer session-id hint (,S segment) for the next
+ * S2S emit.  Per redesign A.2: bouncer-aware peers receive sessid for at-N-time
+ * convergence dispatch in m_nick.  Auto-cleared after consumption. */
+extern void sendcmdto_set_s2s_sessid(const char *sessid);
+/* Arm the bouncer hold mark (,H<mark> segment, BOUNCE_HOLD_MARK_*) for the
+ * next S2S emit.  It travels only with the session id armed by
+ * sendcmdto_set_s2s_sessid(): arm the session id first (arming a session
+ * id disarms the mark), and a mark armed without one is dropped.  0
+ * disarms.  Consumed and cleared with the session id. */
+extern void sendcmdto_set_s2s_held(char mark);
+/* Arm the multiline framing segment ,M<flag><batch_ref> for the next
+ * sendcmdto_one_tags_with_client() toward a tag-carrying link (audit 0.1).
+ * Consumed or cleared by that call. */
+extern void sendcmdto_set_s2s_ml(char flag, const char *batch_ref);
+/* Whether a send toward this link carries the S2S compact tag region
+ * (server link or &me, IRCv3-aware, P10_MESSAGE_TAGS on). */
+extern int send_s2s_tags_on(struct Client *to);
+/* Whether the untagged S2S line "<from> <tok> <pattern...>" fits whole in
+ * 510 bytes; a body form with client tags ahead of its target must not
+ * be cut (TAGMSG, multiline start line). */
+extern int send_s2s_untagged_fits(struct Client *from, const char *tok,
+                                  const char *pattern, ...);
+/* Arm client-only tags (,C<client_tags>) for the next
+ * sendcmdto_serv_butone_v3() call (audit 0.1).  Stores the pointer, not
+ * a copy: the caller's buffer must outlive that call.  Consumed and
+ * cleared by sendcmdto_serv_butone_v3(); cleared unconsumed by every
+ * other serv_butone variant, since legacy/v1 peers have no ,C slot. */
+extern void sendcmdto_set_s2s_client_tags(const char *client_tags);
+/* Pre-built S2S tag prefix for multi-msgid (batched CREATE/PART) */
+extern void sendcmdto_set_s2s_raw_tags(const char *tags);
+/* Clear every S2S override (cptr, msgid, time, sessid, ,M, ,C, raw tags,
+ * want-tags, alias source) -- the end of the event that armed them.
+ * packet.c calls it after each parsed line.  Client-facing overrides
+ * (client msgid/time, forwarded batch id) are untouched. */
+extern void sendcmdto_reset_s2s_overrides(void);
+/* Mint a fresh msgid into a link's S2S stash for an event that arrived
+ * from it with none, and stamp the stash with the msgid's mint time. */
+extern void s2s_mint_link_event(struct Client *link);
+/* The server link whose line is being handled: packet.c sets it right
+ * before parse_server() and NULL right after.  A link's S2S stash is
+ * read for an outgoing tag region only while it is this link's line
+ * (format_s2s_tags_with_client); NULL outside server-line handling
+ * (client lines, timers, callbacks). */
+extern void sendcmdto_set_inbound_link(struct Client *link);
+extern struct Client *sendcmdto_inbound_link(void);
+/* Whether cptr's S2S stash is the tags of the line being handled: cptr
+ * is the inbound link or a client behind it.  The one gate for every
+ * reader of a link's stash. */
+extern int sendcmdto_stash_is_current(struct Client *cptr);
+/* The tag region of the line being handled, from the link's stash alone
+ * (@A<time><msgid>[,S<sessid>]); no override is read or consumed.  For
+ * replies that echo the answered line's id.  NULL when tags are off, the
+ * link's line is not the current one, or its stash holds no msgid. */
+extern char *format_s2s_tags_current(char *buf, size_t buflen,
+                                     struct Client *link);
+
 /* Send a command to one client */
 extern void sendcmdto_one(struct Client *from, const char *cmd,
 			  const char *tok, struct Client *to,
 			  const char *pattern, ...);
+
+/* Same as above, but include message tags (label, time, account) */
+extern void sendcmdto_one_tags(struct Client *from, const char *cmd,
+			  const char *tok, struct Client *to,
+			  const char *pattern, ...);
+
+/* Same as above, but also return the generated msgid and timestamp */
+extern void sendcmdto_one_tags_msgid(struct Client *from, const char *cmd,
+			  const char *tok, struct Client *to,
+			  char *msgid_out, size_t msgid_out_len,
+			  char *time_out, size_t time_out_len,
+			  const char *pattern, ...);
+
+/* Same as sendcmdto_one_tags, but uses a supplied msgid instead of generating one */
+extern void sendcmdto_one_tags_ext(struct Client *from, const char *cmd,
+			  const char *tok, struct Client *to,
+			  const char *ext_msgid,
+			  const char *pattern, ...);
+
+/* Send TAGMSG with client-only tags to a single client */
+extern void sendcmdto_one_client_tags(struct Client *from, const char *cmd,
+                               struct Client *to, const char *client_tags,
+                               const char *pattern, ...);
 
 /* Same as above, except it puts the message on the priority queue */
 extern void sendcmdto_prio_one(struct Client *from, const char *cmd,
@@ -55,12 +185,60 @@ extern void sendcmdto_serv_butone(struct Client *from, const char *cmd,
 				  const char *tok, struct Client *one,
 				  const char *pattern, ...);
 
+/* Send command to all IRCv3-aware servers except one.
+ * Use for fork-only P10 tokens that legacy peers would silently drop. */
+extern void sendcmdto_serv_butone_v3(struct Client *from, const char *cmd,
+				     const char *tok, struct Client *one,
+				     const char *pattern, ...);
+
+/* Send command to all NON-IRCv3-aware (legacy) servers except one.
+ *
+ * Inverse of sendcmdto_serv_butone_v3.  Use ONLY for wire shapes a legacy
+ * peer's own handler understands — currently: BX P (CMD_BOUNCER_TRANSFER
+ * 'P', the legacy bouncer-transfer handler at evilnet/nefarious2's
+ * m_bouncer_transfer.c), SVSINFO (ghost realname sync), PRIVS (oper-priv
+ * sync), and AWAY (the pre-away star, substituted to FEAT_AWAY_STAR_MSG).
+ * It is a hard bug to send BX C / BX X / BX A / BX K / BX U / BX M / BX E,
+ * or any other fork-only token, through this helper: legacy peers
+ * silently drop what they don't recognise and the emission is wasted.
+ * Never builds a tagged line — see the definition comment in send.c.
+ * A BX C emission is not paired with a BX P (see send.c). */
+extern void sendcmdto_legacy_serv_butone(struct Client *from, const char *cmd,
+				         const char *tok, struct Client *one,
+				         const char *pattern, ...);
+
+/* Format the S2S compact-tag prefix with optional client-tags segment. */
+extern char *format_s2s_tags_with_client(char *buf, size_t buflen,
+                                         struct Client *cptr,
+                                         const char *client_tags,
+                                         char *msgid_out,
+                                         size_t msgid_out_len);
+
+/* Variant of sendcmdto_one_tags_ext that includes client-only tags.
+ * For server-link destinations, emits @A...,C<client_tags> when peer is
+ * FLAG_IRCV3AWARE; legacy peers get bare command. */
+extern void sendcmdto_one_tags_with_client(struct Client *from,
+                                           const char *cmd, const char *tok,
+                                           struct Client *to,
+                                           const char *ext_msgid,
+                                           const char *client_tags,
+                                           const char *pattern, ...);
+
 /* Send command to all channels user is on */
 extern void sendcmdto_common_channels_butone(struct Client *from,
 					     const char *cmd,
 					     const char *tok,
 					     struct Client *one,
 					     const char *pattern, ...);
+
+/* Send command to the local members of every channel @a from is on, except
+ * @a from and its own bouncer aliases: its devices share its nick, so a
+ * line from that nick -- the QUIT of a face leaving the network while its
+ * connection carries on as a device (W3 12c-3) -- is not theirs to see. */
+extern void sendcmdto_common_channels_but_session(struct Client *from,
+                                                  const char *cmd,
+                                                  const char *tok,
+                                                  const char *pattern, ...);
 
 /* Send command to all channels user is on with or without a specified capability */
 extern void sendcmdto_common_channels_capab_butone(struct Client *from,
@@ -90,6 +268,12 @@ extern void sendcmdto_channel_capab_butserv_butone(struct Client *from,
                                             int skipcap,
                                             const char *pattern, ...);
 
+/* Send TAGMSG with client-only tags to channel members with message-tags capability */
+extern void sendcmdto_channel_client_tags(struct Client *from, const char *cmd,
+                                   struct Channel *to, struct Client *one,
+                                   unsigned int skip, const char *client_tags,
+                                   const char *pattern, ...);
+
 /* Send command to all servers interested in a channel */
 extern void sendcmdto_channel_servers_butone(struct Client *from,
                                              const char *cmd,
@@ -105,6 +289,14 @@ extern void sendcmdto_channel_butone(struct Client *from, const char *cmd,
 				     struct Client *one, unsigned int skip,
 				     unsigned char prefix, const char *pattern, ...);
 
+/* Same as above, but include client-only tags for message-tags capable clients */
+extern void sendcmdto_channel_butone_with_client_tags(struct Client *from,
+                                     const char *cmd, const char *tok,
+                                     struct Channel *to, struct Client *one,
+                                     unsigned int skip, unsigned char prefix,
+                                     const char *client_tags,
+                                     const char *pattern, ...);
+
 #define SKIP_DEAF	0x01	/**< skip users that are +d */
 #define SKIP_BURST	0x02	/**< skip users that are bursting */
 #define SKIP_NONOPS	0x04	/**< skip users that aren't chanops */
@@ -112,6 +304,7 @@ extern void sendcmdto_channel_butone(struct Client *from, const char *cmd,
                                    chanops and halfops) */
 #define SKIP_NONHOPS	0x10	/**< skip users that aren't halfopped (includes
                                    chanops) */
+#define SKIP_CHGHOST	0x20	/**< skip users that have chghost capability */
 
 /* Send command to all users having a particular flag set */
 extern void sendwallto_group_butone(struct Client *from, int type, 
@@ -156,5 +349,67 @@ extern void sendto_mode_butone(struct Client *one, struct Client *from, const ch
 /* Same as above, but with variable argument list */
 extern void vsendto_mode_butone(struct Client *one, struct Client *from, const char *mode,
                            const char *pattern, va_list vl);
+
+/* Start a batch for a client (labeled-response integration) */
+extern void send_batch_start(struct Client *to, const char *type);
+
+/* End a batch for a client */
+extern void send_batch_end(struct Client *to);
+
+/* Check if a client has an active batch */
+extern int has_active_batch(struct Client *cptr);
+
+/* S2S batch functions for netjoin/netsplit coordination */
+extern void send_s2s_batch_start(struct Client *sptr, const char *type,
+                                 const char *server1, const char *server2);
+extern void send_s2s_batch_end(struct Client *sptr, const char *batch_id);
+
+/* Netjoin/netsplit batch functions for automatic batching */
+extern void send_netjoin_batch_start(struct Client *server, struct Client *uplink);
+extern void send_netjoin_batch_end(struct Client *server);
+extern void send_netsplit_batch_start(struct Client *server, struct Client *uplink,
+                                       char *batch_id_out, size_t batch_id_len);
+extern void send_netsplit_batch_end(const char *batch_id);
+
+/* Active network batch tracking for @batch tag inclusion in QUIT/JOIN messages */
+extern void set_active_network_batch(const char *batch_id);
+extern const char *get_active_network_batch(void);
+
+/* Generate unique message ID for IRCv3 message-ids */
+extern char *generate_msgid(char *buf, size_t buflen);
+/* Format S2S compact tags (time + msgid) for inter-server messages */
+extern char *format_s2s_tags(char *buf, size_t buflen, struct Client *cptr,
+                             char *msgid_out, size_t msgid_out_len);
+/* Parse ISO 8601 timestamp to epoch milliseconds (backward compat) */
+
+/* IRCv3 standard-replies (FAIL/WARN/NOTE) — single context parameter */
+extern void send_fail(struct Client *to, const char *command, const char *code,
+                      const char *context, const char *description);
+extern void send_warn(struct Client *to, const char *command, const char *code,
+                      const char *context, const char *description);
+extern void send_warn_with_label(struct Client *to, const char *command, const char *code,
+                                 const char *context, const char *description,
+                                 const char *label);
+extern void send_note(struct Client *to, const char *command, const char *code,
+                      const char *context, const char *description);
+/* IRCv3 standard-replies with printf-formatted context for multiple params.
+ * Usage: send_fail_ctx(cli, "CMD", "CODE", "desc", "%s %s", ctx1, ctx2); */
+extern void send_fail_ctx(struct Client *to, const char *command, const char *code,
+                          const char *description, const char *context_fmt, ...);
+extern void send_warn_ctx(struct Client *to, const char *command, const char *code,
+                          const char *description, const char *context_fmt, ...);
+extern void send_note_ctx(struct Client *to, const char *command, const char *code,
+                          const char *description, const char *context_fmt, ...);
+
+/* IRCv3 labeled-response ACK (send when command produces no response) */
+extern void send_labeled_ack(struct Client *to);
+
+/* Start a labeled-response batch if client has pending label + batch cap.
+ * Returns 1 if batch was started, 0 otherwise.
+ */
+extern int labeled_batch_start(struct Client *sptr);
+
+/* End a labeled-response batch started by labeled_batch_start(). */
+extern void labeled_batch_end(struct Client *sptr);
 
 #endif /* INCLUDED_send_h */
