@@ -10,6 +10,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
+#include <limits.h>
 #include <cmocka.h>
 
 #include "ircd_defs.h"
@@ -957,6 +958,20 @@ static void test_msgid_decode_rejects(void **state)
   }
 }
 
+static void test_ParseInterval_saturates(void **state)
+{
+    (void)state;
+
+    /* F07: the digit accumulator and the unit product overflowed, so a
+     * long G-line duration wrapped to a short or negative one.  The
+     * result now stops at INT_MAX (about 68 years). */
+    assert_true(ParseInterval("9999999999999999d") == (unsigned long)INT_MAX);
+    assert_true(ParseInterval("99999999999999999999") == (unsigned long)INT_MAX);
+    assert_true(ParseInterval("70y") == (unsigned long)INT_MAX);
+    assert_true(ParseInterval("68y1d") == 68UL * 365 * 24 * 60 * 60 + 86400);
+    assert_int_equal(93600, ParseInterval("1d2h"));
+}
+
 int main(void)
 {
     const struct CMUnitTest tests[] = {
@@ -1056,6 +1071,7 @@ int main(void)
         cmocka_unit_test(test_utf8_sanitize_truncates_at_a_sequence_boundary),
         cmocka_unit_test(test_utf8_valid_len_runs_past_nul),
         cmocka_unit_test(test_utf8_valid_len_stops_at_len),
+        cmocka_unit_test(test_ParseInterval_saturates),
     };
 
     return cmocka_run_group_tests(tests, NULL, NULL);
