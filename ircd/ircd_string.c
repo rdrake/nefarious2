@@ -29,6 +29,7 @@
 #include "res.h"
 
 /* #include <assert.h> -- Now using assert in ircd_log.h */
+#include <limits.h>
 #include <stdio.h>
 #include <stdarg.h>
 #include <string.h>
@@ -1198,23 +1199,40 @@ TypeLength(char type)
 }
 
 
+/** Longest interval ParseInterval() returns (about 68 years).  Callers
+ * add it to the current time; the cap keeps that sum, and any int it is
+ * stored in, from overflowing. */
+#define PARSEINTERVAL_MAX ((unsigned long)INT_MAX)
+
 unsigned long
 ParseInterval(const char *interval)
 {
     unsigned long seconds = 0;
-    int partial = 0;
+    unsigned long partial = 0;
+    unsigned long unit;
     char c;
 
-    /* process the string, resetting the count if we find a unit character */
+    /* process the string, resetting the count if we find a unit character.
+     * Every step saturates at PARSEINTERVAL_MAX instead of overflowing. */
     while ((c = *interval++)) {
         if (IsDigit((int)c)) {
-            partial = partial*10 + c - '0';
+            unsigned long digit = (unsigned long)(c - '0');
+            if (partial > (PARSEINTERVAL_MAX - digit) / 10)
+                partial = PARSEINTERVAL_MAX;
+            else
+                partial = partial * 10 + digit;
         } else {
-            seconds += TypeLength(c) * partial;
+            unit = (unsigned long)TypeLength(c);
+            if (unit && partial > (PARSEINTERVAL_MAX - seconds) / unit)
+                seconds = PARSEINTERVAL_MAX;
+            else
+                seconds += unit * partial;
             partial = 0;
         }
     }
     /* assume the last chunk is seconds (the normal case) */
+    if (partial > PARSEINTERVAL_MAX - seconds)
+        return PARSEINTERVAL_MAX;
     return seconds + partial;
 }
 
