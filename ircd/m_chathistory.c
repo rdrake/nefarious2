@@ -4398,10 +4398,25 @@ static int ch_base64_decode(const char *input, size_t inlen, char **output, size
     return 0;
   }
 
-  /* EVP_DecodeBlock includes padding - adjust for actual length */
-  while (inlen > 0 && input[inlen - 1] == '=') {
-    decoded_len--;
-    inlen--;
+  /* EVP_DecodeBlock counts the padding as data: drop one byte per '='.
+   * Valid base64 pads only its last block, with at most two '='; anything
+   * else (a peer can send "====...") is refused rather than letting the
+   * length go negative. */
+  {
+    size_t pad = 0, i;
+
+    while (pad < 2 && pad < inlen && input[inlen - 1 - pad] == '=')
+      pad++;
+    for (i = 0; i < inlen - pad; i++)
+      if (input[i] == '=') {
+        MyFree(decoded);
+        return 0;
+      }
+    if ((size_t)decoded_len < pad) {
+      MyFree(decoded);
+      return 0;
+    }
+    decoded_len -= (int)pad;
   }
 
   decoded[decoded_len] = '\0';
