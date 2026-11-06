@@ -639,6 +639,9 @@ void crdt_bsess_del(struct CrdtNetworkState *st, const char *account,
 const struct CrdtBouncerSession *crdt_bsess_get(const struct CrdtNetworkState *st,
                                                 const char *account, const char *sessid);
 /** 1 iff (account,sessid) has an explicit delete-tombstone (gate for doc->live removal). */
+/** Was the bsess record's last write a delete, and by which server (*@a by)? */
+int crdt_bsess_removed_by(const struct CrdtNetworkState *st, const char *account,
+                          const char *sessid, uint16_t *by);
 int crdt_bsess_is_explicitly_removed(const struct CrdtNetworkState *st,
                                      const char *account, const char *sessid);
 /** 5-5e M3: the cross-sessid election winner = strcmp-lowest sessid among @a account's

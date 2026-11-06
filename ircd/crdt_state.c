@@ -1307,6 +1307,22 @@ const struct CrdtBouncerSession *crdt_bsess_get(const struct CrdtNetworkState *s
   return v ? (const struct CrdtBouncerSession *)v->data : NULL;
 }
 
+/* The server that wrote a bsess tombstone (the holder that ended its copy):
+ * 1 and *@a by filled when the record's last write is a delete.  The delete's
+ * HLC carries the writer's numeric (crdt_bsess_del stamps a local event). */
+int crdt_bsess_removed_by(const struct CrdtNetworkState *st, const char *account,
+                          const char *sessid, uint16_t *by)
+{
+  char key[128];
+  struct HLC ts;
+  uint32_t klen = bsess_key(account, sessid, key, sizeof key);
+  if (!klen || !crdt_lwwmap_deleted_ts(&st->bsessions, key, klen, &ts))
+    return 0;
+  if (by)
+    *by = ts.node_id;
+  return 1;
+}
+
 int crdt_bsess_is_explicitly_removed(const struct CrdtNetworkState *st,
                                      const char *account, const char *sessid)
 {

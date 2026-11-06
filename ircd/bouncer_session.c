@@ -4082,6 +4082,7 @@ void bounce_crdt_replica_reap(void)
   enum { REAP_BATCH = 32 };
   struct BouncerSession *doomed[REAP_BATCH];
   int i, nd = 0;
+  uint16_t by = 0;
 
   if (!feature_bool(FEAT_CRDT_BOUNCER_DOC) || !feature_bool(FEAT_CRDT_PRIMARY))
     return;
@@ -4101,10 +4102,20 @@ void bounce_crdt_replica_reap(void)
          * aliases of a dead session, nor new logins alias into it. */
         if (s->hs_client && MyConnect(s->hs_client))
           continue;
-        if (!crdt_shadow_bsess_removed(s->hs_account, s->hs_sessid))
+        if (!crdt_shadow_bsess_removed_by(s->hs_account, s->hs_sessid, &by))
           continue;              /* INVARIANT 11: reap ONLY on an EXPLICIT doc tombstone.
                                   * Absent (legacy-primaried -> never written; or not yet
                                   * synced) != removed -> spared, not reaped. */
+        /* A record following a remote primary ends only on its OWN holder's
+         * tombstone: after a split two holders can keep copies under one id,
+         * and one ending its copy must not end the devices here that follow
+         * the other's live primary (BS X spares a live copy the same way). */
+        if (s->hs_client) {
+          struct Client *ps = cli_user(s->hs_client) ? cli_user(s->hs_client)->server
+                                                     : NULL;
+          if (!ps || (uint16_t)base64toint(cli_yxx(ps)) != by)
+            continue;
+        }
         doomed[nd++] = s;        /* explicitly tombstoned + no local primary -> stale replica */
       }
     }

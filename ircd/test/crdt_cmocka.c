@@ -1066,6 +1066,14 @@ static void test_bsess_op_replicates(void **state)
   crdt_state_sync(&s2, &s1);
   assert_int_equal(1, crdt_bsess_is_explicitly_removed(&s2, ACC, SID));
   assert_true(crdt_state_digest(&s1) == crdt_state_digest(&s2));
+  /* the tombstone names the holder that wrote it (the replica reap ends a
+   * record following a remote primary only on that primary's holder's) */
+  {
+    uint16_t by = 0;
+    assert_int_equal(1, crdt_bsess_removed_by(&s2, ACC, SID, &by));
+    assert_int_equal(s1.my_numeric, by);
+    assert_int_equal(0, crdt_bsess_removed_by(&s2, ACC, "nosuch", &by));
+  }
 
   crdt_state_clear(&s1);
   crdt_state_clear(&s2);
