@@ -25,18 +25,22 @@
 #include "class.h"
 #include "client.h"
 #include "ircd.h"
+#include "ircd_chattr.h"
 #include "ircd_features.h"
+#include "ircd_string.h"
 #include "random.h"
 
 #include <string.h>
 
 /** Seconds after registration the allowance stays live. */
 #define FAKELAG_BORROW_TTL 30
-/** An account gets one allowance per this many seconds, the pool's refill
- * time: reconnecting in a loop cannot drain the pool from one account. */
-#define FAKELAG_LEND_GAP   60
-/** Slots in the table of recent allowances (a power of two). */
-#define FAKELAG_LENT_SLOTS 1024
+/** An account borrows at most FAKELAG_BORROW per this many seconds, the
+ * pool's refill time, however many times it registers. */
+#define FAKELAG_WINDOW     60
+/** Slots in the table of account budgets (a power of two), and how many a
+ * lookup tries before it gives up and lends nothing. */
+#define FAKELAG_SLOTS      1024
+#define FAKELAG_PROBE      16
 /** Clamps on the features, so the refill math stays in int. */
 #define FAKELAG_POOL_MAX   100000
 #define FAKELAG_BORROW_MAX 600
@@ -45,15 +49,18 @@ static int    pool;       /**< Lag-seconds available to lend. */
 static int    pool_rem;   /**< Refill carried over, in 1/60 s. */
 static time_t pool_last;  /**< When the pool was last settled; 0 = never. */
 
-/** Recent allowances, one slot per account hash.  Two accounts in one slot
- * just make it forget the older, which lets an allowance through early;
- * refusing one takes two names with the same 32-bit hash.  The seed keeps
- * both unguessable. */
-static struct {
-  unsigned int key;       /**< Seeded hash of the account; 0 = empty. */
-  time_t       when;      /**< When it was last given an allowance. */
-} lent[FAKELAG_LENT_SLOTS];
-static unsigned int lent_seed;
+/** What an account has borrowed in its current window.  An entry is
+ * made at the account's first actual draw, compared by name, and never
+ * reused while its window is open, so no account can push another out.
+ * When every slot a name may use is open, that name borrows nothing. */
+struct budget {
+  char   account[ACCOUNTLEN + 1]; /**< Account name; "" = free. */
+  time_t start;                   /**< When the window opened. */
+  int    used;                    /**< Seconds borrowed in it. */
+};
+static struct budget budgets[FAKELAG_SLOTS];
+static unsigned int  budget_seed;   /**< Keeps the slots unguessable. */
+static const char   *charging;      /**< Account fakelag_charge_client() is on. */
 
 /** Clamp @a v to [0, @a hi]. */
 static int clamp(int v, int hi)
@@ -97,35 +104,86 @@ int fakelag_pool_take(int want)
   return got;
 }
 
-/** Has @a account had an allowance in the last FAKELAG_LEND_GAP seconds?
- * If not, note that it has one now.  Account names compare without case.
- * A clock that stepped back counts as a gap.
- * @param[in] account The account name.
- * @return 1 when it had one recently (lend nothing), 0 when it may borrow.
- */
-static int fakelag_lent_recently(const char *account)
+/** Is @a b's window still open?  A window that opened in the future (the
+ * clock stepped back) restarts now, keeping what was borrowed in it. */
+static int budget_open(struct budget *b)
 {
-  unsigned int key, slot;
+  if (!b->account[0])
+    return 0;
+  if (CurrentTime < b->start)
+    b->start = CurrentTime;
+  return CurrentTime - b->start < FAKELAG_WINDOW;
+}
+
+/** Find @a account's budget, or the slot its first draw would take.
+ * Names compare as the server compares them (ircd_strcmp()).
+ * @param[in] account The account name.
+ * @return Its open budget; a closed or free slot for it (account[0] is
+ *   then 0 or another name); NULL when every slot it may use is open. */
+static struct budget *budget_find(const char *account)
+{
+  struct budget *spare = NULL;
+  unsigned int h, i;
   const char *p;
 
-  if (!lent_seed)
-    lent_seed = ircrandom() | 1;
-  key = 2166136261u ^ lent_seed;              /* FNV-1a, seeded */
-  for (p = account; *p; p++) {
-    unsigned char c = (unsigned char)*p;
-    if (c >= 'A' && c <= 'Z')                 /* ASCII fold is enough here */
-      c += 'a' - 'A';
-    key = (key ^ c) * 16777619u;
+  if (!budget_seed)
+    budget_seed = ircrandom() | 1;
+  h = 2166136261u ^ budget_seed;               /* FNV-1a over the fold */
+  for (p = account; *p; p++)
+    h = (h ^ (unsigned char)ToLower(*p)) * 16777619u;
+  h ^= h >> 16;                                /* mix the high bits down */
+  h *= 0x85ebca6bu;
+  h ^= h >> 13;
+  for (i = 0; i < FAKELAG_PROBE; i++) {
+    struct budget *b = &budgets[(h + i) & (FAKELAG_SLOTS - 1)];
+    int open = budget_open(b);
+
+    if (open && !ircd_strcmp(b->account, account))
+      return b;
+    if (!open && !spare)
+      spare = b;
   }
-  if (!key)
-    key = 1;
-  slot = key & (FAKELAG_LENT_SLOTS - 1);
-  if (lent[slot].key == key && CurrentTime >= lent[slot].when
-      && CurrentTime - lent[slot].when < FAKELAG_LEND_GAP)
-    return 1;
-  lent[slot].key = key;
-  lent[slot].when = CurrentTime;
-  return 0;
+  return spare;
+}
+
+/** The pool, through the budget of the account being charged. */
+static int take_for_account(int want)
+{
+  int cap = clamp(feature_int(FEAT_FAKELAG_BORROW), FAKELAG_BORROW_MAX);
+  struct budget *b = budget_find(charging);
+  int mine, room, got;
+
+  if (!b)
+    return 0;
+  mine = b->account[0] && !ircd_strcmp(b->account, charging)
+         && budget_open(b);
+  room = cap - (mine ? b->used : 0);
+  if (room <= 0)
+    return 0;
+  got = fakelag_pool_take(want < room ? want : room);
+  if (got > 0) {
+    if (!mine) {
+      ircd_strncpy(b->account, charging, ACCOUNTLEN);
+      b->start = CurrentTime;
+      b->used = 0;
+    }
+    b->used += got;
+  }
+  return got;
+}
+
+/** Charge @a lag to @a cptr: its grace, then the pool through its
+ * allowance and its account's budget, then its clock.
+ * @param[in] cptr The local client the line came from.
+ * @param[in] lag Seconds the line costs.
+ * @return Seconds to add to the client's clock.
+ */
+int fakelag_charge_client(struct Client *cptr, int lag)
+{
+  charging = cli_account(cptr);
+  return fakelag_spend(&cli_lagcredit(cptr), &cli_lagborrow(cptr),
+                       cli_lagborrow_until(cptr), CurrentTime,
+                       take_for_account, lag);
 }
 
 /** Grant the post-registration credit, and the pool allowance when the
@@ -156,11 +214,9 @@ void fakelag_grant(struct Client *cptr)
     return;
   cli_lagcredit(cptr) = grace;
 
-  /* A class with fake lag off never spends it: lend nothing.  Nor to an
-   * account lent to within the gap: a reconnect loop, or a second device
-   * of the same account, gets the grace alone, as today. */
-  if (feature_int(FEAT_FAKELAG_POOL) <= 0 || get_lag_factor(cptr) == 0
-      || fakelag_lent_recently(cli_account(cptr)))
+  /* A class with fake lag off never spends it: lend nothing.  What the
+   * account may still borrow this minute is checked at each draw. */
+  if (feature_int(FEAT_FAKELAG_POOL) <= 0 || get_lag_factor(cptr) == 0)
     return;
   fakelag_pool_take(0);   /* start the pool's clock at the first grant */
   cli_lagborrow(cptr) = clamp(feature_int(FEAT_FAKELAG_BORROW),
@@ -169,12 +225,12 @@ void fakelag_grant(struct Client *cptr)
 }
 
 #ifdef CMOCKA_TEST
-/** Empty the pool, forget when it was last settled and every allowance. */
+/** Empty the pool, forget when it was last settled and every budget. */
 void fakelag_test_reset(void)
 {
   pool = 0;
   pool_rem = 0;
   pool_last = 0;
-  memset(lent, 0, sizeof(lent));
+  memset(budgets, 0, sizeof(budgets));
 }
 #endif

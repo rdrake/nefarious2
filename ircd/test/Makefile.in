@@ -312,7 +312,7 @@ fakelag_test.o: ../fakelag.c ../../include/fakelag.h
 fakelag_cmocka.o: fakelag_cmocka.c ../../include/fakelag.h
 	${CC} ${CFLAGS} ${CPPFLAGS} -DCMOCKA_TEST -c -o $@ fakelag_cmocka.c
 
-FAKELAG_CMOCKA_OBJS = fakelag_cmocka.o fakelag_test.o
+FAKELAG_CMOCKA_OBJS = fakelag_cmocka.o fakelag_test.o test_stub.o ../ircd_string.o
 fakelag_cmocka: $(FAKELAG_CMOCKA_OBJS)
 	${CC} -o $@ $(LDFLAGS) $(FAKELAG_CMOCKA_OBJS) $(CMOCKA_LIBS)
 

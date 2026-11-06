@@ -1668,10 +1668,7 @@ parse_client(struct Client *cptr, char *buffer, char *bufend)
      * .claude/para/projects/multiline-cooldown.md.
      */
     if (!cli_ml_batch_id(cptr)[0])
-      cli_since(cptr) += fakelag_spend(&cli_lagcredit(cptr),
-                                       &cli_lagborrow(cptr),
-                                       cli_lagborrow_until(cptr), CurrentTime,
-                                       fakelag_pool_take, lag);
+      cli_since(cptr) += fakelag_charge_client(cptr, lag);
   }
   /*
    * Allow only 1 msg per 2 seconds

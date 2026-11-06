@@ -70,6 +70,7 @@ static inline int fakelag_spend(int *credit, int *borrow, time_t until,
 }
 
 extern int fakelag_pool_take(int want);
+extern int fakelag_charge_client(struct Client *cptr, int lag);
 extern void fakelag_grant(struct Client *cptr);
 #ifdef CMOCKA_TEST
 extern void fakelag_test_reset(void);

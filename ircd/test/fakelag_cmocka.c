@@ -13,6 +13,7 @@
 #include <stdarg.h>
 #include <stddef.h>
 #include <setjmp.h>
+#include <stdio.h>
 #include <string.h>
 #include <cmocka.h>
 
@@ -360,102 +361,182 @@ static void test_grant_borrow_clamped(void **state)
   assert_int_equal(cli_lagborrow(c), 600);
 }
 
-/* One allowance per account per minute: a reconnect loop or a second
- * device of the same account gets the grace alone, as today. */
-static void test_grant_same_account_within_gap_grace_only(void **state)
+/* --- the per-account budget ------------------------------------------ */
+
+/** Send @a n 2 s commands from @a c; return the seconds the pool lent. */
+static int lent_to(struct Client *c, int n)
 {
-  struct grant_fixture f1, f2;
-  struct Client *a = mkacct(&f1, "alice"), *b;
-  (void)state;
-  fakelag_grant(a);
-  CurrentTime += 59;
-  b = mkacct(&f2, "alice");
-  fakelag_grant(b);
-  assert_int_equal(cli_lagcredit(b), 20);
-  assert_int_equal(cli_lagborrow(b), 0);
-  assert_int_equal(cli_lagborrow_until(b), 0);
+  int i, lent = 0;
+  for (i = 0; i < n; i++) {
+    int before = cli_lagborrow(c);
+    cli_since(c) += fakelag_charge_client(c, 2);
+    lent += before - cli_lagborrow(c) > 0 ? before - cli_lagborrow(c) : 0;
+  }
+  return lent;
 }
 
-static void test_grant_same_account_after_gap(void **state)
+/** A logged-in client of @a account, registered now, the pool full. */
+static struct Client *reg(struct grant_fixture *f, const char *account)
 {
-  struct grant_fixture f1, f2;
-  struct Client *a = mkacct(&f1, "alice"), *b;
-  (void)state;
-  fakelag_grant(a);
+  struct Client *c = mkacct(f, account);
+  fakelag_grant(c);
+  return c;
+}
+
+/** Fill the pool: a first grant starts its clock, a minute fills it. */
+static void fill_pool(void)
+{
+  struct grant_fixture f;
+  fakelag_grant(mkacct(&f, "warm"));
   CurrentTime += 60;
-  b = mkacct(&f2, "alice");
-  fakelag_grant(b);
-  assert_int_equal(cli_lagborrow(b), 60);
-}
-
-static void test_grant_gap_is_per_account(void **state)
-{
-  struct grant_fixture f1, f2;
-  struct Client *a = mkacct(&f1, "alice"), *b = mkacct(&f2, "bob");
-  (void)state;
-  fakelag_grant(a);
-  fakelag_grant(b);
-  assert_int_equal(cli_lagborrow(a), 60);
-  assert_int_equal(cli_lagborrow(b), 60);
-}
-
-static void test_grant_gap_ignores_case(void **state)
-{
-  struct grant_fixture f1, f2;
-  struct Client *a = mkacct(&f1, "Alice"), *b = mkacct(&f2, "aLICE");
-  (void)state;
-  fakelag_grant(a);
-  fakelag_grant(b);
-  assert_int_equal(cli_lagborrow(b), 0);
-}
-
-static void test_grant_gap_clock_back_lends(void **state)
-{
-  struct grant_fixture f1, f2;
-  struct Client *a = mkacct(&f1, "alice"), *b;
-  (void)state;
-  fakelag_grant(a);
-  CurrentTime -= 5;
-  b = mkacct(&f2, "alice");
-  fakelag_grant(b);
-  assert_int_equal(cli_lagborrow(b), 60);
-}
-
-/* With the pool off nothing is lent, so nothing starts the gap. */
-static void test_grant_pool_off_starts_no_gap(void **state)
-{
-  struct grant_fixture f1, f2;
-  struct Client *a = mkacct(&f1, "alice"), *b;
-  (void)state;
-  stub_pool = 0;
-  fakelag_grant(a);
-  stub_pool = 600;
-  b = mkacct(&f2, "alice");
-  fakelag_grant(b);
-  assert_int_equal(cli_lagborrow(b), 60);
 }
 
 /* The drain from the live test: one account reconnecting every two
- * seconds for a minute, spending all it can each time, takes one
- * allowance from a full pool, not all of it. */
-static void test_reconnect_loop_takes_one_allowance(void **state)
+ * seconds for a minute, spending all it can each time, borrows one
+ * allowance in all. */
+static void test_reconnect_loop_borrows_one_allowance(void **state)
 {
-  struct grant_fixture f0, f;
-  struct Client *first = mkacct(&f0, "warm"), *c;
-  int i, k, taken = 0;
+  struct grant_fixture f;
+  int k, lent = 0;
   (void)state;
-  fakelag_grant(first);
-  CurrentTime += 60;                /* pool full: 600 */
-  for (k = 0; k < 30; k++, CurrentTime += 2) {
-    c = mkacct(&f, "mallory");
-    fakelag_grant(c);
-    for (i = 0; i < 40; i++)
-      taken += 2 - fakelag_spend(&cli_lagcredit(c), &cli_lagborrow(c),
-                                 cli_lagborrow_until(c), CurrentTime,
-                                 fakelag_pool_take, 2);
+  fill_pool();
+  for (k = 0; k < 30; k++, CurrentTime += 2)
+    lent += lent_to(reg(&f, "mallory"), 40);
+  assert_int_equal(lent, 60);
+}
+
+/* A registration that never drew keeps the budget whole for the next. */
+static void test_unused_allowance_blocks_nothing(void **state)
+{
+  struct grant_fixture f1, f2;
+  (void)state;
+  fill_pool();
+  reg(&f1, "alice");                 /* dropped before its burst */
+  CurrentTime += 5;
+  assert_int_equal(lent_to(reg(&f2, "alice"), 40), 60);
+}
+
+/* A phone that drew part of its budget, then flapped, gets the rest. */
+static void test_flap_gets_the_rest(void **state)
+{
+  struct grant_fixture f1, f2;
+  (void)state;
+  fill_pool();
+  assert_int_equal(lent_to(reg(&f1, "alice"), 20), 20);   /* 10 on grace */
+  CurrentTime += 5;
+  assert_int_equal(lent_to(reg(&f2, "alice"), 40), 40);
+}
+
+/* Two devices at once share one budget. */
+static void test_two_devices_share_the_budget(void **state)
+{
+  struct grant_fixture f1, f2;
+  struct Client *a, *b;
+  (void)state;
+  fill_pool();
+  a = reg(&f1, "alice");
+  b = reg(&f2, "alice");
+  assert_int_equal(lent_to(a, 40) + lent_to(b, 40), 60);
+}
+
+static void test_budget_is_per_account(void **state)
+{
+  struct grant_fixture f1, f2;
+  (void)state;
+  fill_pool();
+  assert_int_equal(lent_to(reg(&f1, "alice"), 40), 60);
+  assert_int_equal(lent_to(reg(&f2, "bob"), 40), 60);
+}
+
+static void test_budget_reopens_after_a_minute(void **state)
+{
+  struct grant_fixture f1, f2;
+  (void)state;
+  fill_pool();
+  assert_int_equal(lent_to(reg(&f1, "alice"), 40), 60);
+  CurrentTime += 60;
+  assert_int_equal(lent_to(reg(&f2, "alice"), 40), 60);
+}
+
+/* Names compare as the server compares them: case, and [ ] \ ^ as { } | ~. */
+static void test_budget_folds_like_the_server(void **state)
+{
+  struct grant_fixture f1, f2, f3;
+  (void)state;
+  fill_pool();
+  assert_int_equal(lent_to(reg(&f1, "Foo[bar]"), 40), 60);
+  assert_int_equal(lent_to(reg(&f2, "fOO{BAR}"), 40), 0);
+  assert_int_equal(lent_to(reg(&f3, "foo^bar"), 40), 60);
+}
+
+/* A clock that steps back restarts the window but keeps what was used. */
+static void test_budget_clock_back_keeps_used(void **state)
+{
+  struct grant_fixture f1, f2;
+  (void)state;
+  fill_pool();
+  assert_int_equal(lent_to(reg(&f1, "alice"), 40), 60);
+  CurrentTime -= 30;
+  assert_int_equal(lent_to(reg(&f2, "alice"), 40), 0);
+}
+
+/* A long step back holds the budget for a minute from then, not for the
+ * whole step. */
+static void test_budget_long_clock_back_reopens_in_a_minute(void **state)
+{
+  struct grant_fixture f1, f2;
+  (void)state;
+  fill_pool();
+  assert_int_equal(lent_to(reg(&f1, "alice"), 40), 60);
+  CurrentTime -= 1000;
+  assert_int_equal(lent_to(reg(&f2, "alice"), 11), 0);  /* restarts it now */
+  CurrentTime += 60;
+  fill_pool();
+  assert_int_equal(lent_to(reg(&f2, "alice"), 40), 60);
+}
+
+/* An empty pool lends nothing and so opens no window. */
+static void test_empty_pool_opens_no_window(void **state)
+{
+  struct grant_fixture f0, f1, f2;
+  (void)state;
+  fakelag_grant(mkacct(&f0, "warm"));      /* pool clock starts, empty */
+  assert_int_equal(lent_to(reg(&f1, "alice"), 40), 0);
+  CurrentTime += 60;
+  assert_int_equal(lent_to(reg(&f2, "alice"), 40), 60);
+}
+
+/* Open budgets are never pushed out: with every slot a name may use
+ * taken, it borrows nothing, and the holders keep theirs. */
+static void test_full_table_lends_nothing_evicts_nobody(void **state)
+{
+  struct grant_fixture f;
+  char name[16];
+  int k, lenders = 0;
+  (void)state;
+  stub_pool = 100000;
+  fill_pool();
+  for (k = 0; k < 1200; k++) {             /* more names than slots */
+    snprintf(name, sizeof(name), "u%d", k);
+    if (lent_to(reg(&f, name), 11) == 2)   /* one 2 s draw each */
+      lenders++;
   }
-  /* Each connect absorbs its own 20 s of grace; the pool gives the rest. */
-  assert_int_equal(taken - 30 * 20, 60);
+  assert_true(lenders <= 1024);
+  assert_true(lenders >= 900);
+  /* the first name still has its open budget: a second device of it
+   * gets only the remaining 58 s */
+  assert_int_equal(lent_to(reg(&f, "u0"), 40), 58);
+}
+
+/* A lowered FAKELAG_BORROW applies to what is left this minute. */
+static void test_lowered_borrow_caps_the_rest(void **state)
+{
+  struct grant_fixture f1, f2;
+  (void)state;
+  fill_pool();
+  assert_int_equal(lent_to(reg(&f1, "alice"), 20), 20);
+  stub_borrow = 30;
+  assert_int_equal(lent_to(reg(&f2, "alice"), 40), 10);
 }
 
 /* A lone logged-in client: 80 s of credit for 2 s commands is 40 of
@@ -508,13 +589,18 @@ int main(void)
     cmocka_unit_test_setup(test_grant_clears_revived_allowance, pool_setup),
     cmocka_unit_test_setup(test_grant_borrow_clamped, pool_setup),
     cmocka_unit_test_setup(test_burst_with_pool, pool_setup),
-    cmocka_unit_test_setup(test_grant_same_account_within_gap_grace_only, pool_setup),
-    cmocka_unit_test_setup(test_grant_same_account_after_gap, pool_setup),
-    cmocka_unit_test_setup(test_grant_gap_is_per_account, pool_setup),
-    cmocka_unit_test_setup(test_grant_gap_ignores_case, pool_setup),
-    cmocka_unit_test_setup(test_grant_gap_clock_back_lends, pool_setup),
-    cmocka_unit_test_setup(test_grant_pool_off_starts_no_gap, pool_setup),
-    cmocka_unit_test_setup(test_reconnect_loop_takes_one_allowance, pool_setup),
+    cmocka_unit_test_setup(test_reconnect_loop_borrows_one_allowance, pool_setup),
+    cmocka_unit_test_setup(test_unused_allowance_blocks_nothing, pool_setup),
+    cmocka_unit_test_setup(test_flap_gets_the_rest, pool_setup),
+    cmocka_unit_test_setup(test_two_devices_share_the_budget, pool_setup),
+    cmocka_unit_test_setup(test_budget_is_per_account, pool_setup),
+    cmocka_unit_test_setup(test_budget_reopens_after_a_minute, pool_setup),
+    cmocka_unit_test_setup(test_budget_folds_like_the_server, pool_setup),
+    cmocka_unit_test_setup(test_budget_clock_back_keeps_used, pool_setup),
+    cmocka_unit_test_setup(test_budget_long_clock_back_reopens_in_a_minute, pool_setup),
+    cmocka_unit_test_setup(test_empty_pool_opens_no_window, pool_setup),
+    cmocka_unit_test_setup(test_full_table_lends_nothing_evicts_nobody, pool_setup),
+    cmocka_unit_test_setup(test_lowered_borrow_caps_the_rest, pool_setup),
   };
   return cmocka_run_group_tests(tests, NULL, NULL);
 }
