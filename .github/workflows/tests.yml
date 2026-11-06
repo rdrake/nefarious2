@@ -1,0 +1,77 @@
+name: Tests
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+      - ircv3.2-upgrade
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: ${{ matrix.name }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # The release configuration: default (hardened) flags.
+          - name: gcc
+            cc: gcc
+            cflags: -g -O2
+            ldflags: ""
+          - name: clang
+            cc: clang
+            cflags: -g -O2
+            ldflags: ""
+          # AddressSanitizer + UndefinedBehaviorSanitizer (+ LeakSanitizer
+          # through ASan): any report fails the unit tests or the smoke run.
+          - name: clang ASan+UBSan
+            cc: clang
+            cflags: -g -O1 -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer
+            ldflags: -fsanitize=address,undefined
+    env:
+      ASAN_OPTIONS: detect_leaks=1:abort_on_error=1:strict_string_checks=1
+      UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            autoconf automake libtool byacc flex pkg-config clang libclang-rt-18-dev \
+            libssl-dev libzstd-dev libcmocka-dev librocksdb-dev libcurl4-openssl-dev \
+            libjansson-dev libmaxminddb-dev libgeoip-dev libgit2-dev
+
+      # The committed configure can lag configure.in (the Dockerfile
+      # regenerates it too).
+      - name: Configure
+        run: |
+          autoreconf -fi
+          ./configure --prefix="$HOME/ircd" --enable-debug --with-maxcon=4096 \
+            --with-rocksdb=/usr --with-zstd=/usr --enable-keycloak \
+            CC="${{ matrix.cc }}" CFLAGS="${{ matrix.cflags }}" LDFLAGS="${{ matrix.ldflags }}"
+
+      - name: Build
+        run: make -j"$(nproc)"
+
+      - name: Unit tests
+        run: |
+          make test
+          make -C ircd/test -j"$(nproc)" cmocka
+          make -C ircd/test test-cmocka
+
+      - name: Smoke test
+        run: |
+          make install
+          python3 tools/ci/smoke.py "$HOME/ircd/bin/ircd"
