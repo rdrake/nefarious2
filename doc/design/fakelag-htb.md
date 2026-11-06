@@ -240,6 +240,35 @@ time is from 001 to each `PONG`.
 | `FAKELAG_POOL` 600, `FAKELAG_BORROW` 60, pool full | 40 | 0 s |
 | Same, 20 clients connecting at once | 9 clients got all 40; the rest got 14 to 28 | 0 to 52 s; nobody worse than today |
 
+## Live tests
+
+An ASan + UBSan build of this branch, `BOUNCER_ENABLE` and auto-resume on,
+behind an iauth stub that logs each client into the account named by its
+ident. `FAKELAG_POOL` 600, `FAKELAG_BORROW` 60, `POSTREG_GRACE` 20; each
+client sends 40 `PING`s and counts the replies within a second of sending.
+No sanitizer report in any run.
+
+| Case | Pool on | Pool off |
+| --- | --- | --- |
+| Fresh login | 40 | 14 |
+| Revive of a held session after a dropped socket (resumes its channels) | 40 | 15 |
+| Alias attach, a second device on a live session (the first stays up) | 40 | 15 |
+
+- Draining: one account reconnecting about twice a second, each time sending
+  40, empties the pool within seconds; other users then get 15, today's
+  figure. The same with a new account and address each time. The clone
+  limit did not slow the loop. This is the designed floor, not a bug, but it
+  means one determined account can deny the pool to everyone else; a
+  per-account allowance cooldown would close it if that matters.
+- Rehash: with the pool turned off, a client that registered while it was on
+  gets 15; raising the cap after a minute credits one cap; lowering it to 100
+  with 2800 banked clamps the pool, and the next client gets 45 (10 + 5 + 30).
+- Two linked servers: each server's pool is its own. With 20 clients bursting
+  on each at once, 6 and 8 got all 40 and nobody got fewer than 15; a remote
+  user's 40 channel messages all crossed the link. After a netsplit, 20
+  clients reconnecting to the survivor: 8 got all 40, the rest at least 15,
+  the slowest done in 30 s against today's 52.
+
 ## Checked by tools
 
 - ASan + UBSan and valgrind over the unit tests, and ASan + UBSan over a live
