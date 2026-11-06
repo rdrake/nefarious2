@@ -40,7 +40,11 @@ static time_t pool_last;  /**< When the pool was last settled; 0 = never. */
 /** Clamp @a v to [0, @a hi]. */
 static int clamp(int v, int hi)
 {
-  return v < 0 ? 0 : v > hi ? hi : v;
+  if (v < 0)
+    return 0;
+  if (v > hi)
+    return hi;
+  return v;
 }
 
 /** Settle the pool to now, refilling it to its cap over 60 seconds, then
