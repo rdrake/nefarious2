@@ -718,6 +718,12 @@ proc_answer(struct reslist *request, HEADER* header, char* buf, char* eob)
     rd_length = irc_ns_get16(current);
     current += RDLENGTH_SIZE;
 
+    /* The record's data must lie inside the datagram we received; a
+     * truncated reply would otherwise have its address (or the next
+     * record) read from whatever an earlier reply left in the buffer. */
+    if ((char *)current + rd_length > (char *)eob)
+      return(0);
+
     /*
      * Wait to set request->type until we verify this structure
      */

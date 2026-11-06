@@ -315,7 +315,13 @@ irc_ns_name_unpack(const unsigned char *msg, const unsigned char *eom,
 		switch (n & NS_CMPRSFLGS) {
 		case 0:
 		case NS_TYPE_ELT:
-			/* Limit checks. */
+			/* Limit checks.  A bitstring label's length is in the
+			 * byte after its type: make sure that byte was received
+			 * before labellen() reads it. */
+			if ((n & NS_CMPRSFLGS) == NS_TYPE_ELT && srcp >= eom) {
+				errno = EMSGSIZE;
+				return (-1);
+			}
 			if ((l = labellen(srcp - 1)) < 0) {
 				errno = EMSGSIZE;
 				return(-1);
@@ -519,7 +525,8 @@ irc_ns_name_skip(const unsigned char **ptrptr, const unsigned char *eom)
         cp += n;
         continue;
       case NS_TYPE_ELT: /* EDNS0 extended label */
-        if ((l = labellen(cp - 1)) < 0)
+        /* labellen() reads the bit count after the type byte */
+        if (cp >= eom || (l = labellen(cp - 1)) < 0)
         {
           errno = EMSGSIZE; /* XXX */
           return(-1);
@@ -972,7 +979,8 @@ irc_encode_bitsring(const char **bp, const char *end, unsigned char **labelp,
   char *tp, c;
   const char *beg_blen;
   char *end_blen = NULL;
-  int value = 0, count = 0, tbcount = 0, blen = 0;
+  unsigned int value = 0; /* shifted left 4 bits per digit; only its low byte is used */
+  int count = 0, tbcount = 0, blen = 0;
 
   beg_blen = end_blen = NULL;
 
