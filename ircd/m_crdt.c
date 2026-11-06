@@ -1444,9 +1444,18 @@ int ms_crdt(struct Client *cptr, struct Client *sptr, int parc, char *parv[])
       if (ec >= 2) {
         struct Client *msrc = srcu ? srcu : (srcsrv ? srcsrv : &me);
         struct Client *osrv = srcu ? cli_user(srcu)->server : srcsrv;
+        /* Re-emit to legacy when no tree copy reaches it: the origin skipped
+         * CRDT peers on the tree, so legacy servers behind us hear it only
+         * from us when the origin is a mesh stub here, or when our way to it
+         * is a CRDT-aware link.  Only on a change: a copy that comes back
+         * through a second gateway (minted again from its legacy link) finds
+         * the value already here and stops, so two gateways cannot loop. */
+        int current = metadata_relayed_is_current(ev[0], ev[1], evis, evalue);
+        int via_crdt = osrv && !IsMe(osrv) && cli_from(osrv)
+                       && IsCrdtAware(cli_from(osrv));
         Debug((DEBUG_DEBUG, "CRDT MD: mesh %s %s from %s", ev[0], ev[1], srcyxx));
         if (metadata_apply_relayed(NULL, msrc, ev[0], ev[1], evis, evalue)
-            && (!osrv || IsMeshStub(osrv))) {
+            && (!osrv || IsMeshStub(osrv) || (via_crdt && current == 0))) {
           sendcmdto_set_skip_crdt_servers();
           if (evalue)
             sendcmdto_serv_butone_v3(msrc, CMD_METADATA, NULL, "%s %s %s :%s", ev[0], ev[1],

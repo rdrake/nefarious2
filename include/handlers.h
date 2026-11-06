@@ -358,6 +358,8 @@ extern int ms_metadata(struct Client*, struct Client*, int, char*[]);
  * a relayed MD the way ms_metadata does (1 applied, 0 dropped); mint the
  * CR M 'E' copy (1 if minted; the caller keeps the tree relay off
  * CRDT-aware links). */
+extern int metadata_relayed_is_current(const char *target, const char *key,
+                                       int visibility, const char *value);
 extern int metadata_apply_relayed(struct Client *link, struct Client *sptr,
                                   const char *target, const char *key,
                                   int visibility, const char *value);
