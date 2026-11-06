@@ -736,19 +736,21 @@ static int gitsync_relay_mode = 0;   /* M12: 1 = mesh receiver (apply only) */
 static int gitsync_legacy_recent(struct Client *src, const char *action, const char *subarg)
 {
   static struct { char key[NICKLEN + HOSTLEN + 64]; time_t at; } seen[GITSYNC_LEGACY_SLOTS];
+  static int next;                    /* circular: the oldest insertion goes */
   char key[sizeof seen[0].key];
-  int i, slot = 0;
+  int i;
   ircd_snprintf(0, key, sizeof key, "%s %s %s", cli_name(src), action,
                 subarg ? subarg : "");
   for (i = 0; i < GITSYNC_LEGACY_SLOTS; i++) {
-    if (seen[i].at && CurrentTime - seen[i].at < GITSYNC_LEGACY_WINDOW &&
-        !strcmp(seen[i].key, key))
+    /* A clock stepped back reads as expired, not as a longer window. */
+    if (seen[i].at && CurrentTime >= seen[i].at
+        && CurrentTime - seen[i].at < GITSYNC_LEGACY_WINDOW
+        && !strcmp(seen[i].key, key))
       return 1;
-    if (seen[i].at < seen[slot].at)
-      slot = i;                       /* oldest (or empty) slot gets the new key */
   }
-  ircd_strncpy(seen[slot].key, key, sizeof seen[slot].key);
-  seen[slot].at = CurrentTime;
+  ircd_strncpy(seen[next].key, key, sizeof seen[next].key);
+  seen[next].at = CurrentTime;
+  next = (next + 1) % GITSYNC_LEGACY_SLOTS;
   return 0;
 }
 
