@@ -411,6 +411,11 @@ struct CrdtNetworkState {
   struct HLC              clock;        /**< this server's HLC (per-instance,
                                          *   NOT the crdt_hlc global — lets
                                          *   multiple states coexist in-proc) */
+  uint64_t                clock_max_forward_ms; /**< how far a remote op's
+                                         *   ts may move @a clock ahead of the
+                                         *   wall clock (0 = unbounded); set by
+                                         *   the integration layer, which reads
+                                         *   the feature (the engine reads none) */
   struct CrdtStateVector  local_sv;     /**< what this server has seen */
   struct CrdtStateVector  gc_floor;     /**< highest seq/origin reclaimed from
                                          *   the oplog; a peer whose SV is below
@@ -743,6 +748,10 @@ int crdt_marker_get(const struct CrdtNetworkState *st, const char *key, uint32_t
  *  value is the raw metadata blob (no visibility — the account layer stores none).
  *  set/del are op-recording; the explicit-removal gate distinguishes a delete-tombstone
  *  from mere absence (the doc->store remove driver gates on it, sync-lag safety). */
+/** Bound the doc clock's receive of remote ops (HLC_MAX_FORWARD_MS; 0 =
+ *  unbounded).  The op still applies with its own ts; only the clock stays
+ *  put, as for the S2S clock. */
+void crdt_state_set_clock_bound(struct CrdtNetworkState *st, uint64_t max_forward_ms);
 void crdt_metadata_set(struct CrdtNetworkState *st, const char *key, uint32_t klen,
                        const void *val, uint32_t vlen);
 void crdt_metadata_del(struct CrdtNetworkState *st, const char *key, uint32_t klen);

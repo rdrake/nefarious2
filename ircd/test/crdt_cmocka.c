@@ -763,6 +763,38 @@ static const struct CrdtLWWEntry *lww_entry(const struct CrdtLWWMap *m,
   return NULL;
 }
 
+/* #14: a remote op applies with its own ts, but moves the doc clock no
+ * further than the bound allows (0 = unbounded, as before). */
+static void test_remote_op_clock_bounded(void **state)
+{
+  struct CrdtNetworkState s1, s2, s3;
+  char key[16];
+  uint64_t now = hlc_wall_clock_ms();
+  struct HLC far = { now + 3600000ULL, 0, 1 };   /* an hour ahead */
+  const struct CrdtLWWValue *v;
+  (void)state;
+
+  memcpy(key, "bob", 3); key[3] = '\0'; memcpy(key + 4, "k", 1);
+  crdt_state_init(&s1, 1);
+  crdt_state_init(&s2, 2);
+  crdt_state_init(&s3, 3);
+  crdt_metadata_set_at(&s1, key, 5, "v", 1, &far, now, 0);   /* s1 unbounded */
+  crdt_state_set_clock_bound(&s2, 60000);
+
+  crdt_state_sync(&s2, &s1);
+  v = crdt_metadata_get(&s2, key, 5);
+  assert_non_null(v);
+  assert_int_equal(0, hlc_compare(&v->ts, &far));        /* the op applied */
+  assert_true(s2.clock.physical_ms < far.physical_ms);   /* the clock held */
+
+  crdt_state_sync(&s3, &s1);                              /* unbounded: moves */
+  assert_true(s3.clock.physical_ms >= far.physical_ms);
+
+  crdt_state_clear(&s1);
+  crdt_state_clear(&s2);
+  crdt_state_clear(&s3);
+}
+
 /* Two servers that each mint the same stamped row (each took it over its own
  * W4 link) must end with one entry and equal digests.  The writer comes from
  * the stamp, not the minting server, so the copies are bit-identical; with
@@ -4371,6 +4403,7 @@ int main(void)
     cmocka_unit_test(test_metadata_op_replicates),
     cmocka_unit_test(test_metadata_set_at_keeps_row_stamp),
     cmocka_unit_test(test_metadata_same_stamp_mints_converge),
+    cmocka_unit_test(test_remote_op_clock_bounded),
     cmocka_unit_test(test_bsess_op_replicates),
     cmocka_unit_test(test_bsess_winner),
     cmocka_unit_test(test_bconn_roster),

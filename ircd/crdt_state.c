@@ -1809,6 +1809,20 @@ struct CrdtLWWMap *crdt_state_lww_for(struct CrdtNetworkState *st,
   return lww_for(st, coll);
 }
 
+/* A remote op moves the doc clock no further than the bound allows, as the
+ * S2S clock's receive does (W4): one far-future ts from a skewed peer would
+ * otherwise drag every later local op on every collection with it. */
+static void state_clock_receive(struct CrdtNetworkState *st, const struct HLC *ts)
+{
+  hlc_receive_bounded(&st->clock, ts, hlc_wall_clock_ms(),
+                      st->clock_max_forward_ms, NULL);
+}
+
+void crdt_state_set_clock_bound(struct CrdtNetworkState *st, uint64_t max_forward_ms)
+{
+  st->clock_max_forward_ms = max_forward_ms;
+}
+
 void crdt_state_apply_op(struct CrdtNetworkState *st, const struct CrdtOp *op)
 {
   /* origin/tag.origin index seq[CRDT_MAX_SERVERS] (sv_has_seen below, sv_update
@@ -1841,7 +1855,7 @@ void crdt_state_apply_op(struct CrdtNetworkState *st, const struct CrdtOp *op)
       const struct ctime_payload *pl = (const struct ctime_payload *)op->val;
       crdt_chan_ctime_merge(st, op->chan, op->chan_len, pl->value,
                             pl->set_hlc, pl->del_hlc);
-      hlc_receive(&st->clock, &pl->set_hlc);       /* advance our clock */
+      state_clock_receive(st, &pl->set_hlc);       /* advance our clock */
     }
   } else if (op->coll == CRDT_COLL_BLEASES) {  /* 5-5e M5 comparator-merge register */
     if (op->type == CRDT_OP_SET && op->val &&
@@ -1850,7 +1864,7 @@ void crdt_state_apply_op(struct CrdtNetworkState *st, const struct CrdtOp *op)
                    (const struct CrdtBouncerLease *)op->val, op->writer, op->ts);
     else if (op->type == CRDT_OP_DELETE)
       crdt_lwwmap_delete(&st->bleases, op->key, op->key_len, op->ts, op->writer);
-    hlc_receive(&st->clock, &op->ts);            /* advance our clock */
+    state_clock_receive(st, &op->ts);            /* advance our clock */
   } else if (op->coll == CRDT_COLL_SILENCES) {   /* Tier C F1-c global silences OR-Set */
     if (op->type == CRDT_OP_ADD)
       crdt_orset_merge_add(&st->silences, op->key, op->key_len, op->tag);
@@ -1859,7 +1873,7 @@ void crdt_state_apply_op(struct CrdtNetworkState *st, const struct CrdtOp *op)
   } else if (op->coll == CRDT_COLL_MARKERS) {    /* Tier C F2-a read-marker MAX-register */
     if (op->type == CRDT_OP_SET && op->val && op->val_len)
       marker_merge(st, op->key, op->key_len, op->val, op->val_len, op->writer, op->ts);
-    hlc_receive(&st->clock, &op->ts);            /* advance our clock */
+    state_clock_receive(st, &op->ts);            /* advance our clock */
   } else if (op->coll == CRDT_COLL_TOPICS) {     /* M11 topic MAX-register on topic_time */
     if (op->type == CRDT_OP_SET && op->val && op->val_len > TOPIC_VAL_HDR) {
       /* val_len guard (mirrors ctime's == sizeof): a wrong-sized payload is IGNORED,
@@ -1872,7 +1886,7 @@ void crdt_state_apply_op(struct CrdtNetworkState *st, const struct CrdtOp *op)
     } else if (op->type == CRDT_OP_DELETE) {
       crdt_lwwmap_delete(&st->topics, op->key, op->key_len, op->ts, op->writer);
     }
-    hlc_receive(&st->clock, &op->ts);            /* advance our clock */
+    state_clock_receive(st, &op->ts);            /* advance our clock */
   } else {
     struct CrdtLWWMap *map = lww_for(st, op->coll);
     /* unknown collection (an op from a NEWER peer): lww_for returns NULL —
@@ -1889,7 +1903,7 @@ void crdt_state_apply_op(struct CrdtNetworkState *st, const struct CrdtOp *op)
                && op->coll == CRDT_COLL_USERS && op->val && op->val_len)
         quit_ring_note(st, op->key, op->key_len, op->val, op->val_len);  /* winning reason-carrying user delete */
     }
-    hlc_receive(&st->clock, &op->ts);        /* advance our clock */
+    state_clock_receive(st, &op->ts);        /* advance our clock */
   }
 
   oplog_append(&st->oplog, op_clone(op));     /* keep for relay */
