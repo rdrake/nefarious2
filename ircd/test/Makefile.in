@@ -2,8 +2,10 @@ top_srcdir = @top_srcdir@
 srcdir = @srcdir@
 VPATH = @srcdir@
 CPPFLAGS = -I${top_srcdir}/include -I../..
-CFLAGS   = -g -Wall
-LDFLAGS  =
+# Take configure's CFLAGS and LDFLAGS, so a build configured with
+# sanitizers or hardening flags tests the code it ships.
+CFLAGS   = @CFLAGS@ -Wall
+LDFLAGS  = @LDFLAGS@
 CC = @CC@
 
 # Legacy test programs (print-based, no assertions)
