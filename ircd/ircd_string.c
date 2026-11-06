@@ -916,10 +916,12 @@ const char* ircd_ntoa_r(char* buf, const struct irc_in_addr* in)
       for (max_start = ii = 1, max_zeros = curr_zeros = 0; ii < 8; ++ii) {
         if (!in->in6_16[ii])
           curr_zeros++;
-        else if (curr_zeros > max_zeros) {
-          max_start = ii - curr_zeros;
-          max_zeros = curr_zeros;
-          curr_zeros = 0;
+        else {
+          if (curr_zeros > max_zeros) {
+            max_start = ii - curr_zeros;
+            max_zeros = curr_zeros;
+          }
+          curr_zeros = 0;  /* a non-zero group ends every run */
         }
       }
       if (curr_zeros > max_zeros) {

@@ -352,6 +352,40 @@ static void test_ip_roundtrip_ipv4(void **state)
 }
 
 
+/* ========== Regression: zero-run compression (fuzz F09) ========== */
+
+static void test_ntoa_two_zero_runs_roundtrip(void **state)
+{
+    (void)state;
+    /* The longest-zero-run search let separate runs add up, so
+     * f:0:a:f:0:a:0:a printed as f:0:a:f:0::a (= f:0:a:f:0:0:0:a). */
+    static const char *const texts[] = {
+        "f:0:a:f:0:a:0:a",
+        "0:23:0:111f:0:41:4243:415f",
+        "2001:db8:0:0:1:0:0:1",
+        "1:0:0:2:0:0:0:3",
+    };
+    size_t i;
+
+    for (i = 0; i < sizeof(texts) / sizeof(texts[0]); i++) {
+        struct irc_in_addr a, b;
+        char buf[SOCKIPLEN];
+
+        assert_int_equal(strlen(texts[i]), ircd_aton(&a, texts[i]));
+        ircd_ntoa_r(buf, &a);
+        assert_int_equal(strlen(buf), ircd_aton(&b, buf));
+        assert_memory_equal(&a, &b, sizeof(a));
+    }
+    /* and the longest run is the one compressed */
+    {
+        struct irc_in_addr a;
+        char buf[SOCKIPLEN];
+        ircd_aton(&a, "1:0:0:2:0:0:0:3");
+        ircd_ntoa_r(buf, &a);
+        assert_string_equal("1:0:0:2::3", buf);
+    }
+}
+
 int main(void)
 {
     const struct CMUnitTest tests[] = {
@@ -387,6 +421,7 @@ int main(void)
 
         /* Round-trip */
         cmocka_unit_test(test_ip_roundtrip_ipv4),
+        cmocka_unit_test(test_ntoa_two_zero_runs_roundtrip),
     };
 
     return cmocka_run_group_tests(tests, NULL, NULL);
