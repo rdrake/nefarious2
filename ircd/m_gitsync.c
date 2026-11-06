@@ -723,6 +723,24 @@ int mo_gitsync(struct Client *cptr, struct Client *sptr, int parc, char *parv[])
  */
 static int gitsync_relay_mode = 0;   /* M12: 1 = mesh receiver (apply only) */
 
+/* M12b loop window: 1 if this gateway already re-emitted the same broadcast
+ * ("<origin> <action> [<subarg>]") to legacy within GITSYNC_LEGACY_WINDOW
+ * seconds, else records it and returns 0. */
+#define GITSYNC_LEGACY_WINDOW 10
+static int gitsync_legacy_recent(struct Client *src, const char *action, const char *subarg)
+{
+  static char last[BUFSIZE];
+  static time_t last_at;
+  char key[BUFSIZE];
+  ircd_snprintf(0, key, sizeof key, "%s %s %s", cli_name(src), action,
+                subarg ? subarg : "");
+  if (last_at && CurrentTime - last_at < GITSYNC_LEGACY_WINDOW && !strcmp(key, last))
+    return 1;
+  ircd_strncpy(last, key, sizeof last);
+  last_at = CurrentTime;
+  return 0;
+}
+
 void gitsync_apply_from_mesh(struct Client *from, const char *action, const char *subarg)
 {
   char *pv[6];
@@ -767,6 +785,33 @@ int ms_gitsync(struct Client *cptr, struct Client *sptr, int parc, char *parv[])
         sendcmdto_serv_butone_v3(sptr, CMD_GITSYNC, cptr, "* %s %s", action, subarg);
       else
         sendcmdto_serv_butone_v3(sptr, CMD_GITSYNC, cptr, "* %s", action);
+    } else {
+      /* M12b: the mesh copy's legacy leg.  The origin skipped CRDT peers on
+       * the tree, so legacy servers behind us hear it only from us when no
+       * tree copy can reach them: the origin has no tree presence here (an
+       * overlay-only or tree-retired node), or our way to it is a
+       * CRDT-aware link (the metadata 'E' rule).  Re-emit real P10 to LEGACY
+       * links only.  The mesh is single-gateway by design; the window below
+       * still stops two gateways on one legacy island from bouncing the
+       * same broadcast between them (each gateway mints the other's tree
+       * copy back into the mesh with a fresh msgid). */
+      struct Client *osrv = IsUser(sptr) ? cli_user(sptr)->server
+                            : (IsMe(sptr) ? NULL : sptr);
+      int via_crdt = osrv && cli_from(osrv) && IsCrdtAware(cli_from(osrv));
+      if ((!osrv || IsMeshStub(osrv) || via_crdt)
+          && !gitsync_legacy_recent(sptr, action, subarg)) {
+        /* A source legacy cannot place (a mesh-only user, a server it never
+         * saw) would be dropped there as unknown: send as this gateway. */
+        struct Client *lsrc = (IsUser(sptr) && !crdt_user_is_mesh_only(sptr)) ? sptr
+                              : (osrv && !IsUser(sptr) && !IsMe(sptr)
+                                 && (!IsMeshStub(osrv) || IsPresented(osrv))) ? sptr
+                              : &me;
+        sendcmdto_set_skip_crdt_servers();
+        if (subarg)
+          sendcmdto_serv_butone_v3(lsrc, CMD_GITSYNC, NULL, "* %s %s", action, subarg);
+        else
+          sendcmdto_serv_butone_v3(lsrc, CMD_GITSYNC, NULL, "* %s", action);
+      }
     }
   } else {
     acptr = FindNServer(target);
