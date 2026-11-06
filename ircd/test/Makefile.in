@@ -223,6 +223,8 @@ ircd_crypt_cmocka: $(IRCD_CRYPT_CMOCKA_OBJS)
 
 # crule tests - connection rule parser (uses CR_DEBUG mode, includes crule.c)
 CRULE_CMOCKA_OBJS = crule_cmocka.o test_stub.o ../ircd_string.o
+# crule_cmocka.c #includes the real parser
+crule_cmocka.o: ${srcdir}/crule_cmocka.c ../crule.c
 crule_cmocka: $(CRULE_CMOCKA_OBJS)
 	${CC} -o $@ $(LDFLAGS) $(CRULE_CMOCKA_OBJS) $(CMOCKA_LIBS)
 
