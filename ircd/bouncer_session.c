@@ -711,6 +711,8 @@ static void session_roster_add(struct BouncerSession *session,
                                const char *alias_profile);
 static void bounce_retract_crossed_face(struct BouncerSession *s,
                                         const char *reason);
+static void crossed_primary_leaves(struct BouncerSession *s, struct Client *link,
+                                   struct Client *killer, const char *reason);
 static void bounce_bsx_end_devices(struct BouncerSession *s,
                                    struct Client *sender, const char *sessid);
 static void bounce_note_registration_wait(struct BouncerSession *s);
@@ -4091,7 +4093,13 @@ void bounce_crdt_replica_reap(void)
       for (s = as->as_sessions; s && nd < REAP_BATCH; s = s->hs_anext) {
         if (s->hs_state == BOUNCE_DESTROYING)
           continue;
-        if (s->hs_client != NULL)                       /* local primary -> not a replica */
+        /* Spared only while we hold it (our primary, live or a held
+         * ghost): the holder writes the tombstone, so ours is never one we
+         * did not decide.  A replica naming a REMOTE primary is reaped too:
+         * after the holder ends a session whose primary carries on (a
+         * member end, bounce_end_here), its devices here must not stay
+         * aliases of a dead session, nor new logins alias into it. */
+        if (s->hs_client && MyConnect(s->hs_client))
           continue;
         if (!crdt_shadow_bsess_removed(s->hs_account, s->hs_sessid))
           continue;              /* INVARIANT 11: reap ONLY on an EXPLICIT doc tombstone.
@@ -4117,8 +4125,27 @@ void bounce_crdt_replica_reap(void)
      * reaping the same replica reaches no legacy peer => exactly-once toward .2
      * (single-gateway; multi-gateway = MR-4d election, out of scope). BS X is
      * account/sessid-keyed (no server-relative numeric) so &me source is correct. */
-    bounce_broadcast(doomed[i], 'X', NULL);
-    bounce_destroy(doomed[i]);
+    {
+      struct BouncerSession *d = doomed[i];
+      struct Client *p = d->hs_client;
+      char account[ACCOUNTLEN + 1], sessid[BOUNCER_SESSID_LEN];
+
+      ircd_strncpy(account, d->hs_account, sizeof(account));
+      ircd_strncpy(sessid, d->hs_sessid, sizeof(sessid));
+      bounce_broadcast(d, 'X', NULL);
+      /* Everything a BS X from the holder tears down (the X case of
+       * ms_bounce_session): the session's devices here, a primary kept for
+       * a crossed promote, then the record, then the id on any client that
+       * still carries it.  The holder is the primary's server when the
+       * record names one, else it is gone and decides nothing more. */
+      bounce_bsx_end_devices(d, (p && cli_user(p)) ? cli_user(p)->server : &me,
+                             sessid);
+      if (d->hs_crossed_face[0])
+        crossed_primary_leaves(d, p ? cli_from(p) : &me, &me,
+                               "Bouncer session ended");
+      bounce_destroy(d);
+      bounce_forget_ended_id(account, sessid);
+    }
   }
 }
 
