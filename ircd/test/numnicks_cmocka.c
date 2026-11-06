@@ -364,6 +364,62 @@ static void test_base64_max_values(void **state)
 }
 
 
+/* ========== Regression: IPv6 encoding (fuzz F05, F06, F08) ========== */
+
+static void set_v6(struct irc_in_addr *a, const unsigned short g[8])
+{
+    int i;
+    for (i = 0; i < 8; i++)
+        a->in6_16[i] = htons(g[i]);
+}
+
+static void test_iptobase64_v6_roundtrips(void **state)
+{
+    (void)state;
+    /* F06: two separate zero runs (0:23:0:111f:0:41:4243:415f) were
+     * merged by the longest-run search, and the address decoded as
+     * 0:23:0:0:0:41:4243:415f on the other servers.  F05: an address
+     * with no zero group read in6_16[8]. */
+    static const unsigned short cases[][8] = {
+        { 0, 0x23, 0, 0x111f, 0, 0x41, 0x4243, 0x415f },
+        { 0x2001, 0xdb8, 1, 2, 3, 4, 5, 6 },
+        { 0x2001, 0xdb8, 0, 0, 1, 0, 0, 1 },
+        { 0xfe80, 0, 0, 0, 0x1234, 0, 0, 0 },
+        { 0xf, 0, 0xa, 0xf, 0, 0xa, 0, 0xa },
+    };
+    size_t i;
+
+    for (i = 0; i < sizeof(cases) / sizeof(cases[0]); i++) {
+        struct irc_in_addr addr, back;
+        char buf[32];
+
+        memset(&addr, 0, sizeof(addr));
+        set_v6(&addr, cases[i]);
+        iptobase64(buf, &addr, sizeof(buf), 1);
+        memset(&back, 0, sizeof(back));
+        base64toip(buf, &back);
+        assert_memory_equal(&addr, &back, sizeof(addr));
+    }
+}
+
+static void test_iptobase64_high_ipv4(void **state)
+{
+    (void)state;
+    struct irc_in_addr addr, back;
+    char buf[32];
+
+    /* F08: 192.168.1.1 shifted 0xc0a8 << 16 in an int (UB). */
+    memset(&addr, 0, sizeof(addr));
+    addr.in6_16[5] = htons(0xffff);
+    addr.in6_16[6] = htons(0xc0a8);
+    addr.in6_16[7] = htons(0x0101);
+    iptobase64(buf, &addr, sizeof(buf), 0);
+    memset(&back, 0, sizeof(back));
+    base64toip(buf, &back);
+    assert_int_equal(addr.in6_16[6], back.in6_16[6]);
+    assert_int_equal(addr.in6_16[7], back.in6_16[7]);
+}
+
 int main(void)
 {
     const struct CMUnitTest tests[] = {
@@ -394,6 +450,8 @@ int main(void)
         /* Edge cases */
         cmocka_unit_test(test_base64_empty_string),
         cmocka_unit_test(test_base64_max_values),
+        cmocka_unit_test(test_iptobase64_v6_roundtrips),
+        cmocka_unit_test(test_iptobase64_high_ipv4),
     };
 
     return cmocka_run_group_tests(tests, NULL, NULL);
