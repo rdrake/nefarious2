@@ -240,6 +240,29 @@ time is from 001 to each `PONG`.
 | `FAKELAG_POOL` 600, `FAKELAG_BORROW` 60, pool full | 40 | 0 s |
 | Same, 20 clients connecting at once | 9 clients got all 40; the rest got 14 to 28 | 0 to 52 s; nobody worse than today |
 
+## Checked by tools
+
+- ASan + UBSan and valgrind over the unit tests, and ASan + UBSan over a live
+  ircd running the probe and a 20-client storm: no reports.
+- gcc `-fanalyzer` and cppcheck: clean. scan-build: the same 115 warnings as
+  the base commit, none new.
+- CBMC, with bounds, pointer, signed-overflow and conversion checks, on any
+  input and any state the code can leave: no overflow; the pool stays in
+  `[0, cap]` and the remainder in `[0, 60)`; a backward clock step adds nothing;
+  `fakelag_spend()` charges between 0 and the line's lag, never grows a credit,
+  conserves every second, equals `fakelag_charge()` with no allowance, and
+  draws nothing after the window.
+- The refill rate, for every run length, in z3 over exact integers (sound
+  because CBMC proved there is no overflow). With `P = 60*pool + remainder`,
+  one settle never lends plus banks more than `min(gap, 60) * cap`. `P` starts
+  at 0 and never goes negative, so over any run the pool lends at most
+  `cap * elapsed / 60`, and at most one cap per settle. CBMC alone could not
+  close this: the divide by 60 times out even with the gap fixed.
+  Mutants of the refill divisor, the backward-step test, the take and the full
+  test are all caught. Dropping the 60 s clamp on the gap survives, because the
+  cap clamp already bounds the refill; the clamp is there to stop the overflow,
+  which the unit tests and CBMC catch.
+
 ## The client has to know
 
 Seance never sends past its own model of the server's clock (`FakeLagClock`,
