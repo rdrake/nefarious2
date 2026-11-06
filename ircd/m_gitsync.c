@@ -725,19 +725,30 @@ static int gitsync_relay_mode = 0;   /* M12: 1 = mesh receiver (apply only) */
 
 /* M12b loop window: 1 if this gateway already re-emitted the same broadcast
  * ("<origin> <action> [<subarg>]") to legacy within GITSYNC_LEGACY_WINDOW
- * seconds, else records it and returns 0. */
+ * seconds, else records it and returns 0.  It keeps the last
+ * GITSYNC_LEGACY_SLOTS distinct broadcasts, so A, B, then a re-minted A is
+ * still caught.  The P10 copy carries no msgid, so two identical requests
+ * from the same origin inside the window count as one on the legacy leg
+ * (mesh nodes still apply both); a second identical force/status that soon
+ * is redundant anyway. */
 #define GITSYNC_LEGACY_WINDOW 10
+#define GITSYNC_LEGACY_SLOTS  16
 static int gitsync_legacy_recent(struct Client *src, const char *action, const char *subarg)
 {
-  static char last[BUFSIZE];
-  static time_t last_at;
-  char key[BUFSIZE];
+  static struct { char key[NICKLEN + HOSTLEN + 64]; time_t at; } seen[GITSYNC_LEGACY_SLOTS];
+  char key[sizeof seen[0].key];
+  int i, slot = 0;
   ircd_snprintf(0, key, sizeof key, "%s %s %s", cli_name(src), action,
                 subarg ? subarg : "");
-  if (last_at && CurrentTime - last_at < GITSYNC_LEGACY_WINDOW && !strcmp(key, last))
-    return 1;
-  ircd_strncpy(last, key, sizeof last);
-  last_at = CurrentTime;
+  for (i = 0; i < GITSYNC_LEGACY_SLOTS; i++) {
+    if (seen[i].at && CurrentTime - seen[i].at < GITSYNC_LEGACY_WINDOW &&
+        !strcmp(seen[i].key, key))
+      return 1;
+    if (seen[i].at < seen[slot].at)
+      slot = i;                       /* oldest (or empty) slot gets the new key */
+  }
+  ircd_strncpy(seen[slot].key, key, sizeof seen[slot].key);
+  seen[slot].at = CurrentTime;
   return 0;
 }
 
