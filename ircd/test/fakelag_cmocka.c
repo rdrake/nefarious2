@@ -20,6 +20,7 @@
 #include "class.h"
 #include "client.h"
 #include "ircd_features.h"
+#include "struct.h"
 
 /* Stubs for what ircd/fakelag.c calls. */
 time_t CurrentTime;
@@ -33,6 +34,11 @@ int feature_int(enum Feature feat)
   case FEAT_FAKELAG_BORROW: return stub_borrow;
   default:                  return 0;
   }
+}
+
+unsigned int ircrandom(void)
+{
+  return 0x9e3779b9u;
 }
 
 static struct Client *stub_factor_asked;   /* who get_lag_factor() was asked about */
@@ -264,16 +270,26 @@ static void test_pool_lowered_cap_clamps(void **state)
 struct grant_fixture {
   struct Client cli;
   struct Connection con;
+  struct User user;
 };
 
-static struct Client *mkclient(struct grant_fixture *f, int account)
+/** A local client, logged in to @a account unless it is NULL. */
+static struct Client *mkacct(struct grant_fixture *f, const char *account)
 {
   memset(f, 0, sizeof(*f));
   cli_connect(&f->cli) = &f->con;
   cli_from(&f->cli) = &f->cli;      /* a local client */
-  if (account)
+  cli_user(&f->cli) = &f->user;
+  if (account) {
     SetAccount(&f->cli);
+    strncpy(f->user.account, account, ACCOUNTLEN);
+  }
   return &f->cli;
+}
+
+static struct Client *mkclient(struct grant_fixture *f, int account)
+{
+  return mkacct(f, account ? "alice" : NULL);
 }
 
 static void test_grant_pool_off_is_today(void **state)
@@ -344,6 +360,104 @@ static void test_grant_borrow_clamped(void **state)
   assert_int_equal(cli_lagborrow(c), 600);
 }
 
+/* One allowance per account per minute: a reconnect loop or a second
+ * device of the same account gets the grace alone, as today. */
+static void test_grant_same_account_within_gap_grace_only(void **state)
+{
+  struct grant_fixture f1, f2;
+  struct Client *a = mkacct(&f1, "alice"), *b;
+  (void)state;
+  fakelag_grant(a);
+  CurrentTime += 59;
+  b = mkacct(&f2, "alice");
+  fakelag_grant(b);
+  assert_int_equal(cli_lagcredit(b), 20);
+  assert_int_equal(cli_lagborrow(b), 0);
+  assert_int_equal(cli_lagborrow_until(b), 0);
+}
+
+static void test_grant_same_account_after_gap(void **state)
+{
+  struct grant_fixture f1, f2;
+  struct Client *a = mkacct(&f1, "alice"), *b;
+  (void)state;
+  fakelag_grant(a);
+  CurrentTime += 60;
+  b = mkacct(&f2, "alice");
+  fakelag_grant(b);
+  assert_int_equal(cli_lagborrow(b), 60);
+}
+
+static void test_grant_gap_is_per_account(void **state)
+{
+  struct grant_fixture f1, f2;
+  struct Client *a = mkacct(&f1, "alice"), *b = mkacct(&f2, "bob");
+  (void)state;
+  fakelag_grant(a);
+  fakelag_grant(b);
+  assert_int_equal(cli_lagborrow(a), 60);
+  assert_int_equal(cli_lagborrow(b), 60);
+}
+
+static void test_grant_gap_ignores_case(void **state)
+{
+  struct grant_fixture f1, f2;
+  struct Client *a = mkacct(&f1, "Alice"), *b = mkacct(&f2, "aLICE");
+  (void)state;
+  fakelag_grant(a);
+  fakelag_grant(b);
+  assert_int_equal(cli_lagborrow(b), 0);
+}
+
+static void test_grant_gap_clock_back_lends(void **state)
+{
+  struct grant_fixture f1, f2;
+  struct Client *a = mkacct(&f1, "alice"), *b;
+  (void)state;
+  fakelag_grant(a);
+  CurrentTime -= 5;
+  b = mkacct(&f2, "alice");
+  fakelag_grant(b);
+  assert_int_equal(cli_lagborrow(b), 60);
+}
+
+/* With the pool off nothing is lent, so nothing starts the gap. */
+static void test_grant_pool_off_starts_no_gap(void **state)
+{
+  struct grant_fixture f1, f2;
+  struct Client *a = mkacct(&f1, "alice"), *b;
+  (void)state;
+  stub_pool = 0;
+  fakelag_grant(a);
+  stub_pool = 600;
+  b = mkacct(&f2, "alice");
+  fakelag_grant(b);
+  assert_int_equal(cli_lagborrow(b), 60);
+}
+
+/* The drain from the live test: one account reconnecting every two
+ * seconds for a minute, spending all it can each time, takes one
+ * allowance from a full pool, not all of it. */
+static void test_reconnect_loop_takes_one_allowance(void **state)
+{
+  struct grant_fixture f0, f;
+  struct Client *first = mkacct(&f0, "warm"), *c;
+  int i, k, taken = 0;
+  (void)state;
+  fakelag_grant(first);
+  CurrentTime += 60;                /* pool full: 600 */
+  for (k = 0; k < 30; k++, CurrentTime += 2) {
+    c = mkacct(&f, "mallory");
+    fakelag_grant(c);
+    for (i = 0; i < 40; i++)
+      taken += 2 - fakelag_spend(&cli_lagcredit(c), &cli_lagborrow(c),
+                                 cli_lagborrow_until(c), CurrentTime,
+                                 fakelag_pool_take, 2);
+  }
+  /* Each connect absorbs its own 20 s of grace; the pool gives the rest. */
+  assert_int_equal(taken - 30 * 20, 60);
+}
+
 /* A lone logged-in client: 80 s of credit for 2 s commands is 40 of
  * them before the clock moves at all.  The pool's clock starts at the
  * first grant, so a client a minute after the first finds it full. */
@@ -394,6 +508,13 @@ int main(void)
     cmocka_unit_test_setup(test_grant_clears_revived_allowance, pool_setup),
     cmocka_unit_test_setup(test_grant_borrow_clamped, pool_setup),
     cmocka_unit_test_setup(test_burst_with_pool, pool_setup),
+    cmocka_unit_test_setup(test_grant_same_account_within_gap_grace_only, pool_setup),
+    cmocka_unit_test_setup(test_grant_same_account_after_gap, pool_setup),
+    cmocka_unit_test_setup(test_grant_gap_is_per_account, pool_setup),
+    cmocka_unit_test_setup(test_grant_gap_ignores_case, pool_setup),
+    cmocka_unit_test_setup(test_grant_gap_clock_back_lends, pool_setup),
+    cmocka_unit_test_setup(test_grant_pool_off_starts_no_gap, pool_setup),
+    cmocka_unit_test_setup(test_reconnect_loop_takes_one_allowance, pool_setup),
   };
   return cmocka_run_group_tests(tests, NULL, NULL);
 }

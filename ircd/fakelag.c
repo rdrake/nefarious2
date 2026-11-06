@@ -26,9 +26,17 @@
 #include "client.h"
 #include "ircd.h"
 #include "ircd_features.h"
+#include "random.h"
+
+#include <string.h>
 
 /** Seconds after registration the allowance stays live. */
 #define FAKELAG_BORROW_TTL 30
+/** An account gets one allowance per this many seconds, the pool's refill
+ * time: reconnecting in a loop cannot drain the pool from one account. */
+#define FAKELAG_LEND_GAP   60
+/** Slots in the table of recent allowances (a power of two). */
+#define FAKELAG_LENT_SLOTS 1024
 /** Clamps on the features, so the refill math stays in int. */
 #define FAKELAG_POOL_MAX   100000
 #define FAKELAG_BORROW_MAX 600
@@ -36,6 +44,16 @@
 static int    pool;       /**< Lag-seconds available to lend. */
 static int    pool_rem;   /**< Refill carried over, in 1/60 s. */
 static time_t pool_last;  /**< When the pool was last settled; 0 = never. */
+
+/** Recent allowances, one slot per account hash.  Two accounts in one slot
+ * just make it forget the older, which lets an allowance through early;
+ * refusing one takes two names with the same 32-bit hash.  The seed keeps
+ * both unguessable. */
+static struct {
+  unsigned int key;       /**< Seeded hash of the account; 0 = empty. */
+  time_t       when;      /**< When it was last given an allowance. */
+} lent[FAKELAG_LENT_SLOTS];
+static unsigned int lent_seed;
 
 /** Clamp @a v to [0, @a hi]. */
 static int clamp(int v, int hi)
@@ -79,6 +97,37 @@ int fakelag_pool_take(int want)
   return got;
 }
 
+/** Has @a account had an allowance in the last FAKELAG_LEND_GAP seconds?
+ * If not, note that it has one now.  Account names compare without case.
+ * A clock that stepped back counts as a gap.
+ * @param[in] account The account name.
+ * @return 1 when it had one recently (lend nothing), 0 when it may borrow.
+ */
+static int fakelag_lent_recently(const char *account)
+{
+  unsigned int key, slot;
+  const char *p;
+
+  if (!lent_seed)
+    lent_seed = ircrandom() | 1;
+  key = 2166136261u ^ lent_seed;              /* FNV-1a, seeded */
+  for (p = account; *p; p++) {
+    unsigned char c = (unsigned char)*p;
+    if (c >= 'A' && c <= 'Z')                 /* ASCII fold is enough here */
+      c += 'a' - 'A';
+    key = (key ^ c) * 16777619u;
+  }
+  if (!key)
+    key = 1;
+  slot = key & (FAKELAG_LENT_SLOTS - 1);
+  if (lent[slot].key == key && CurrentTime >= lent[slot].when
+      && CurrentTime - lent[slot].when < FAKELAG_LEND_GAP)
+    return 1;
+  lent[slot].key = key;
+  lent[slot].when = CurrentTime;
+  return 0;
+}
+
 /** Grant the post-registration credit, and the pool allowance when the
  * pool is on.  Called at the end of every registration path (fresh
  * registration, held-session revive, alias attach).
@@ -107,8 +156,11 @@ void fakelag_grant(struct Client *cptr)
     return;
   cli_lagcredit(cptr) = grace;
 
-  /* A class with fake lag off never spends it: lend nothing. */
-  if (feature_int(FEAT_FAKELAG_POOL) <= 0 || get_lag_factor(cptr) == 0)
+  /* A class with fake lag off never spends it: lend nothing.  Nor to an
+   * account lent to within the gap: a reconnect loop, or a second device
+   * of the same account, gets the grace alone, as today. */
+  if (feature_int(FEAT_FAKELAG_POOL) <= 0 || get_lag_factor(cptr) == 0
+      || fakelag_lent_recently(cli_account(cptr)))
     return;
   fakelag_pool_take(0);   /* start the pool's clock at the first grant */
   cli_lagborrow(cptr) = clamp(feature_int(FEAT_FAKELAG_BORROW),
@@ -117,11 +169,12 @@ void fakelag_grant(struct Client *cptr)
 }
 
 #ifdef CMOCKA_TEST
-/** Empty the pool and forget when it was last settled. */
+/** Empty the pool, forget when it was last settled and every allowance. */
 void fakelag_test_reset(void)
 {
   pool = 0;
   pool_rem = 0;
   pool_last = 0;
+  memset(lent, 0, sizeof(lent));
 }
 #endif
