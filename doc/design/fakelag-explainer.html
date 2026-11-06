@@ -1,0 +1,523 @@
+<title>Fake Lag Pool</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Atkinson+Hyperlegible:wght@400;700&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* Layout: one reading column; the simulator sits near the top as the page's working proof, the explanation follows. */
+:root {
+  --bg: #f3f5f8;
+  --surface: #ffffff;
+  --ink: #18212d;
+  --muted: #5a6677;
+  --rule: #d9dee6;
+  --before: #b8590f;
+  --after: #0b7a64;
+  --pool: #3b5bdb;
+  --grace: #7c4dbd;
+  --clock: #8a94a3;
+  --font-display: "Bricolage Grotesque", "Segoe UI", system-ui, sans-serif;
+  --font-body: "Atkinson Hyperlegible", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #11161d; --surface: #18202a; --ink: #e6ebf1; --muted: #9aa6b5; --rule: #2a3542;
+    --before: #f0954a; --after: #3fcfab; --pool: #8ea8ff; --grace: #c4a1f2; --clock: #6f7b8b;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #11161d; --surface: #18202a; --ink: #e6ebf1; --muted: #9aa6b5; --rule: #2a3542;
+  --before: #f0954a; --after: #3fcfab; --pool: #8ea8ff; --grace: #c4a1f2; --clock: #6f7b8b;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html { background: var(--bg); }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 1.0625rem/1.6 var(--font-body); }
+.wrap {
+  max-width: 56rem; margin: 0 auto;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 2.5rem 4rem;
+  display: grid; gap: 3rem;
+}
+h1, h2, h3 { font-family: var(--font-display); text-wrap: balance; margin: 0; letter-spacing: -0.01em; }
+h1 { font-size: clamp(2rem, 5vw, 3.1rem); font-weight: 800; line-height: 1.08; }
+h2 { font-size: 1.45rem; font-weight: 600; line-height: 1.25; }
+h3 { font-size: 1.05rem; font-weight: 600; }
+p { margin: 0; max-width: 65ch; }
+.eyebrow { font: 600 0.75rem/1 var(--font-mono); letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+header, section { display: grid; gap: 1rem; min-width: 0; }
+.lede { font-size: 1.15rem; }
+.muted { color: var(--muted); }
+code, .mono { font-family: var(--font-mono); font-size: 0.88em; }
+a { color: var(--pool); }
+.panel {
+  background: var(--surface); border: 1px solid var(--rule); border-radius: 10px;
+  padding: 1.25rem; display: grid; gap: 1.25rem; min-width: 0;
+}
+
+/* presets */
+.presets { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.chip {
+  font: 600 0.85rem/1 var(--font-body); color: var(--ink); background: var(--bg);
+  border: 1px solid var(--rule); border-radius: 999px; padding: 0.55rem 0.85rem; cursor: pointer;
+}
+.chip[aria-pressed="true"] { background: var(--ink); color: var(--surface); border-color: var(--ink); }
+button:focus-visible, input:focus-visible { outline: 3px solid var(--pool); outline-offset: 2px; }
+
+/* sliders */
+.knobgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(15rem, 1fr)); gap: 0.9rem 1.5rem; }
+.knob { display: grid; gap: 0.3rem; min-width: 0; }
+.knob label { display: flex; justify-content: space-between; gap: 0.5rem; font-size: 0.9rem; }
+.knob label span { color: var(--muted); }
+.knob output { font: 600 0.9rem/1.4 var(--font-mono); font-variant-numeric: tabular-nums; color: var(--ink); white-space: nowrap; }
+.knob small { color: var(--muted); font-size: 0.8rem; line-height: 1.35; }
+input[type="range"] { width: 100%; accent-color: var(--pool); margin: 0; }
+.knob.new input[type="range"] { accent-color: var(--pool); }
+.tag { font: 600 0.65rem/1 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--pool); border: 1px solid var(--pool); border-radius: 4px; padding: 0.15rem 0.3rem; margin-left: 0.4rem; vertical-align: 0.1rem; }
+.toggle { display: flex; gap: 0.6rem; align-items: center; font-size: 0.9rem; }
+.toggle input { width: 1.1rem; height: 1.1rem; accent-color: var(--pool); }
+
+/* results */
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr)); gap: 0.75rem; }
+.stat { display: grid; gap: 0.25rem; padding: 0.9rem 1rem; border-radius: 8px; border: 1px solid var(--rule); background: var(--bg); align-content: start; }
+.stat small { color: var(--muted); font-size: 0.85rem; }
+.pair { display: flex; align-items: baseline; gap: 0.5rem; flex-wrap: wrap; font-variant-numeric: tabular-nums; }
+.pair b { font: 800 1.9rem/1.1 var(--font-display); }
+.pair .b { color: var(--before); }
+.pair .a { color: var(--after); }
+.pair i { font-style: normal; color: var(--muted); }
+.chart { overflow-x: auto; min-width: 0; }
+.chart svg { display: block; width: 100%; min-width: 34rem; height: auto; }
+.charthead { display: flex; justify-content: space-between; align-items: baseline; gap: 1rem; flex-wrap: wrap; }
+.legend { display: flex; flex-wrap: wrap; gap: 0.5rem 1.25rem; font-size: 0.85rem; color: var(--muted); }
+.legend span { display: inline-flex; align-items: center; gap: 0.45rem; }
+.sw { width: 0.8rem; height: 0.8rem; border-radius: 3px; display: inline-block; }
+.controls { display: flex; gap: 0.75rem; align-items: center; flex-wrap: wrap; }
+.btn {
+  font: 600 0.9rem/1 var(--font-body); color: var(--surface); background: var(--ink);
+  border: 0; border-radius: 6px; padding: 0.6rem 0.95rem; cursor: pointer;
+}
+.btn.ghost { background: transparent; color: var(--ink); border: 1px solid var(--rule); }
+.note { font-size: 0.85rem; color: var(--muted); }
+
+/* stepper */
+.meters { display: grid; gap: 0.8rem; }
+.meter { display: grid; grid-template-columns: 9.5rem 1fr 4.5rem; gap: 0.75rem; align-items: center; }
+.meter .lbl { font-size: 0.9rem; font-weight: 700; }
+.meter .lbl small { display: block; font-weight: 400; color: var(--muted); font-size: 0.78rem; }
+.track { height: 1.1rem; background: var(--bg); border: 1px solid var(--rule); border-radius: 4px; overflow: hidden; position: relative; }
+.fill { position: absolute; inset: 0 auto 0 0; transition: width 0.25s ease; }
+.meter output { font: 600 0.85rem/1 var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; }
+.gate { position: absolute; top: -2px; bottom: -2px; width: 2px; background: var(--before); }
+.log { font: 0.82rem/1.5 var(--font-mono); color: var(--muted); min-height: 3em; }
+.log b { color: var(--ink); }
+@media (max-width: 30rem) { .meter { grid-template-columns: 1fr 4rem; } .meter .lbl { grid-column: 1 / -1; } }
+
+.order { display: grid; gap: 0.6rem; }
+.step { display: grid; grid-template-columns: 2.2rem 1fr; gap: 0.75rem; align-items: start; }
+.step .n { font: 600 0.8rem/2.2rem var(--font-mono); text-align: center; border-radius: 50%; width: 2.2rem; height: 2.2rem; color: var(--surface); }
+.step p { max-width: none; }
+.same { display: grid; grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr)); gap: 0.75rem 1.5rem; padding: 0; margin: 0; list-style: none; }
+.same li { padding-left: 1rem; border-left: 2px solid var(--rule); }
+.same b { display: block; }
+.checks { display: grid; gap: 0.6rem; padding: 0; margin: 0; list-style: none; }
+.checks li { display: grid; grid-template-columns: 6.5rem 1fr; gap: 0.75rem; align-items: baseline; padding-block: 0.55rem; border-bottom: 1px solid var(--rule); }
+.checks li:last-child { border-bottom: 0; }
+.checks .k { font: 600 0.72rem/1.3 var(--font-mono); letter-spacing: 0.05em; text-transform: uppercase; color: var(--after); }
+@media (max-width: 30rem) { .checks li { grid-template-columns: 1fr; gap: 0.2rem; } }
+.knobs { width: 100%; border-collapse: collapse; font-size: 0.95rem; }
+.knobs th, .knobs td { text-align: left; padding: 0.55rem 0.5rem; border-bottom: 1px solid var(--rule); vertical-align: top; }
+.knobs th { font: 600 0.75rem/1.2 var(--font-mono); letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.knobs td:first-child { font-family: var(--font-mono); font-size: 0.85rem; white-space: nowrap; }
+.tablewrap { overflow-x: auto; }
+footer { font-size: 0.9rem; color: var(--muted); display: grid; gap: 0.4rem; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">nefarious2 · fake lag · demo branch</div>
+    <h1>A reconnecting phone gets its whole catch-up at once</h1>
+    <p class="lede">The ircd slows every client to about one command every 2 seconds once its first few are used. This change lets a logged-in client borrow from a shared pool that the server refills every minute. On a quiet server, a reconnect's burst is answered straight away. When many clients connect at once, the pool runs dry and they get what they get today.</p>
+  </header>
+
+  <section aria-labelledby="s-sim">
+    <h2 id="s-sim">Try it</h2>
+    <p class="muted">Pick a situation or move the sliders. Each run plays the same clients twice, once on today's server and once with the pool on, so you can compare them.</p>
+    <div class="panel">
+      <div class="presets" role="group" aria-label="Situations">
+        <button class="chip" type="button" data-preset="phone">One phone reconnects</button>
+        <button class="chip" type="button" data-preset="storm">20 clients after a netsplit</button>
+        <button class="chip" type="button" data-preset="restart">Right after a restart</button>
+        <button class="chip" type="button" data-preset="anon">Not logged in</button>
+        <button class="chip" type="button" data-preset="long">Long messages</button>
+      </div>
+
+      <div class="knobgrid">
+        <div class="knob"><label for="k-clients">Clients connecting together <output id="o-clients"></output></label>
+          <input id="k-clients" type="range" min="1" max="40" step="1"></div>
+        <div class="knob"><label for="k-cmds">Commands each sends after 001 <output id="o-cmds"></output></label>
+          <input id="k-cmds" type="range" min="5" max="100" step="1">
+          <small>About 2 per channel on a reconnect: a JOIN, then history and read markers.</small></div>
+        <div class="knob"><label for="k-bytes">Bytes per command <output id="o-bytes"></output></label>
+          <input id="k-bytes" type="range" min="10" max="500" step="10">
+          <small>Each command costs 2 s plus 1 s per 120 bytes.</small></div>
+        <div class="knob"><label for="k-grace">POSTREG_GRACE <output id="o-grace"></output></label>
+          <input id="k-grace" type="range" min="0" max="60" step="5">
+          <small>The one-time credit logged-in clients already get.</small></div>
+        <div class="knob new"><label for="k-pool">FAKELAG_POOL<span class="tag">new</span> <output id="o-pool"></output></label>
+          <input id="k-pool" type="range" min="0" max="3000" step="100">
+          <small>The shared pool, refilled to this every 60 s.</small></div>
+        <div class="knob new"><label for="k-borrow">FAKELAG_BORROW<span class="tag">new</span> <output id="o-borrow"></output></label>
+          <input id="k-borrow" type="range" min="0" max="200" step="10">
+          <small>The most one client may borrow, within 30 s of logging in.</small></div>
+        <div class="knob"><label for="k-fill">Pool at the start <output id="o-fill"></output></label>
+          <input id="k-fill" type="range" min="0" max="100" step="10">
+          <small>It starts empty when the server starts.</small></div>
+        <div class="knob"><span class="toggle"><input id="k-account" type="checkbox"><label for="k-account">Clients are logged in</label></span>
+          <small>Anonymous clients never get the grace or the pool.</small></div>
+      </div>
+
+      <div class="stats" aria-live="polite">
+        <div class="stat"><small>Last reply, first client</small><div class="pair"><b class="b" id="r-first-b"></b><i>→</i><b class="a" id="r-first-a"></b></div></div>
+        <div class="stat"><small>Clients answered in full at once</small><div class="pair"><b class="b" id="r-full-b"></b><i>→</i><b class="a" id="r-full-a"></b></div></div>
+        <div class="stat"><small>Slowest client's last reply</small><div class="pair"><b class="b" id="r-worst-b"></b><i>→</i><b class="a" id="r-worst-a"></b></div></div>
+      </div>
+      <p class="note" id="verdict"></p>
+
+      <div class="charthead">
+        <h3>How long each client waits for its last reply</h3>
+        <div class="legend"><span><i class="sw" style="background:var(--before)"></i>Today</span><span><i class="sw" style="background:var(--after)"></i>With the pool</span></div>
+      </div>
+      <div class="chart" id="bars" role="img" aria-label="Time to each client's last reply, today and with the pool."></div>
+      <div class="controls">
+        <button class="btn" id="play" type="button">Play at 10× speed</button>
+        <span class="mono muted" id="clock" aria-live="off">t = end</span>
+      </div>
+
+      <div class="charthead">
+        <h3>The pool during the run</h3>
+        <span class="note" id="poolnote"></span>
+      </div>
+      <div class="chart" id="poolchart" role="img" aria-label="Lag-seconds left in the shared pool over time."></div>
+      <p class="note">This is a model of the ircd's read loop, ticking once a second. The branch measured, with 40 PINGs: 14 replies at once and the last after 52 s today, all 40 at once with the pool, and 9 to 10 of 20 clients in full during a storm.</p>
+    </div>
+  </section>
+
+  <section aria-labelledby="s-one">
+    <h2 id="s-one">One command at a time</h2>
+    <p>Each command's lag is paid from three places, in order. Only the middle one is new. Send commands and watch which one pays.</p>
+    <div class="panel">
+      <div class="meters">
+        <div class="meter"><span class="lbl">Own grace<small>POSTREG_GRACE</small></span><div class="track"><div class="fill" id="m-grace" style="background:var(--grace)"></div></div><output id="mo-grace"></output></div>
+        <div class="meter"><span class="lbl">Borrowed<small>from the pool, 30 s window</small></span><div class="track"><div class="fill" id="m-borrow" style="background:var(--pool)"></div></div><output id="mo-borrow"></output></div>
+        <div class="meter"><span class="lbl">Clock ahead of now<small>reading stops at 10 s</small></span><div class="track"><div class="fill" id="m-clock" style="background:var(--clock)"></div><div class="gate" style="left:calc(100% - 2px)"></div></div><output id="mo-clock"></output></div>
+      </div>
+      <div class="controls">
+        <button class="btn" id="s-send" type="button">Send a command</button>
+        <button class="btn ghost" id="s-send10" type="button">Send 10</button>
+        <button class="btn ghost" id="s-wait" type="button">Wait 2 s</button>
+        <button class="btn ghost" id="s-reset" type="button">Start over</button>
+        <span class="toggle"><input id="s-pool" type="checkbox" checked><label for="s-pool">Pool on</label></span>
+      </div>
+      <p class="log" id="s-log" aria-live="polite"></p>
+    </div>
+    <div class="order">
+      <div class="step"><span class="n" style="background:var(--grace)">1</span><p><b>The client's own grace.</b> The 20 s credit every logged-in connection already gets at registration. Unchanged.</p></div>
+      <div class="step"><span class="n" style="background:var(--pool)">2</span><p><b>The shared pool, new.</b> For 30 seconds after registration, a logged-in client may borrow up to its allowance from a server-wide pool that refills in a minute. It takes only what it actually spends, so a client with one channel barely touches it.</p></div>
+      <div class="step"><span class="n" style="background:var(--clock)">3</span><p><b>The client's clock.</b> What's left goes on the clock as it does today. The server stops reading a client once its clock is 10 s ahead, then lets one more line through every 2 s.</p></div>
+    </div>
+  </section>
+
+  <section aria-labelledby="s-same">
+    <h2 id="s-same">What doesn't change</h2>
+    <ul class="same">
+      <li><b>Off by default</b>Both settings default to 0, and then the server behaves exactly as it does today.</li>
+      <li><b>Anonymous clients</b>They never borrow and keep the classic burst of about 5 commands, so the flood surface stays the same.</li>
+      <li><b>The 10-second gate</b>The rule that stops reading a client's lines is untouched. Borrowing only keeps the clock lower.</li>
+      <li><b>Every other limit</b>Target limiting, receive queue caps, channel modes and the multiline, METADATA and BATCH limits all still apply.</li>
+    </ul>
+  </section>
+
+  <section aria-labelledby="s-checked">
+    <h2 id="s-checked">How it was checked</h2>
+    <ul class="checks">
+      <li><span class="k">Proved</span><span>With CBMC: for any input, the pool stays between 0 and its cap and nothing overflows. A clock jump backward adds nothing. A command never costs more than it does today, and with the allowance at 0 the cost is exactly today's.</span></li>
+      <li><span class="k">Proved</span><span>With z3: over a run of any length, the pool lends at most its cap per minute.</span></li>
+      <li><span class="k">Sanitized</span><span>ASan, UBSan and valgrind on the unit tests. ASan and UBSan on a live server during a 20-client storm. No reports.</span></li>
+      <li><span class="k">Analyzed</span><span>gcc's analyzer and cppcheck are clean. scan-build finds the same 115 warnings as the base commit, none new.</span></li>
+      <li><span class="k">Tested</span><span>25 unit tests, and two independent code reviews.</span></li>
+    </ul>
+  </section>
+
+  <section aria-labelledby="s-knobs">
+    <h2 id="s-knobs">The two settings</h2>
+    <div class="tablewrap">
+      <table class="knobs">
+        <thead><tr><th>Feature</th><th>What it sets</th><th>Demo value</th></tr></thead>
+        <tbody>
+          <tr><td>FAKELAG_POOL</td><td>Size of the shared pool, in lag-seconds. It refills to this in 60 s and starts empty after a restart.</td><td class="mono">600</td></tr>
+          <tr><td>FAKELAG_BORROW</td><td>Most one registration may borrow, in seconds. 60 is about 30 extra short commands.</td><td class="mono">60</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section aria-labelledby="s-seance">
+    <h2 id="s-seance">One catch for Seance</h2>
+    <p>Seance paces itself by its own model of the server's clock and never sends past it. It doesn't know about the grace or the pool, so it won't use the extra headroom until a small per-network setting tells it. Clients that send everything at once, which is most desktop clients, benefit straight away.</p>
+  </section>
+
+  <footer>
+    <span>Branch: <a href="https://github.com/rdrake/nefarious2/tree/claude/project-thread-wpt8as">rdrake/nefarious2 · claude/project-thread-wpt8as</a>. Design and review history: <code>doc/design/fakelag-htb.md</code>.</span>
+    <span>Measured 6 Nov 2026 on a local ircd with an iauth stub that logs every client in, <code>POSTREG_GRACE</code> 20, using <code>PING</code> as the command.</span>
+  </footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+  var NS = "http://www.w3.org/2000/svg";
+  function el(name, attrs, text) {
+    var e = document.createElementNS(NS, name);
+    for (var k in attrs) e.setAttribute(k, attrs[k]);
+    if (text != null) e.textContent = text;
+    return e;
+  }
+  function $(id) { return document.getElementById(id); }
+
+  /* ---------- Model of the ircd ---------------------------------------
+   * parse.c: lag = 2 + bytes/120, paid by grace, then the allowance (drawn
+   * from the pool, within 30 s of registration), then the clock.
+   * s_bsd.c: a client's lines are read while clock - now < 10; the clock is
+   * floored to now on each read.  fakelag.c: the pool refills cap/60 per
+   * second, carrying the remainder, and never holds more than its cap. */
+  var GATE = 10, TTL = 30, HORIZON = 400;
+
+  function simulate(p, poolOn) {
+    var cap = poolOn ? p.pool : 0;
+    var pool = Math.round(cap * p.fill / 100), rem = 0;
+    var clients = [], series = [];
+    for (var c = 0; c < p.clients; c++) {
+      var logged = p.account;
+      clients.push({
+        since: 0,
+        credit: logged ? p.grace : 0,
+        borrow: logged && cap > 0 ? p.borrow : 0,
+        left: p.cmds, sent: 0, last: 0, atOnce: 0, times: []
+      });
+    }
+    var lag = 2 + Math.floor(p.bytes / 120);
+    for (var t = 0; t <= HORIZON; t++) {
+      if (t > 0 && cap > 0) {              /* settle the pool for one second */
+        rem += cap; pool += Math.floor(rem / 60); rem %= 60;
+        if (pool >= cap) { pool = cap; rem = 0; }
+      }
+      var busy = false;
+      for (var i = 0; i < clients.length; i++) {
+        var k = clients[i];
+        if (k.left === 0) continue;
+        busy = true;
+        if (k.since < t) k.since = t;     /* read floor */
+        while (k.left > 0 && k.since - t < GATE) {
+          var l = lag, use = Math.min(k.credit, l);
+          k.credit -= use; l -= use;
+          if (l > 0 && k.borrow > 0) {
+            if (t <= TTL) {
+              var got = Math.min(l, k.borrow, pool);
+              pool -= got; k.borrow -= got; l -= got;
+            } else k.borrow = 0;
+          }
+          k.since += l;
+          k.left--; k.sent++; k.last = t; k.times.push(t);
+          if (t === 0) k.atOnce++;
+        }
+      }
+      series.push(pool);
+      if (!busy && t > 0) break;
+    }
+    return { clients: clients, pool: series, cap: cap };
+  }
+
+  /* ---------- Simulator UI ------------------------------------------- */
+  var PRESETS = {
+    phone:   { clients: 1,  cmds: 40, bytes: 10,  grace: 20, pool: 600, borrow: 60, fill: 100, account: true },
+    storm:   { clients: 20, cmds: 40, bytes: 10,  grace: 20, pool: 600, borrow: 60, fill: 100, account: true },
+    restart: { clients: 20, cmds: 40, bytes: 10,  grace: 20, pool: 600, borrow: 60, fill: 0,   account: true },
+    anon:    { clients: 1,  cmds: 40, bytes: 10,  grace: 20, pool: 600, borrow: 60, fill: 100, account: false },
+    long:    { clients: 1,  cmds: 40, bytes: 400, grace: 20, pool: 600, borrow: 60, fill: 100, account: true }
+  };
+  var KEYS = ["clients", "cmds", "bytes", "grace", "pool", "borrow", "fill"];
+  var UNITS = { clients: "", cmds: "", bytes: " B", grace: " s", pool: " s", borrow: " s", fill: "%" };
+
+  function read() {
+    var p = {};
+    KEYS.forEach(function (k) { p[k] = +$("k-" + k).value; });
+    p.account = $("k-account").checked;
+    return p;
+  }
+  function apply(p) {
+    KEYS.forEach(function (k) { $("k-" + k).value = p[k]; });
+    $("k-account").checked = p.account;
+  }
+  function markPreset(name) {
+    document.querySelectorAll("[data-preset]").forEach(function (b) {
+      b.setAttribute("aria-pressed", b.dataset.preset === name ? "true" : "false");
+    });
+  }
+  function secs(v) { return v + " s"; }
+
+  var current = null, playT = null, timer = null;
+
+  function run() {
+    var p = read();
+    KEYS.forEach(function (k) { $("o-" + k).textContent = p[k] + UNITS[k]; });
+    var before = simulate(p, false), after = simulate(p, true);
+    current = { p: p, before: before, after: after };
+    var worst = function (r) { return Math.max.apply(null, r.clients.map(function (k) { return k.last; })); };
+    var full = function (r) { return r.clients.filter(function (k) { return k.atOnce === p.cmds; }).length; };
+    $("r-first-b").textContent = secs(before.clients[0].last);
+    $("r-first-a").textContent = secs(after.clients[0].last);
+    $("r-full-b").textContent = full(before);
+    $("r-full-a").textContent = full(after) + " / " + p.clients;
+    $("r-worst-b").textContent = secs(worst(before));
+    $("r-worst-a").textContent = secs(worst(after));
+
+    var v;
+    if (!p.account) v = "Anonymous clients get neither the grace nor the pool, so both runs are identical. That's deliberate: drive-by connections keep today's limits.";
+    else if (p.pool === 0 || p.borrow === 0) v = "With either new setting at 0 the server behaves exactly as it does today.";
+    else if (full(after) === p.clients && full(before) < p.clients) v = p.clients === 1 ? "The pool covers the whole burst: every reply comes back at once." : "The pool covers every client in full: every reply comes back at once.";
+    else if (worst(after) < worst(before)) v = "Nobody waits longer than today. The pool covers " + full(after) + " of " + p.clients + " clients in full; the rest fall back towards today's pace.";
+    else if (full(after) > full(before)) v = "More clients get everything at once; the slowest still waits as long as today, because the pool ran dry before reaching it.";
+    else v = "Here the pool doesn't help: it's empty or the burst fits in today's limits. Nobody does worse.";
+    $("verdict").textContent = v;
+
+    drawBars(null);
+    drawPool();
+    $("clock").textContent = "t = end";
+  }
+
+  function drawBars(atT) {
+    var c = current, n = c.p.clients;
+    var W = 760, L = 78, R = 56, rowH = n > 20 ? 9 : 14, pairH = rowH * 2 + (n > 20 ? 3 : 6);
+    var maxT = Math.max(10, Math.max.apply(null, c.before.clients.map(function (k) { return k.last; })));
+    maxT = Math.ceil(maxT / 10) * 10;
+    var H = 26 + n * pairH + 24;
+    var x = function (t) { return L + (t / maxT) * (W - L - R); };
+    var svg = el("svg", { viewBox: "0 0 " + W + " " + H, "aria-hidden": "true" });
+    var step = maxT <= 60 ? 10 : maxT <= 160 ? 20 : 50;
+    for (var t = 0; t <= maxT; t += step) {
+      svg.appendChild(el("line", { x1: x(t), x2: x(t), y1: 18, y2: H - 22, stroke: "var(--rule)", "stroke-width": 1 }));
+      svg.appendChild(el("text", { x: x(t), y: H - 6, "text-anchor": "middle", fill: "var(--muted)", "font-size": 12, "font-family": "JetBrains Mono, monospace" }, t + " s"));
+    }
+    if (atT != null) svg.appendChild(el("line", { x1: x(atT), x2: x(atT), y1: 12, y2: H - 22, stroke: "var(--ink)", "stroke-width": 1.5 }));
+    function bar(k, y, color) {
+      var shown = atT == null ? k.sent : k.times.filter(function (tt) { return tt <= atT; }).length;
+      var end = atT == null ? k.last : Math.min(k.last, atT);
+      var w = Math.max(3, x(end) - x(0));
+      svg.appendChild(el("rect", { x: x(0), y: y, width: w, height: rowH, rx: 2, fill: color, opacity: shown === k.sent ? 1 : 0.55 }));
+      var label = shown === k.sent ? k.last + " s" : shown + "/" + k.sent;
+      if (n <= 20 || shown !== k.sent || k.last > 0)
+        svg.appendChild(el("text", { x: x(0) + w + 6, y: y + rowH - 2, fill: "var(--muted)", "font-size": n > 20 ? 9 : 11, "font-family": "JetBrains Mono, monospace" }, label));
+    }
+    for (var i = 0; i < n; i++) {
+      var y = 22 + i * pairH;
+      svg.appendChild(el("text", { x: 0, y: y + rowH + 3, fill: "var(--muted)", "font-size": n > 20 ? 9 : 11, "font-family": "JetBrains Mono, monospace" }, "client " + (i + 1)));
+      bar(c.before.clients[i], y, "var(--before)");
+      bar(c.after.clients[i], y + rowH + 1, "var(--after)");
+    }
+    var box = $("bars"); box.textContent = ""; box.appendChild(svg);
+  }
+
+  function drawPool() {
+    var c = current, s = c.after.pool, cap = c.after.cap;
+    var W = 760, H = 130, L = 52, R = 16, T = 12, B = 26;
+    var maxT = Math.max(10, s.length - 1);
+    var x = function (t) { return L + (t / maxT) * (W - L - R); };
+    var y = function (v) { return T + (1 - (cap ? v / cap : 0)) * (H - T - B); };
+    var svg = el("svg", { viewBox: "0 0 " + W + " " + H, "aria-hidden": "true" });
+    [0, cap].forEach(function (v, i) {
+      svg.appendChild(el("line", { x1: L, x2: W - R, y1: y(v), y2: y(v), stroke: "var(--rule)", "stroke-width": 1 }));
+      svg.appendChild(el("text", { x: L - 6, y: y(v) + 4, "text-anchor": "end", fill: "var(--muted)", "font-size": 11, "font-family": "JetBrains Mono, monospace" }, i ? cap + " s" : "0"));
+    });
+    if (TTL <= maxT) {
+      svg.appendChild(el("line", { x1: x(TTL), x2: x(TTL), y1: T, y2: H - B, stroke: "var(--clock)", "stroke-dasharray": "3 3", "stroke-width": 1 }));
+      svg.appendChild(el("text", { x: x(TTL) + 4, y: T + 10, fill: "var(--muted)", "font-size": 11, "font-family": "Atkinson Hyperlegible, sans-serif" }, "borrowing ends"));
+    }
+    var step = maxT <= 60 ? 10 : maxT <= 160 ? 20 : 50;
+    for (var t = 0; t <= maxT; t += step)
+      svg.appendChild(el("text", { x: x(t), y: H - 8, "text-anchor": "middle", fill: "var(--muted)", "font-size": 11, "font-family": "JetBrains Mono, monospace" }, t + " s"));
+    if (cap > 0) {
+      var pts = s.map(function (v, t) { return x(t) + "," + y(v); }).join(" ");
+      svg.appendChild(el("polygon", { points: x(0) + "," + y(0) + " " + pts + " " + x(s.length - 1) + "," + y(0), fill: "var(--pool)", opacity: 0.15 }));
+      svg.appendChild(el("polyline", { points: pts, fill: "none", stroke: "var(--pool)", "stroke-width": 2 }));
+      var lent = c.after.clients.reduce(function (a, k) { return a + (c.p.borrow - k.borrow); }, 0);
+      $("poolnote").textContent = "Lent " + lent + " s in total";
+    } else {
+      svg.appendChild(el("text", { x: (W + L) / 2, y: H / 2, "text-anchor": "middle", fill: "var(--muted)", "font-size": 13, "font-family": "Atkinson Hyperlegible, sans-serif" }, "Pool off"));
+      $("poolnote").textContent = "";
+    }
+    var box = $("poolchart"); box.textContent = ""; box.appendChild(svg);
+  }
+
+  function stopPlay() { if (timer) { clearInterval(timer); timer = null; } $("play").textContent = "Play at 10× speed"; }
+  $("play").addEventListener("click", function () {
+    if (timer) { stopPlay(); drawBars(null); $("clock").textContent = "t = end"; return; }
+    var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+    var end = Math.max.apply(null, current.before.clients.map(function (k) { return k.last; }));
+    if (reduce) { drawBars(null); return; }
+    var start = performance.now();
+    $("play").textContent = "Stop";
+    timer = setInterval(function () {
+      var t = Math.floor((performance.now() - start) / 100);
+      if (t >= end) { stopPlay(); drawBars(null); $("clock").textContent = "t = " + end + " s"; return; }
+      drawBars(t); $("clock").textContent = "t = " + t + " s";
+    }, 100);
+  });
+
+  KEYS.concat(["account"]).forEach(function (k) {
+    $("k-" + k).addEventListener("input", function () { stopPlay(); markPreset(null); run(); });
+  });
+  document.querySelectorAll("[data-preset]").forEach(function (b) {
+    b.addEventListener("click", function () { stopPlay(); apply(PRESETS[b.dataset.preset]); markPreset(b.dataset.preset); run(); });
+  });
+  apply(PRESETS.phone); markPreset("phone"); run();
+
+  /* ---------- One command at a time --------------------------------- */
+  var S = { grace: 20, borrowMax: 60, pool: 600 }, st;
+  function sreset() { st = { credit: S.grace, borrow: S.borrowMax, ahead: 0, t: 0, sent: 0, waiting: 0 }; $("s-log").innerHTML = "A logged-in client has just been welcomed. Nothing spent yet."; sdraw(); }
+  function sdraw() {
+    var poolOn = $("s-pool").checked;
+    $("m-grace").style.width = (st.credit / S.grace * 100) + "%";
+    $("mo-grace").textContent = st.credit + " s";
+    $("m-borrow").style.width = (poolOn ? st.borrow / S.borrowMax * 100 : 0) + "%";
+    $("mo-borrow").textContent = poolOn ? st.borrow + " s" : "off";
+    $("m-clock").style.width = Math.min(100, st.ahead / GATE * 100) + "%";
+    $("mo-clock").textContent = st.ahead + " s";
+  }
+  function ssend() {
+    var poolOn = $("s-pool").checked;
+    if (st.ahead >= GATE) { st.waiting++; return "<b>Held.</b> The clock is " + st.ahead + " s ahead, so the server stops reading. " + st.waiting + " waiting; one more gets through every 2 s."; }
+    var l = 2, from = [];
+    var use = Math.min(st.credit, l); if (use) { st.credit -= use; l -= use; from.push(use + " s from the grace"); }
+    if (l > 0 && poolOn && st.borrow > 0) { var g = Math.min(l, st.borrow); st.borrow -= g; l -= g; from.push(g + " s from the pool"); }
+    if (l > 0) { st.ahead += l; from.push(l + " s on the clock"); }
+    st.sent++;
+    return "<b>Command " + st.sent + " answered at once.</b> Its 2 s came " + from.join(" and ") + ".";
+  }
+  $("s-send").addEventListener("click", function () { $("s-log").innerHTML = ssend(); sdraw(); });
+  $("s-send10").addEventListener("click", function () { var m; for (var i = 0; i < 10; i++) m = ssend(); $("s-log").innerHTML = m + " (" + st.sent + " answered so far)"; sdraw(); });
+  $("s-wait").addEventListener("click", function () {
+    st.ahead = Math.max(0, st.ahead - 2);
+    var m = "2 s pass. The clock is now " + st.ahead + " s ahead.";
+    if (st.waiting > 0 && st.ahead < GATE) { st.waiting--; m += " " + ssend().replace("answered at once", "answered after the wait"); }
+    $("s-log").innerHTML = m; sdraw();
+  });
+  $("s-reset").addEventListener("click", sreset);
+  $("s-pool").addEventListener("change", sreset);
+  sreset();
+})();
+</script>
