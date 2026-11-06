@@ -741,10 +741,13 @@ static int gitsync_legacy_recent(struct Client *src, const char *action, const c
   int i;
   ircd_snprintf(0, key, sizeof key, "%s %s %s", cli_name(src), action,
                 subarg ? subarg : "");
+  /* A clock stepped back expires every slot dated after it for good, not
+   * just until the clock catches up again. */
+  for (i = 0; i < GITSYNC_LEGACY_SLOTS; i++)
+    if (seen[i].at > CurrentTime)
+      seen[i].at = 0;
   for (i = 0; i < GITSYNC_LEGACY_SLOTS; i++) {
-    /* A clock stepped back reads as expired, not as a longer window. */
-    if (seen[i].at && CurrentTime >= seen[i].at
-        && CurrentTime - seen[i].at < GITSYNC_LEGACY_WINDOW
+    if (seen[i].at && CurrentTime - seen[i].at < GITSYNC_LEGACY_WINDOW
         && !strcmp(seen[i].key, key))
       return 1;
   }
