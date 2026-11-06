@@ -2013,6 +2013,7 @@ FAKELAG_BORROW
  * Type: integer
  * Default: 0
 
-The most one registration may draw on FAKELAG_POOL, in seconds (capped
-at 600).  With the defaults of 2 + bytes/120 seconds per command, 60 is
-about 30 more short commands.
+The most one account may draw on FAKELAG_POOL per minute, in seconds
+(capped at 600), however many times it registers: a reconnect or a second
+device gets what is left.  With the defaults of 2 + bytes/120 seconds per
+command, 60 is about 30 more short commands.

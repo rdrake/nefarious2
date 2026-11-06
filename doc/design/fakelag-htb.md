@@ -58,6 +58,11 @@ it draw on that pool for 30 s, after its own grace runs out.
 - Once the pool is empty, connections get today's grace, never less.
 - The allowance lapses 30 s after registration. The point is the connect burst;
   a connection cannot sit on it.
+- An account borrows at most `FAKELAG_BORROW` per 60 s, however many times it
+  registers. A phone that flaps gets what its last connection left; two devices
+  share it; a reconnect loop gets one allowance a minute. The budget opens at
+  the account's first actual draw, so a connection that dropped before its
+  burst costs nothing.
 - The pool starts empty and fills over a minute, so a restart (when IPcheck's
   clone throttle is still off, `IPCHECK_CLONE_DELAY`, default 600 s) lends
   nothing to the first wave.
@@ -103,13 +108,12 @@ guard (`parse.c` L1670-1671):
 
 ```c
     if (!cli_ml_batch_id(cptr)[0])
-      cli_since(cptr) += fakelag_spend(&cli_lagcredit(cptr),
-                                       &cli_lagborrow(cptr),
-                                       cli_lagborrow_until(cptr), CurrentTime,
-                                       fakelag_pool_take, lag);
+      cli_since(cptr) += fakelag_charge_client(cptr, lag);
 ```
 
-With `con_lagborrow` at 0 this is `fakelag_charge()` exactly, as today.
+`fakelag_charge_client()` (in `fakelag.c`) calls `fakelag_spend()` with a
+`take` that draws through the account's budget. With `con_lagborrow` at 0
+this is `fakelag_charge()` exactly, as today.
 
 The grace is spent before the pool on purpose: the grace is the connection's own,
 and the pool is shared.
@@ -188,7 +192,7 @@ allowance. `get_lag_factor()` is valid on the ghost at the revive site:
 | `ircd/parse.c` L1671 | `fakelag_spend()` at the charge site, still under the multiline guard. |
 | `ircd/s_user.c` L822-828 | Becomes `fakelag_grant(ghost)`, **not** `sptr`: on a revive the incoming `sptr` has been freed and the ghost keeps the socket. |
 | `ircd/s_user.c` L1115-1120, `ircd/bouncer_session.c` L12868-12873 | Become `fakelag_grant(sptr)`. |
-| `ircd/ircd_features.c` (beside `POSTREG_GRACE`, L1348), `include/ircd_features.h` (after `FEAT_POSTREG_GRACE`, same order), `doc/readme.features` | `F_I(FAKELAG_POOL, 0, 0, 0)` (cap, lag-seconds, refills in 60 s) and `F_I(FAKELAG_BORROW, 0, 0, 0)` (allowance per registration). |
+| `ircd/ircd_features.c` (beside `POSTREG_GRACE`, L1348), `include/ircd_features.h` (after `FEAT_POSTREG_GRACE`, same order), `doc/readme.features` | `F_I(FAKELAG_POOL, 0, 0, 0)` (cap, lag-seconds, refills in 60 s) and `F_I(FAKELAG_BORROW, 0, 0, 0)` (the most one account borrows per minute). |
 | `ircd/test/fakelag_cmocka.c`, `ircd/test/Makefile.in` | Cases below. `fakelag_test.o` is built from `../fakelag.c` the way the IPcheck test builds its source (`test/Makefile.in` L280-296). |
 
 That comes to about 200 lines, with the tests about half of it.
@@ -254,12 +258,16 @@ No sanitizer report in any run.
 | Revive of a held session after a dropped socket (resumes its channels) | 40 | 15 |
 | Alias attach, a second device on a live session (the first stays up) | 40 | 15 |
 
-- Draining: one account reconnecting about twice a second, each time sending
+- Draining, before the per-account budget: one account reconnecting about twice a second, each time sending
   40, empties the pool within seconds; other users then get 15, today's
   figure. The same with a new account and address each time. The clone
   limit did not slow the loop. This is the designed floor, not a bug, but it
   means one determined account can deny the pool to everyone else; a
   per-account allowance cooldown would close it if that matters.
+- Draining, with the budget: the same loop gets one allowance (40 at once,
+  then 15 each time), and five other users logging in during it each get all
+  40. With a new account and address per connect, the pool still empties and
+  the others get 15 to 20. The bouncer cases above still get 40.
 - Rehash: with the pool turned off, a client that registered while it was on
   gets 15; raising the cap after a minute credits one cap; lowering it to 100
   with 2800 banked clamps the pool, and the next client gets 45 (10 + 5 + 30).
@@ -270,6 +278,10 @@ No sanitizer report in any run.
   the slowest done in 30 s against today's 52.
 
 ## Checked by tools
+
+The budget table (v5) is covered by unit tests, ASan, UBSan, valgrind, gcc
+`-fanalyzer` and cppcheck, and by mutants of its checks; the CBMC and z3
+proofs below cover the pool and `fakelag_spend()`, which it leaves unchanged.
 
 - ASan + UBSan and valgrind over the unit tests, and ASan + UBSan over a live
   ircd running the probe and a 20-client storm: no reports.
@@ -311,13 +323,18 @@ so it stays out of this change until the pool proves itself.
 
 ## Known limits
 
-- **First come, first served.** There is no per-account limit. One account
-  with several devices or bouncer aliases gets an allowance for each
-  registration. IPcheck bounds reconnects per address after its startup delay,
-  but not when `IPCHECK_SASL_REFUND` (default off) refunds SASL revives
-  (`s_user.c` L786-787). With that on, a single flapping logged-in address can
-  draw the whole refill. Whoever drains the pool only brings everyone else back
-  to today's behaviour.
+- **Many accounts.** The budget is per account, so k accounts draw k
+  allowances a minute: with the suggested settings, ten accounts can still
+  empty the pool every minute. Whoever drains it only brings everyone else back
+  to today's behaviour. Live: one account in a loop no longer dents the pool;
+  a fresh account per connect still empties it.
+- **The budget table.** 1024 slots, each name tried in a window of 16 picked
+  by a seeded hash. An open budget is never pushed out; a name whose window is
+  all open borrows nothing that minute. Filling a chosen name's window takes
+  16 accounts that each borrow, placed without knowing the seed.
+- **Renames.** Budgets are keyed by account name, so an account renamed by
+  services (`ACCOUNT M`) starts a fresh budget, and a name reused within the
+  minute inherits the old one's.
 - **Bigger bursts into channels.** A logged-in revive that is already in its
   channels (no JOIN needed) can now send about 40 PRIVMSGs at once instead of
   about 15. That is bounded by the pool, at roughly 10 such bursts a minute
@@ -373,6 +390,21 @@ v2, Codex:
 | 10 | The existing test does not pin a 15-command burst, and the gate needs live testing | The claim is corrected, and the live probe was added. |
 | 11 | Pre-registration and logging in after 001 | Documented. |
 | 12 | The scope and claims were overstated, the advertisement protocol was premature, and assuming 20 s on the client is unsafe | Renamed, the protocol is out of scope, and Seance gets a per-network setting instead. |
+
+v5, the per-account budget (Claude, then Codex twice). The live test found
+one account reconnecting about twice a second emptied the pool in seconds.
+
+| Finding | Outcome |
+| --- | --- |
+| One account drains the pool by reconnecting (live) | First fixed as one allowance per account per minute, then replaced by the budget below. |
+| Codex on the gap: a 1024-slot cache by hash, so two accounts sharing a slot evicted each other and borrowed at reconnect speed; the slot came from bits only the seed's low bits steer | Replaced: real names, compared by name, open entries never reused, the hash mixed before it picks a slot. |
+| Codex: ASCII folding, where the server also equates `[ ] \\ ^` with `{ } \| ~` | `ToLower` and `ircd_strcmp()`, tested. |
+| Codex: the gap was charged at registration, so a phone that dropped before its burst lost its allowance | The budget opens at the first actual draw; a flap gets the rest. |
+| Codex: a clock step back reopened the gap | A window that opened in the future restarts now and keeps what was used. |
+| Codex on the budget: `ircd_strncpy()` counts the terminator, so a 15-character name was stored one short and never met its own budget | `sizeof` the field; tested with a full-length name. |
+| Codex on the budget: a client logged out after the grant still borrowed, under an empty name that never accumulated | The allowance is dropped at the next charge. |
+| Codex: renames change the identity | Accepted and documented; renames are services-driven. |
+| Codex: probe-window saturation denies a name before the table is full | Accepted: it denies, never lends extra, and needs 16 borrowing accounts placed blind. |
 
 v3, Fable:
 
