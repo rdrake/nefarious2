@@ -528,6 +528,32 @@ static void test_full_table_lends_nothing_evicts_nobody(void **state)
   assert_int_equal(lent_to(reg(&f, "u0"), 40), 58);
 }
 
+/* A name of the full ACCOUNTLEN is stored whole, so it meets its own
+ * budget on the next registration. */
+static void test_budget_full_length_name(void **state)
+{
+  struct grant_fixture f1, f2;
+  (void)state;
+  fill_pool();
+  assert_int_equal(lent_to(reg(&f1, "abcdefghijklmno"), 40), 60);
+  assert_int_equal(lent_to(reg(&f2, "abcdefghijklmno"), 40), 0);
+}
+
+/* Logged out after the grant: the allowance is dropped, nothing lent. */
+static void test_logged_out_borrows_nothing(void **state)
+{
+  struct grant_fixture f;
+  struct Client *c;
+  (void)state;
+  fill_pool();
+  c = reg(&f, "alice");
+  ClearAccount(c);
+  f.user.account[0] = '\0';
+  lent_to(c, 40);
+  assert_int_equal(cli_lagborrow(c), 0);
+  assert_int_equal(fakelag_pool_take(100000), 600);   /* pool untouched */
+}
+
 /* A lowered FAKELAG_BORROW applies to what is left this minute. */
 static void test_lowered_borrow_caps_the_rest(void **state)
 {
@@ -601,6 +627,8 @@ int main(void)
     cmocka_unit_test_setup(test_empty_pool_opens_no_window, pool_setup),
     cmocka_unit_test_setup(test_full_table_lends_nothing_evicts_nobody, pool_setup),
     cmocka_unit_test_setup(test_lowered_borrow_caps_the_rest, pool_setup),
+    cmocka_unit_test_setup(test_budget_full_length_name, pool_setup),
+    cmocka_unit_test_setup(test_logged_out_borrows_nothing, pool_setup),
   };
   return cmocka_run_group_tests(tests, NULL, NULL);
 }

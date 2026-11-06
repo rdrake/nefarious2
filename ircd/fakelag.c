@@ -163,7 +163,7 @@ static int take_for_account(int want)
   got = fakelag_pool_take(want < room ? want : room);
   if (got > 0) {
     if (!mine) {
-      ircd_strncpy(b->account, charging, ACCOUNTLEN);
+      ircd_strncpy(b->account, charging, sizeof(b->account));
       b->start = CurrentTime;
       b->used = 0;
     }
@@ -180,6 +180,10 @@ static int take_for_account(int want)
  */
 int fakelag_charge_client(struct Client *cptr, int lag)
 {
+  /* Logged out since the grant (services can do that): no account to
+   * charge a draw to, so the allowance goes. */
+  if (cli_lagborrow(cptr) > 0 && (!IsAccount(cptr) || !cli_account(cptr)[0]))
+    cli_lagborrow(cptr) = 0;
   charging = cli_account(cptr);
   return fakelag_spend(&cli_lagcredit(cptr), &cli_lagborrow(cptr),
                        cli_lagborrow_until(cptr), CurrentTime,
