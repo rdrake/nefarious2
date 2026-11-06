@@ -9,6 +9,8 @@
 #include <stdarg.h>
 #include <stddef.h>
 #include <setjmp.h>
+#include <stdlib.h>
+#include <string.h>
 #include <cmocka.h>
 
 #include "match.h"
@@ -260,6 +262,59 @@ static void test_mmatch_basic(void **state)
 }
 
 
+/* ========== Regression: reads outside the strings (fuzz F10-F12) ==========
+ * Each subject and mask is a heap copy of exactly its length, so ASan
+ * sees a read one byte before or after it. */
+
+static char *heap(const char *s)
+{
+    char *p = malloc(strlen(s) + 1);
+    assert_non_null(p);
+    strcpy(p, s);
+    return p;
+}
+
+static void test_matchexec_tail_stops_at_string_start(void **state)
+{
+    (void)state;
+    char cmask[16];
+    int minlen;
+    char *subject = heap("a");
+
+    /* F10: the tail of "*a" matched down to subject[0] and then read
+     * subject[-1]. */
+    matchcomp(cmask, &minlen, NULL, "*a");
+    assert_int_equal(0, matchexec(subject, cmask, minlen));
+    matchcomp(cmask, &minlen, NULL, "*b");
+    assert_int_not_equal(0, matchexec(subject, cmask, minlen));
+    free(subject);
+}
+
+static void test_mmatch_empty_old_mask(void **state)
+{
+    (void)state;
+    char *old_mask = heap("");
+    char *new_mask = heap("\\?cab?abc");
+
+    /* F11: an empty old mask made mmatch read old_mask[-1]. */
+    assert_int_not_equal(0, mmatch(old_mask, new_mask));
+    free(old_mask);
+    free(new_mask);
+}
+
+static void test_match_trailing_backslash(void **state)
+{
+    (void)state;
+    char *mask = heap("#a\\");
+    char *name = heap("#a");
+
+    /* F12: the escape compared both terminating NULs and walked past
+     * them.  A dangling backslash escapes nothing and does not match. */
+    assert_int_not_equal(0, match(mask, name));
+    free(mask);
+    free(name);
+}
+
 int main(void)
 {
     const struct CMUnitTest tests[] = {
@@ -294,6 +349,9 @@ int main(void)
 
         /* mmatch */
         cmocka_unit_test(test_mmatch_basic),
+        cmocka_unit_test(test_matchexec_tail_stops_at_string_start),
+        cmocka_unit_test(test_mmatch_empty_old_mask),
+        cmocka_unit_test(test_match_trailing_backslash),
     };
 
     return cmocka_run_group_tests(tests, NULL, NULL);
