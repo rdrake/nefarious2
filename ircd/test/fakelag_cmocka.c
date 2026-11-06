@@ -35,9 +35,13 @@ int feature_int(enum Feature feat)
   }
 }
 
+static struct Client *stub_factor_asked;   /* who get_lag_factor() was asked about */
+
 int get_lag_factor(struct Client *cptr)
 {
-  (void)cptr;
+  /* The real one asserts a local client (class.c). */
+  assert_ptr_equal(cli_from(cptr), cptr);
+  stub_factor_asked = cptr;
   return stub_factor;
 }
 
@@ -142,6 +146,15 @@ static void test_spend_capped_by_pool(void **state)
   assert_int_equal(fake_pool, 0);
 }
 
+static void test_spend_allowance_live_through_its_last_second(void **state)
+{
+  int credit = 0, borrow = 60;
+  (void)state;
+  fake_pool = 100;
+  assert_int_equal(fakelag_spend(&credit, &borrow, 50, 50, fake_take, 2), 0);
+  assert_int_equal(borrow, 58);
+}
+
 static void test_spend_lapsed_allowance_is_dropped(void **state)
 {
   int credit = 0, borrow = 60;
@@ -179,8 +192,25 @@ static void test_pool_starts_empty_and_fills_in_a_minute(void **state)
 static void test_pool_long_gap_credits_one_cap(void **state)
 {
   (void)state;
+  stub_pool = 100000;               /* the largest cap: a day * cap overflows int */
   fakelag_pool_take(0);
   CurrentTime += 86400;
+  assert_int_equal(fakelag_pool_take(1000000), 100000);
+  CurrentTime += 365 * 86400;
+  assert_int_equal(fakelag_pool_take(1000000), 100000);
+  fakelag_pool_take(1000000);       /* drained */
+  CurrentTime += 21475;             /* 21475 * 100000 is past INT_MAX */
+  assert_int_equal(fakelag_pool_take(1000000), 100000);
+}
+
+static void test_pool_never_exceeds_cap(void **state)
+{
+  (void)state;
+  fakelag_pool_take(0);
+  CurrentTime += 60;
+  fakelag_pool_take(0);             /* full */
+  CurrentTime += 60;
+  fakelag_pool_take(0);             /* another minute settled on a full pool */
   assert_int_equal(fakelag_pool_take(100000), 600);
 }
 
@@ -224,7 +254,8 @@ static void test_pool_lowered_cap_clamps(void **state)
   (void)state;
   fakelag_pool_take(0);
   CurrentTime += 60;
-  stub_pool = 50;
+  fakelag_pool_take(0);             /* 600 banked */
+  stub_pool = 50;                   /* lowered with no time passing */
   assert_int_equal(fakelag_pool_take(1000), 50);
 }
 
@@ -239,6 +270,7 @@ static struct Client *mkclient(struct grant_fixture *f, int account)
 {
   memset(f, 0, sizeof(*f));
   cli_connect(&f->cli) = &f->con;
+  cli_from(&f->cli) = &f->cli;      /* a local client */
   if (account)
     SetAccount(&f->cli);
   return &f->cli;
@@ -274,6 +306,7 @@ static void test_grant_arms_allowance(void **state)
   assert_int_equal(cli_lagcredit(c), 20);
   assert_int_equal(cli_lagborrow(c), 60);
   assert_int_equal(cli_lagborrow_until(c), CurrentTime + 30);
+  assert_ptr_equal(stub_factor_asked, c);
 }
 
 static void test_grant_lag_off_class_borrows_nothing(void **state)
@@ -293,8 +326,10 @@ static void test_grant_clears_revived_allowance(void **state)
   struct Client *c = mkclient(&f, 1);
   (void)state;
   fakelag_grant(c);
+  cli_lagcredit(c) -= 5;             /* partly spent, then held */
   stub_grace = 0;                    /* rehashed off before the revive */
   fakelag_grant(c);
+  assert_int_equal(cli_lagcredit(c), 0);
   assert_int_equal(cli_lagborrow(c), 0);
   assert_int_equal(cli_lagborrow_until(c), 0);
 }
@@ -310,15 +345,18 @@ static void test_grant_borrow_clamped(void **state)
 }
 
 /* A lone logged-in client: 80 s of credit for 2 s commands is 40 of
- * them before the clock moves at all. */
+ * them before the clock moves at all.  The pool's clock starts at the
+ * first grant, so a client a minute after the first finds it full. */
 static void test_burst_with_pool(void **state)
 {
-  struct grant_fixture f;
-  struct Client *c = mkclient(&f, 1);
+  struct grant_fixture f0, f;
+  struct Client *first = mkclient(&f0, 1);
+  struct Client *c;
   int i, free_cmds = 0;
   (void)state;
-  fakelag_pool_take(0);
-  CurrentTime += 60;                 /* pool full */
+  fakelag_grant(first);
+  CurrentTime += 60;
+  c = mkclient(&f, 1);
   fakelag_grant(c);
   for (i = 0; i < 50; i++)
     if (fakelag_spend(&cli_lagcredit(c), &cli_lagborrow(c),
@@ -340,9 +378,11 @@ int main(void)
     cmocka_unit_test(test_spend_credit_then_pool_then_clock),
     cmocka_unit_test(test_spend_credit_covers_pool_untouched),
     cmocka_unit_test(test_spend_capped_by_pool),
+    cmocka_unit_test(test_spend_allowance_live_through_its_last_second),
     cmocka_unit_test(test_spend_lapsed_allowance_is_dropped),
     cmocka_unit_test_setup(test_pool_starts_empty_and_fills_in_a_minute, pool_setup),
     cmocka_unit_test_setup(test_pool_long_gap_credits_one_cap, pool_setup),
+    cmocka_unit_test_setup(test_pool_never_exceeds_cap, pool_setup),
     cmocka_unit_test_setup(test_pool_raised_cap_credits_at_most_one_cap, pool_setup),
     cmocka_unit_test_setup(test_pool_backward_step_adds_nothing, pool_setup),
     cmocka_unit_test_setup(test_pool_carries_remainder, pool_setup),

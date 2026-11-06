@@ -2005,8 +2005,9 @@ seconds, that a logged-in connection may draw on for 30 seconds after
 registration once its POSTREG_GRACE is spent, up to FAKELAG_BORROW.  A
 lone reconnecting client gets a much bigger connect burst; when many
 connect at once the pool runs dry and they fall back to POSTREG_GRACE
-alone.  The pool starts empty and begins to fill at the first
-registration.  Per server.  0 disables it.  See doc/design/fakelag-htb.md.
+alone.  The pool starts empty and begins to fill at the first logged-in
+registration that could draw on it.  Capped at 100000.  Per server.  0
+disables it.  See doc/design/fakelag-htb.md.
 
 FAKELAG_BORROW
  * Type: integer

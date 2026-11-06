@@ -812,17 +812,8 @@ int register_user(struct Client *cptr, struct Client *sptr)
           persistence_send_status(ghost);
 
         motd_signon(ghost);
-        /* Post-registration fakelag credit: modern clients burst init
-         * commands (MONITOR, METADATA SUB, WHO, MODE...) right after 001;
-         * the default ~10s cli_since headroom covers only ~5 of them.
-         * A credit the first charges absorb (fakelag_charge()) -- every
-         * command is still CHARGED (credit, not exemption), the one-shot
-         * grace just raises the initial burst budget; recvq byte caps still
-         * bound the wire.  Not a clock set below now: read_packet() floors
-         * the clock to the last read time and would erase that.
-   * Authenticated clients only: an anonymous connection (the
-   * drive-by/WS-flood surface) keeps the classic ~5-command burst.
-   * fakelag_grant() also arms the shared-pool allowance (FAKELAG_POOL). */
+        /* Post-registration fake-lag credit, and the shared-pool allowance:
+         * see fakelag_grant(). */
         fakelag_grant(ghost);
 
         /* IRCv3 draft/metadata-2: mirror the normal-path self-metadata
@@ -1101,17 +1092,8 @@ int register_user(struct Client *cptr, struct Client *sptr)
       persistence_send_status(sptr);
 
     motd_signon(sptr);
-    /* Post-registration fakelag credit: modern clients burst init
-     * commands (MONITOR, METADATA SUB, WHO, MODE...) right after 001;
-     * the default ~10s cli_since headroom covers only ~5 of them.
-     * A credit the first charges absorb (fakelag_charge()) -- every
-     * command is still CHARGED (credit, not exemption), the one-shot
-     * grace just raises the initial burst budget; recvq byte caps still
-     * bound the wire.  Not a clock set below now: read_packet() floors
-     * the clock to the last read time and would erase that.
-   * Authenticated clients only: an anonymous connection (the
-   * drive-by/WS-flood surface) keeps the classic ~5-command burst.
-   * fakelag_grant() also arms the shared-pool allowance (FAKELAG_POOL). */
+    /* Post-registration fake-lag credit, and the shared-pool allowance:
+     * see fakelag_grant(). */
     fakelag_grant(sptr);
 
     /* IRCv3 draft/metadata-2: burst client's own metadata after registration.

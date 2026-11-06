@@ -11,7 +11,7 @@
  *
  * Fake-lag pool (FAKELAG_POOL, FAKELAG_BORROW; ircd/fakelag.c): a
  * server-wide budget of lag-seconds, refilled over a minute, that a
- * logged-in connection may draw on for FAKELAG_BORROW_TTL seconds after
+ * logged-in connection may draw on for 30 seconds after
  * registration once its own credit is spent.  A two-level token bucket:
  * a lone reconnecting client gets a much bigger connect burst, and under
  * a reconnect storm the pool runs dry and everyone falls back to the
@@ -20,7 +20,7 @@
 #ifndef INCLUDED_fakelag_h
 #define INCLUDED_fakelag_h
 
-#include <time.h>
+#include <sys/types.h>
 
 struct Client;
 

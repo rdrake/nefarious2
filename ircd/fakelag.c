@@ -37,6 +37,7 @@ static int    pool;       /**< Lag-seconds available to lend. */
 static int    pool_rem;   /**< Refill carried over, in 1/60 s. */
 static time_t pool_last;  /**< When the pool was last settled; 0 = never. */
 
+/** Clamp @a v to [0, @a hi]. */
 static int clamp(int v, int hi)
 {
   return v < 0 ? 0 : v > hi ? hi : v;
@@ -75,7 +76,15 @@ int fakelag_pool_take(int want)
 }
 
 /** Grant the post-registration credit, and the pool allowance when the
- * pool is on.  Called at the end of every registration path.
+ * pool is on.  Called at the end of every registration path (fresh
+ * registration, held-session revive, alias attach).
+ *
+ * Modern clients burst init commands (MONITOR, METADATA SUB, WHO,
+ * CHATHISTORY...) right after 001, and the ~10 s cli_since headroom covers
+ * only ~5 of them.  The credit raises that initial budget; every command
+ * is still charged (credit, not exemption), and recvQ byte caps still
+ * bound the wire.  It is not a clock set below now: read_packet() floors
+ * the clock to the last read time and would erase that.
  * @param[in] cptr The client that keeps the socket: on a revive that is
  *   the ghost, not the freed incoming client.
  */
@@ -83,7 +92,8 @@ void fakelag_grant(struct Client *cptr)
 {
   int grace = feature_int(FEAT_POSTREG_GRACE);
 
-  /* A revived ghost may still carry an allowance from its last life. */
+  /* A revived ghost may still carry credit from its last life. */
+  cli_lagcredit(cptr) = 0;
   cli_lagborrow(cptr) = 0;
   cli_lagborrow_until(cptr) = 0;
 

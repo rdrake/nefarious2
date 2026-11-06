@@ -693,7 +693,9 @@ struct Client {
 #define cli_since(cli)		con_since(cli_connect(cli))
 /** Get the client's unspent fake-lag credit. */
 #define cli_lagcredit(cli)	con_lagcredit(cli_connect(cli))
+/** Get the seconds the client may still draw on the fake-lag pool. */
 #define cli_lagborrow(cli)	con_lagborrow(cli_connect(cli))
+/** Get the last second the client's fake-lag pool allowance is live. */
 #define cli_lagborrow_until(cli)	con_lagborrow_until(cli_connect(cli))
 /** Get time client was created. */
 #define cli_firsttime(cli)	((cli)->cli_firsttime)
@@ -998,7 +1000,9 @@ struct Client {
 #define con_since(con)          ((con)->con_since)
 /** Get the connection's unspent fake-lag credit. */
 #define con_lagcredit(con)      ((con)->con_lagcredit)
+/** Get the seconds the connection may still draw on the fake-lag pool. */
 #define con_lagborrow(con)      ((con)->con_lagborrow)
+/** Get the last second the connection's fake-lag pool allowance is live. */
 #define con_lagborrow_until(con) ((con)->con_lagborrow_until)
 /** Get SendQ for connection. */
 #define con_sendQ(con)		((con)->con_sendQ)
