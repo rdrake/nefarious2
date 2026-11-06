@@ -6251,8 +6251,10 @@ void crdt_shadow_reconcile_removes(void)
 {
   unsigned int changed = 0;
   int bk;
-  if (!shadow_on() || !feature_bool(FEAT_CRDT_PRIMARY))
+  if (!shadow_on() || !feature_bool(FEAT_CRDT_PRIMARY)) {
+    crdt_chan_part_reasons_clear(&g_crdt);
     return;
+  }
   for (bk = 0; bk < CRDT_CHAN_BUCKETS; bk++) {
     struct CrdtChannel *dc;
     for (dc = g_crdt.chan_buckets[bk]; dc; dc = dc->next) {
@@ -6363,6 +6365,10 @@ void crdt_shadow_reconcile_removes(void)
       }
     }
   }
+  /* A part reason lives only until the pass after the apply that parked it:
+   * whatever was not consumed above (member not live here, a kick, a leave
+   * already handled) is dropped, so it can never attach to a later PART. */
+  crdt_chan_part_reasons_clear(&g_crdt);
   if (changed)
     log_write(LS_SYSTEM, L_NOTICE, 0,
               "CRDT member-reconcile: removed %u member(s) from doc", changed);

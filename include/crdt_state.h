@@ -27,6 +27,7 @@
 #define CRDT_QUIT_RING      64
 #define CRDT_PARTREASON_LEN 192 /* part comment carried on a member REMOVE op */
 #define CRDT_PARTKEY_LEN    256 /* "<chan> <numeric>" */
+#define CRDT_PARTREASON_MAX 4096 /* parked part reasons held between reconciles */
 #define CRDT_HOSTLEN     80   /* >= HOSTLEN(75)+1 */
 #define CRDT_REALLEN     56   /* >= REALLEN(50)+1 */
 #define CRDT_UMODELEN    32   /* umode_str() form, e.g. "+rix" */
@@ -455,17 +456,23 @@ struct CrdtNetworkState {
     char reason[CRDT_QUITREASON_LEN];
   } quit_ring[CRDT_QUIT_RING];
   unsigned                quit_ring_head;
-  /* PART reason ring, the membership twin of quit_ring: the first REMOVE op of a
-   * voluntary leave (priority 0) may carry the part comment as its value.  When
-   * such an op applies, ("<chan> <numeric>", reason) is parked here for the
-   * doc-driven PART to consume (crdt_chan_part_reason_take).  The OR-Set keeps
-   * no value, so this is digest- and snapshot-neutral, and an older peer simply
-   * ignores the value. */
-  struct {
+  /* Parked PART reasons, the membership twin of quit_ring: the first REMOVE op
+   * of a voluntary leave (priority 0) may carry the part comment as its value.
+   * When such an op applies, ("<chan> <numeric>", reason) is parked here, one
+   * entry per key (a later reason for the same member replaces it), for the
+   * doc-driven PART to consume (crdt_chan_part_reason_take).  A member ADD for
+   * the key drops it (the leave it described was superseded by a rejoin), and
+   * crdt_shadow_reconcile_removes clears every entry at the end of its pass, so
+   * a reason lives only from the apply that parked it to the next reconcile:
+   * it can never attach to a later leave, a kick, or a reused numeric.  The
+   * store grows to hold a whole delta (CRDT_PARTREASON_MAX caps it).  The
+   * OR-Set keeps no value, so this is digest- and snapshot-neutral, and an
+   * older peer simply ignores the value. */
+  struct CrdtPartReason {
     char key[CRDT_PARTKEY_LEN];
     char reason[CRDT_PARTREASON_LEN];
-  } part_ring[CRDT_QUIT_RING];
-  unsigned                part_ring_head;
+  }                      *part_reasons;
+  unsigned                part_reasons_n, part_reasons_cap;
 };
 
 /* ---- lifecycle ---- */
@@ -492,6 +499,8 @@ void crdt_chan_remove_reason(struct CrdtNetworkState *st, const char *chan,
  * member REMOVE for @a numeric on @a chan; 1 if there was one, else 0. */
 int crdt_chan_part_reason_take(struct CrdtNetworkState *st, const char *chan,
                                const char *numeric, char *buf, size_t buflen);
+/* Drop every parked part reason (end of a removal reconcile pass). */
+void crdt_chan_part_reasons_clear(struct CrdtNetworkState *st);
 /** Phase 3m: 1 iff @a numeric has an explicit user delete-tombstone in the doc
  *  (gate for doc->live delete-on-leave; never true for a merely-absent user). */
 int crdt_user_is_explicitly_removed(const struct CrdtNetworkState *st,
@@ -813,6 +822,10 @@ const struct CrdtLWWValue *crdt_metadata_get(const struct CrdtNetworkState *st,
  *  SET op so it replicates via delta; get() returns the LWW value (NULL if absent)
  *  so callers can read both the CrdtKickInfo payload and its HLC (.ts) for the
  *  KICK-vs-PART staleness gate. */
+/* Delete the kick record for @a numeric on @a chan, if one is live (a rejoin
+ * supersedes it, so a later plain PART is never read as that kick). */
+void crdt_kick_info_remove(struct CrdtNetworkState *st, const char *chan,
+                           const char *numeric);
 void crdt_kick_info_set(struct CrdtNetworkState *st, const char *chan,
                         const char *numeric, const struct CrdtKickInfo *ki);
 const struct CrdtLWWValue *crdt_kick_info_get(struct CrdtNetworkState *st,

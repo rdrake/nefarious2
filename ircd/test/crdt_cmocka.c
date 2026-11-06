@@ -2676,6 +2676,95 @@ static void test_chan_part_reason_rides_remove(void **state)
   crdt_state_clear(&s2);
 }
 
+/* A parked part reason never outlives the leave it describes: a rejoin in the
+ * same delta drops it, the newest reason for a member wins, CR/LF never reach
+ * the parked text, one delta can park more reasons than any fixed ring held,
+ * and the end-of-pass clear empties the store. */
+static void test_chan_part_reason_lifetime(void **state)
+{
+  (void)state;
+  struct CrdtNetworkState s1, s2;
+  char why[CRDT_PARTREASON_LEN], num[16];
+  int i;
+  crdt_state_init(&s1, 4);
+  crdt_state_init(&s2, 3);
+
+  /* PART "brb", rejoin, PART with no comment (e.g. suppressed by +m): nothing */
+  crdt_chan_join(&s1, "#c", "DAAAB");
+  crdt_chan_remove_reason(&s1, "#c", "DAAAB", CRDT_PRIORITY_USER, "brb");
+  crdt_chan_join(&s1, "#c", "DAAAB");
+  crdt_chan_remove(&s1, "#c", "DAAAB", CRDT_PRIORITY_USER);
+  /* PART "brb", rejoin, PART "bye": the second reason */
+  crdt_chan_join(&s1, "#c", "DAAAC");
+  crdt_chan_remove_reason(&s1, "#c", "DAAAC", CRDT_PRIORITY_USER, "brb");
+  crdt_chan_join(&s1, "#c", "DAAAC");
+  crdt_chan_remove_reason(&s1, "#c", "DAAAC", CRDT_PRIORITY_USER, "bye");
+  /* PART "old", rejoin: still a member, nothing parked */
+  crdt_chan_join(&s1, "#c", "DAAAD");
+  crdt_chan_remove_reason(&s1, "#c", "DAAAD", CRDT_PRIORITY_USER, "old");
+  crdt_chan_join(&s1, "#c", "DAAAD");
+  /* a reason with an embedded line break is cut at it */
+  crdt_chan_join(&s1, "#c", "DAAAE");
+  crdt_chan_remove_reason(&s1, "#c", "DAAAE", CRDT_PRIORITY_USER, "a\r\nPRIVMSG #c :x");
+  /* more leaves in one delta than the old 64-slot ring */
+  for (i = 0; i < 100; i++) {
+    snprintf(num, sizeof num, "DAB%02d", i);
+    crdt_chan_join(&s1, "#big", num);
+    crdt_chan_remove_reason(&s1, "#big", num, CRDT_PRIORITY_USER, num);
+  }
+  assert_true(crdt_state_sync(&s2, &s1) >= 0);
+
+  assert_int_equal(0, crdt_chan_part_reason_take(&s2, "#c", "DAAAB", why, sizeof why));
+  assert_int_equal(1, crdt_chan_part_reason_take(&s2, "#c", "DAAAC", why, sizeof why));
+  assert_string_equal(why, "bye");
+  assert_int_equal(0, crdt_chan_part_reason_take(&s2, "#c", "DAAAC", why, sizeof why));
+  assert_int_equal(0, crdt_chan_part_reason_take(&s2, "#c", "DAAAD", why, sizeof why));
+  assert_int_equal(1, crdt_chan_part_reason_take(&s2, "#c", "DAAAE", why, sizeof why));
+  assert_string_equal(why, "a");
+  for (i = 0; i < 100; i++) {
+    snprintf(num, sizeof num, "DAB%02d", i);
+    if (i == 50) break;                       /* leave half parked for the clear */
+    assert_int_equal(1, crdt_chan_part_reason_take(&s2, "#big", num, why, sizeof why));
+    assert_string_equal(why, num);
+  }
+  crdt_chan_part_reasons_clear(&s2);
+  assert_int_equal(0, crdt_chan_part_reason_take(&s2, "#big", "DAB60", why, sizeof why));
+  assert_true(crdt_state_digest(&s1) == crdt_state_digest(&s2));
+
+  crdt_state_clear(&s1);
+  crdt_state_clear(&s2);
+}
+
+/* A rejoin's kick-record delete replicates, so a plain PART after kick+rejoin is
+ * not read back as the old kick on a peer (the members_status gate alone fails
+ * once delete-on-leave has removed the status the rejoin wrote). */
+static void test_kick_info_remove_replicates(void **state)
+{
+  (void)state;
+  struct CrdtNetworkState s1, s2;
+  struct CrdtKickInfo ki;
+  uint64_t seq;
+  crdt_state_init(&s1, 4);
+  crdt_state_init(&s2, 3);
+  memset(&ki, 0, sizeof ki);
+  strcpy(ki.kicker, "DAAAA");
+  strcpy(ki.reason, "out");
+  crdt_kick_info_set(&s1, "#c", "DAAAB", &ki);
+  assert_true(crdt_state_sync(&s2, &s1) >= 0);
+  assert_non_null(crdt_kick_info_get(&s2, "#c", "DAAAB"));
+  crdt_kick_info_remove(&s1, "#c", "DAAAB");
+  assert_null(crdt_kick_info_get(&s1, "#c", "DAAAB"));
+  seq = s1.next_seq;
+  crdt_kick_info_remove(&s1, "#c", "DAAAB");        /* no live record: no op */
+  crdt_kick_info_remove(&s1, "#c", "DAAAZ");
+  assert_int_equal(seq, s1.next_seq);
+  assert_true(crdt_state_sync(&s2, &s1) >= 0);
+  assert_null(crdt_kick_info_get(&s2, "#c", "DAAAB"));
+  assert_true(crdt_state_digest(&s1) == crdt_state_digest(&s2));
+  crdt_state_clear(&s1);
+  crdt_state_clear(&s2);
+}
+
 /* LWW delete-tombstone GC: a user-remove tombstone is reclaimed only once its DELETE
  * op is causally stable (all peers saw it); kept while unstable (no resurrection). */
 static void test_lww_tombstone_gc(void **state)
@@ -4381,6 +4470,8 @@ int main(void)
     cmocka_unit_test(test_owner_remove_beats_snapshot_reimport),
     cmocka_unit_test(test_user_remove_reason_rides_delete),
     cmocka_unit_test(test_chan_part_reason_rides_remove),
+    cmocka_unit_test(test_chan_part_reason_lifetime),
+    cmocka_unit_test(test_kick_info_remove_replicates),
     cmocka_unit_test(test_digest_gc_invariant),
     cmocka_unit_test(test_decommission_replicates),
     cmocka_unit_test(test_decommission_reap_and_return),
