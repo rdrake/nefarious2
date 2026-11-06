@@ -38,6 +38,7 @@
 #include "channel.h"
 #include "chathistory_presence.h"
 #include "class.h"
+#include "fakelag.h"
 #include "authtoken.h"
 #include "client.h"
 #include "hash.h"
@@ -820,12 +821,9 @@ int register_user(struct Client *cptr, struct Client *sptr)
          * bound the wire.  Not a clock set below now: read_packet() floors
          * the clock to the last read time and would erase that.
    * Authenticated clients only: an anonymous connection (the
-   * drive-by/WS-flood surface) keeps the classic ~5-command burst. */
-        {
-          int grace = feature_int(FEAT_POSTREG_GRACE);
-          if (grace > 0 && IsAccount(ghost))
-            cli_lagcredit(ghost) = grace;
-        }
+   * drive-by/WS-flood surface) keeps the classic ~5-command burst.
+   * fakelag_grant() also arms the shared-pool allowance (FAKELAG_POOL). */
+        fakelag_grant(ghost);
 
         /* IRCv3 draft/metadata-2: mirror the normal-path self-metadata
          * BATCH so a reviving client sees its persisted keys at attach
@@ -1112,12 +1110,9 @@ int register_user(struct Client *cptr, struct Client *sptr)
      * bound the wire.  Not a clock set below now: read_packet() floors
      * the clock to the last read time and would erase that.
    * Authenticated clients only: an anonymous connection (the
-   * drive-by/WS-flood surface) keeps the classic ~5-command burst. */
-    {
-      int grace = feature_int(FEAT_POSTREG_GRACE);
-      if (grace > 0 && IsAccount(sptr))
-        cli_lagcredit(sptr) = grace;
-    }
+   * drive-by/WS-flood surface) keeps the classic ~5-command burst.
+   * fakelag_grant() also arms the shared-pool allowance (FAKELAG_POOL). */
+    fakelag_grant(sptr);
 
     /* IRCv3 draft/metadata-2: burst client's own metadata after registration.
      * Spec requires METADATA commands in a metadata batch with target param.

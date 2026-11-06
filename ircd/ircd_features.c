@@ -1355,6 +1355,8 @@ static struct FeatureDesc {
    * bypass.  Defaults are meant for an exposed network -- the testnet bed
    * pins LIMIT/GLOBAL to 0 in its confs. */
   F_I(POSTREG_GRACE, 0, 20, 0),
+  F_I(FAKELAG_POOL, 0, 0, 0),     /* shared lag-seconds behind the grace; refills in 60 s; 0 = off */
+  F_I(FAKELAG_BORROW, 0, 0, 0),   /* seconds one registration may draw on the pool */
   F_I(REGISTER_THROTTLE_LIMIT, 0, 3, 0),
   F_I(REGISTER_THROTTLE_PERIOD, 0, 3600, 0),
   F_I(REGISTER_THROTTLE_GLOBAL, 0, 60, 0),
