@@ -88,10 +88,13 @@ int mmatch(const char *old_mask, const char *new_mask)
     {
       if (!*n)
         return 0;
-      for (m--; (m > old_mask) && (*m == '?'); m--)
-        ;
-      if ((*m == '*') && (m > old_mask) && (m[-1] != '\\'))
-        return 0;
+      /* An empty old_mask has no last character to look back at. */
+      if (m > old_mask) {
+        for (m--; (m > old_mask) && (*m == '?'); m--)
+          ;
+        if ((*m == '*') && (m > old_mask) && (m[-1] != '\\'))
+          return 0;
+      }
       if (!wild)
         return 1;
       m = ma;
@@ -206,6 +209,10 @@ int match(const char *mask, const char *name)
     break;
   case '\\':
     m++;
+    /* A trailing backslash escapes nothing; never let it compare the two
+     * terminating NULs and step past them. */
+    if (!*m)
+      goto backtrack;
     /* allow escaping to force capitalization */
     if (*m++ != *n++)
       goto backtrack;
@@ -510,8 +517,17 @@ tryhead:
     return 2;
 
 trytail:
-  while ((ToLower(*--s) == *++b) && *b && (ToLower(*--s) == *++b) && *b
-      && (ToLower(*--s) == *++b) && *b && (ToLower(*--s) == *++b) && *b);
+  /* Walk the (reversed) tail of the mask back from the end of the
+   * string.  Stop at the start of the string rather than reading
+   * string[-1]: once the tail has matched down to string[0], b moves to
+   * the next mask symbol ('Z' or the end) and the checks below decide. */
+  for (;;) {
+    ++b;
+    if (s == string)
+      break;
+    if (ToLower(*--s) != *b || !*b)
+      break;
+  }
   if (*b != 'Z')
   {
     if (*b == 'A')
