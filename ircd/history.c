@@ -436,6 +436,22 @@ int history_unix_to_iso(const char *unix_ts, char *iso_buf, size_t iso_buflen)
   return 0;
 }
 
+/** strtol() one ISO 8601 field and refuse a value outside [lo, hi].
+ * The bounds are loose (timegm() still normalizes, as before); they only
+ * keep the "- 1900" and "- 1" adjustments below from overflowing on a
+ * saturated strtol() (a linked server's timestamp= reference is not
+ * validated before it gets here).
+ * @return 0 on success, -1 if out of range. */
+static int iso_field(const char *p, char **end, long lo, long hi, int *out)
+{
+  long v = strtol(p, end, 10);
+
+  if (v < lo || v > hi)
+    return -1;
+  *out = (int)v;
+  return 0;
+}
+
 int history_iso_to_unix(const char *iso_ts, char *unix_buf, size_t unix_buflen)
 {
   struct tm tm;
@@ -451,28 +467,30 @@ int history_iso_to_unix(const char *iso_ts, char *unix_buf, size_t unix_buflen)
   memset(&tm, 0, sizeof(tm));
 
   /* Parse date */
-  tm.tm_year = strtol(iso_ts, &end, 10) - 1900;
+  if (iso_field(iso_ts, &end, 0, 99999, &tm.tm_year)) return -1;
+  tm.tm_year -= 1900;
   if (!end || *end != '-') return -1;
   p = end + 1;
 
-  tm.tm_mon = strtol(p, &end, 10) - 1;
+  if (iso_field(p, &end, 0, 99, &tm.tm_mon)) return -1;
+  tm.tm_mon -= 1;
   if (!end || *end != '-') return -1;
   p = end + 1;
 
-  tm.tm_mday = strtol(p, &end, 10);
+  if (iso_field(p, &end, 0, 99, &tm.tm_mday)) return -1;
   if (!end || *end != 'T') return -1;
   p = end + 1;
 
   /* Parse time */
-  tm.tm_hour = strtol(p, &end, 10);
+  if (iso_field(p, &end, 0, 99, &tm.tm_hour)) return -1;
   if (!end || *end != ':') return -1;
   p = end + 1;
 
-  tm.tm_min = strtol(p, &end, 10);
+  if (iso_field(p, &end, 0, 99, &tm.tm_min)) return -1;
   if (!end || *end != ':') return -1;
   p = end + 1;
 
-  tm.tm_sec = strtol(p, &end, 10);
+  if (iso_field(p, &end, 0, 99, &tm.tm_sec)) return -1;
 
   /* Parse the optional fraction as a DECIMAL fraction: ".5" is 500 ms,
    * ".12" is 120 ms, ".123456" is 123 ms.  strtoul on the digits read
