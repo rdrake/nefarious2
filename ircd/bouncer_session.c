@@ -715,6 +715,7 @@ static void crossed_primary_leaves(struct BouncerSession *s, struct Client *link
                                    struct Client *killer, const char *reason);
 static void bounce_bsx_end_devices(struct BouncerSession *s,
                                    struct Client *sender, const char *sessid);
+static void member_end_resolve(struct BouncerSession *s);
 static void bounce_note_registration_wait(struct BouncerSession *s);
 static time_t session_wait_until(struct BouncerSession *s);
 static int session_still_waits(struct BouncerSession *s);
@@ -4102,19 +4103,47 @@ void bounce_crdt_replica_reap(void)
          * aliases of a dead session, nor new logins alias into it. */
         if (s->hs_client && MyConnect(s->hs_client))
           continue;
-        if (!crdt_shadow_bsess_removed_by(s->hs_account, s->hs_sessid, &by))
-          continue;              /* INVARIANT 11: reap ONLY on an EXPLICIT doc tombstone.
-                                  * Absent (legacy-primaried -> never written; or not yet
-                                  * synced) != removed -> spared, not reaped. */
+        if (!crdt_shadow_bsess_removed_by(s->hs_account, s->hs_sessid, &by)) {
+          /* INVARIANT 11: reap ONLY on an EXPLICIT doc tombstone.  Absent
+           * (legacy-primaried -> never written; or not yet synced) !=
+           * removed -> spared, not reaped.  The one exception is a record
+           * we saw tombstoned and left waiting below: once its devices
+           * here are gone it goes, though GC may have taken the tombstone
+           * by then.  A live record again means the id came back. */
+          if (s->hs_reap_deferred
+              && crdt_shadow_bsess_present(s->hs_account, s->hs_sessid))
+            s->hs_reap_deferred = 0;
+          if (!s->hs_reap_deferred || s->hs_client || session_has_local_holder(s))
+            continue;
+          doomed[nd++] = s;
+          continue;
+        }
         /* A record following a remote primary ends only on its OWN holder's
          * tombstone: after a split two holders can keep copies under one id,
          * and one ending its copy must not end the devices here that follow
          * the other's live primary (BS X spares a live copy the same way). */
+        /* A record with no primary may only not have resolved it yet
+         * (member_end_resolve()): resolve it first, so the check below
+         * reads the holder it follows. */
+        if (!s->hs_client)
+          member_end_resolve(s);
+        if (s->hs_client && MyConnect(s->hs_client))
+          continue;
         if (s->hs_client) {
           struct Client *ps = cli_user(s->hs_client) ? cli_user(s->hs_client)->server
                                                      : NULL;
           if (!ps || (uint16_t)base64toint(cli_yxx(ps)) != by)
             continue;
+        } else if (session_has_local_holder(s)) {
+          /* Still none, and devices of it are here: nothing says which
+           * copy they follow, so which copy this tombstone ended is
+           * unknown and it waits (for the primary to resolve, or for its
+           * devices to leave, after which it goes as below).  Without a
+           * copy generation on the record and its delete this is the
+           * most the reap can tell.  With no device here nothing but the
+           * record goes. */
+          s->hs_reap_deferred = 1;
+          continue;
         }
         doomed[nd++] = s;        /* explicitly tombstoned + no local primary -> stale replica */
       }

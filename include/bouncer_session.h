@@ -671,6 +671,12 @@ struct BouncerSession {
    * ours into it. */
   char hs_peer_holding[3];
   unsigned long hs_peer_holding_serial;
+  /** Memory only: the replica reap found this record tombstoned while it
+   * had no primary and devices here, and left it to wait
+   * (bounce_crdt_replica_reap()).  Once those devices are gone the record
+   * goes even if the tombstone was collected meanwhile; a live doc record
+   * again clears it. */
+  int hs_reap_deferred;
 
   /** Memory only: the id another server (hs_peer_sessid_server, its YY)
    * announced this session under when ours beat it at BS C in a link
