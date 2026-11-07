@@ -1,0 +1,78 @@
+name: Soak
+
+# A long run of two linked servers under ordinary traffic, bad clients and
+# a rogue linked server, with AddressSanitizer + UndefinedBehaviorSanitizer.
+# Too slow for every pull request, so the full run is weekly and on demand;
+# a short run guards changes to the harness itself.  Note that schedule and
+# workflow_dispatch only fire once this file is on the repository's default
+# branch.
+on:
+  schedule:
+    - cron: "17 4 * * 1"
+  workflow_dispatch:
+    inputs:
+      minutes:
+        description: How long to soak, in minutes
+        default: "30"
+      seed:
+        description: Random seed for the traffic
+        default: "1"
+  pull_request:
+    paths:
+      - tools/ci/soak.py
+      - .github/workflows/soak.yml
+
+permissions:
+  contents: read
+
+jobs:
+  soak:
+    name: clang ASan+UBSan soak
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    env:
+      ASAN_OPTIONS: detect_leaks=1:quarantine_size_mb=16
+      UBSAN_OPTIONS: print_stacktrace=1:halt_on_error=1
+      SOAK_SEED: ${{ github.event.inputs.seed || github.run_number }}
+      # A pull request that touches the harness gets a short run; a manual
+      # run uses its input; the weekly run uses 30 minutes.
+      SOAK_MINUTES: ${{ github.event.inputs.minutes || (github.event_name == 'pull_request' && '3' || '30') }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+            autoconf automake libtool byacc flex pkg-config clang libclang-rt-18-dev \
+            libssl-dev libzstd-dev libcmocka-dev librocksdb-dev libcurl4-openssl-dev \
+            libjansson-dev libmaxminddb-dev libgeoip-dev libgit2-dev
+
+      - name: Configure and build
+        run: |
+          autoreconf -fi
+          ./configure --prefix="$HOME/ircd" --enable-debug --with-maxcon=4096 \
+            --with-rocksdb=/usr --with-zstd=/usr --enable-keycloak CC=clang \
+            CFLAGS="-g -O1 -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer" \
+            LDFLAGS="-fsanitize=address,undefined"
+          make -j"$(nproc)"
+          make install
+
+      - name: Soak
+        run: |
+          case "$SOAK_MINUTES" in
+            ''|*[!0-9]*) echo "minutes must be a whole number, got '$SOAK_MINUTES'" >&2; exit 1 ;;
+          esac
+          python3 tools/ci/soak.py "$HOME/ircd/bin" "$(( SOAK_MINUTES * 60 ))" "$RUNNER_TEMP/soak"
+
+      - name: Keep the server logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soak-logs
+          path: |
+            ${{ runner.temp }}/soak/*/ircd.log
+            ${{ runner.temp }}/soak/*/output.log
+            ${{ runner.temp }}/soak/sanitizer.*
+            ${{ runner.temp }}/soak/samples.json
+          if-no-files-found: ignore
