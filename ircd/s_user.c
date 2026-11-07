@@ -4062,6 +4062,7 @@ void del_isupport(const char *name)
       prev->is_next = isv->is_next;
     else
       isupport = isv->is_next;
+    MyFree(isv);
     break;
   }
   touch_isupport();
