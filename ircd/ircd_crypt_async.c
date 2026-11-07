@@ -51,13 +51,11 @@ static void *crypt_verify_work(void *arg)
 {
   struct crypt_verify_ctx *ctx = arg;
   int *result;
-  const char *computed;
+  char *computed;
 
   result = (int *)MyMalloc(sizeof(int));
-  if (!result) {
-    *result = CRYPT_VERIFY_ERROR;
-    return result;
-  }
+  if (!result)
+    return NULL;  /* crypt_verify_done() reports NULL as an error */
 
   /* Call the blocking crypt function - this is the slow part */
   computed = ircd_crypt(ctx->password, ctx->hash);
@@ -69,6 +67,7 @@ static void *crypt_verify_work(void *arg)
   } else {
     *result = CRYPT_VERIFY_NOMATCH;
   }
+  MyFree(computed);  /* ircd_crypt() returns an allocated string */
 
   Debug((DEBUG_DEBUG, "crypt_verify_work: result=%d for hash prefix %.8s...",
          *result, ctx->hash));
