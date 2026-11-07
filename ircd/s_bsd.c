@@ -861,6 +861,12 @@ void close_connection(struct Client *cptr)
     else
       flush_connections(cptr);
     LocalClientArray[fd] = 0;
+    /* A pending password check finds its client by this fd, so its
+     * callback can no longer clear the hold.  Clear it here: a bouncer
+     * ghost revived on a new socket would otherwise never parse again. */
+    ClearOperPending(cptr);
+    ClearWebIRCPending(cptr);
+    ClearSetHostPending(cptr);
 
     /* Drain any data sitting in the recv buffer before close.  Linux's
      * close() sends RST (not FIN) when there's unread data in the kernel
@@ -1703,7 +1709,8 @@ ssl_read_again:
         return exit_client_fault(cptr, BOUNCE_FORCED_FLOOD, "Excess Flood");
     }
 
-    while (DBufLength(&(cli_recvQ(cptr))) && !NoNewLine(cptr) && 
+    while (DBufLength(&(cli_recvQ(cptr))) && !NoNewLine(cptr) &&
+           !IsInputHeld(cptr) &&
            (IsTrusted(cptr) || cli_since(cptr) - CurrentTime < 10))
     {
       dolen = dbuf_getmsg(&(cli_recvQ(cptr)), cli_buffer(cptr), FULL_MSG_SIZE);
@@ -1753,9 +1760,10 @@ ssl_read_again:
       }
     }
 
-    /* If there's still data to process, wait 2 seconds first */
+    /* If there's still data to process, wait 2 seconds first.  Held
+     * input waits for client_resume_input() instead. */
     if (DBufLength(&(cli_recvQ(cptr))) && !NoNewLine(cptr) &&
-	!t_onqueue(&(cli_proc(cptr))))
+	!IsInputHeld(cptr) && !t_onqueue(&(cli_proc(cptr))))
     {
       Debug((DEBUG_LIST, "Adding client process timer for %C", cptr));
       cli_freeflag(cptr) |= FREEFLAG_TIMER;
@@ -1764,6 +1772,32 @@ ssl_read_again:
     }
   }
   return 1;
+}
+
+/** Parse the lines a client sent while its input was held (IsInputHeld),
+ * now that nothing holds it.  Call it last: the client may be gone after.
+ * @param cptr Local client whose password check just finished.
+ */
+void client_resume_input(struct Client *cptr)
+{
+  if (!IsDead(cptr))
+    read_packet(cptr, 0);
+}
+
+/** Give a client a new cookie for the password check it is starting.
+ * The check's callback finds the client by fd, and an fd is soon some
+ * other client's; the cookie tells the callback whether it still is the
+ * same one.
+ * @param cptr Local client starting a check.
+ * @return The cookie, never 0, to keep in the check's context.
+ */
+unsigned int client_check_cookie(struct Client *cptr)
+{
+  static unsigned int last;
+
+  if (++last == 0)
+    ++last;
+  return cli_check_cookie(cptr) = last;
 }
 
 /** Start a connection to another server.
