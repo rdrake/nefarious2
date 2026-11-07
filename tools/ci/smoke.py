@@ -175,8 +175,14 @@ def main():
         with open(conf, "w") as f:
             f.write(CONF.format(port=PORT, dir=d))
         out_path = os.path.join(d, "ircd.out")
+        # The server closes stderr once it is up, so a sanitizer would
+        # report into nothing; send its reports to files instead.
+        env = dict(os.environ)
+        for var in ("ASAN_OPTIONS", "UBSAN_OPTIONS"):
+            opts = [o for o in env.get(var, "").split(":") if o and not o.startswith("log_path=")]
+            env[var] = ":".join(opts + ["log_path=" + os.path.join(d, "sanitizer")])
         with open(out_path, "wb") as out:
-            proc = subprocess.Popen([ircd, "-n", "-d", d, "-f", conf],
+            proc = subprocess.Popen([ircd, "-n", "-d", d, "-f", conf], env=env,
                                     stdin=subprocess.DEVNULL, stdout=out, stderr=out)
         failure = None
         try:
@@ -195,6 +201,9 @@ def main():
         elif failure is None:
             failure = "ircd exited early with %s" % proc.returncode
         output = open(out_path, "rb").read().decode("utf-8", "replace")
+        for name in sorted(os.listdir(d)):
+            if name.startswith("sanitizer."):
+                output += open(os.path.join(d, name), "rb").read().decode("utf-8", "replace")
         if SANITIZER.search(output):
             failure = failure or "sanitizer report in the server output"
         if failure:
