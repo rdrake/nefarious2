@@ -27,6 +27,7 @@ CONF = """General {{ name = "smoke.test"; description = "smoke"; numeric = 1; }}
 Admin {{ Location = "ci"; Contact = "ci"; }};
 Class {{ name = "Users"; pingfreq = 3 minutes; sendq = 160000; maxlinks = 100; }};
 Client {{ ip = "*"; class = "Users"; }};
+Operator {{ host = "*@*"; password = "$PLAIN$smokepass"; name = "smokeoper"; class = "Users"; local = no; }};
 Port {{ vhost = "127.0.0.1"; port = {port}; }};
 Features {{
   "PPATH" = "{dir}/ircd.pid";
@@ -138,6 +139,11 @@ def drive():
     a.expect(r" 318 alice bob ")
     b.send("NICK bobby")
     a.expect(r":bob!\S+ NICK :?bobby")
+    # OPER checks the password on the thread pool; try a wrong one first.
+    b.send("OPER smokeoper wrongpass")
+    b.expect(r" 464 bobby ")
+    b.send("OPER smokeoper smokepass")
+    b.expect(r" 381 bobby ")
 
     # Malformed and oversized input must not take the server down.  It
     # comes from a third client: fake lag (or a flood kill) may hold it
