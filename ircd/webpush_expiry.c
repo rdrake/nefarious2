@@ -53,5 +53,6 @@ int webpush_expired(long long armed, time_t now, long long max_age)
   if (armed <= 0 || max_age <= 0)
     return 0;
 
-  return armed + max_age <= (long long)now;
+  /* armed + max_age could overflow for a corrupt record; this cannot. */
+  return armed <= (long long)now - max_age;
 }

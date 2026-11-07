@@ -7,6 +7,7 @@
 #include <setjmp.h>
 #include <string.h>
 #include <time.h>
+#include <limits.h>
 #include <cmocka.h>
 
 #include "../../include/webpush_expiry.h"
@@ -53,11 +54,23 @@ static void test_expired(void **state)
   assert_int_equal(webpush_expired(1, T0, -5), 0);
 }
 
+static void test_expired_no_overflow(void **state)
+{
+  (void)state;
+
+  /* F17: armed + max_age overflowed for a corrupt record armed near
+   * LLONG_MAX.  A record armed in the far future is not expired. */
+  assert_int_equal(webpush_expired(LLONG_MAX, T0, 180 * DAY), 0);
+  assert_int_equal(webpush_expired(LLONG_MAX - 1, T0, LLONG_MAX), 0);
+  assert_int_equal(webpush_expired(1, T0, LLONG_MAX), 0);
+}
+
 int main(void)
 {
   const struct CMUnitTest tests[] = {
     cmocka_unit_test(test_armed_at),
     cmocka_unit_test(test_expired),
+    cmocka_unit_test(test_expired_no_overflow),
   };
 
   return cmocka_run_group_tests(tests, NULL, NULL);
