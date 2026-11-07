@@ -140,8 +140,9 @@ static void oper_password_verified(int result, void *arg)
 
   sptr = LocalClientArray[ctx->fd];
 
-  /* Verify client still exists and matches our cookie */
-  if (!sptr || IsDead(sptr) || !IsOperPending(sptr)) {
+  /* Verify client still exists, is the one that asked, and is pending */
+  if (!sptr || IsDead(sptr) || !IsOperPending(sptr)
+      || cli_check_cookie(sptr) != ctx->cookie) {
     Debug((DEBUG_DEBUG, "oper_password_verified: client gone or not pending "
            "(fd %d)", ctx->fd));
     MyFree(ctx);
@@ -442,6 +443,7 @@ int can_oper(struct Client *cptr, struct Client *sptr, char *name,
 
     ctx = (struct oper_verify_ctx *)MyMalloc(sizeof(struct oper_verify_ctx));
     ctx->fd = cli_fd(sptr);
+    ctx->cookie = client_check_cookie(sptr);
     ctx->aconf = aconf;
     ircd_strncpy(ctx->name, name, NICKLEN + 1);
 

@@ -105,6 +105,7 @@
 /** Context for async SETHOST password verification */
 struct sethost_verify_ctx {
   int fd;                               /**< Client fd for lookup */
+  unsigned int cookie;                  /**< client_check_cookie() at the start */
   char hostmask[USERLEN + HOSTLEN + 2]; /**< Requested user@host mask */
   struct SHostConf *sconf;              /**< Matched config block */
   struct Flags setflags;                /**< Backed up client flags */
@@ -157,7 +158,8 @@ static void sethost_password_verified(int result, void *arg)
   sptr = LocalClientArray[ctx->fd];
 
   /* Verify client still exists and is pending verification */
-  if (!sptr || IsDead(sptr) || !IsSetHostPending(sptr)) {
+  if (!sptr || IsDead(sptr) || !IsSetHostPending(sptr)
+      || cli_check_cookie(sptr) != ctx->cookie) {
     Debug((DEBUG_DEBUG, "sethost_password_verified: client gone or not pending "
            "(fd %d)", ctx->fd));
     MyFree(ctx);
@@ -238,6 +240,7 @@ int m_sethost(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
 
       ctx = (struct sethost_verify_ctx *)MyMalloc(sizeof(struct sethost_verify_ctx));
       ctx->fd = cli_fd(sptr);
+      ctx->cookie = client_check_cookie(sptr);
       ctx->sconf = sconf;
       ctx->setflags = setflags;
       ircd_strncpy(ctx->hostmask, parv[1], sizeof(ctx->hostmask) - 1);
@@ -351,6 +354,7 @@ int mo_sethost(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
 
       ctx = (struct sethost_verify_ctx *)MyMalloc(sizeof(struct sethost_verify_ctx));
       ctx->fd = cli_fd(sptr);
+      ctx->cookie = client_check_cookie(sptr);
       ctx->sconf = sconf;
       ctx->setflags = setflags;
       ircd_strncpy(ctx->hostmask, hostmask, sizeof(ctx->hostmask) - 1);

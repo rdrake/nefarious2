@@ -560,6 +560,7 @@ struct Connection
   unsigned char       con_recv_state;     /**< RECV_TAGS or RECV_MSG */
   unsigned int        con_recv_tag_bytes; /**< Bytes of @-region in current line (incl. @) */
   unsigned int        con_recv_msg_bytes; /**< Bytes of message region in current line */
+  unsigned int        con_check_cookie;   /**< Pending password check's cookie (client_check_cookie()) */
 };
 
 /** Magic constant to identify valid Connection structures. */
@@ -804,6 +805,7 @@ struct Client {
 #define cli_ws_hs_len(cli)	con_ws_hs_len(cli_connect(cli))
 /** Get per-class recv classifier state. */
 #define cli_recv_state(cli)     con_recv_state(cli_connect(cli))
+#define cli_check_cookie(cli)   con_check_cookie(cli_connect(cli))
 /** Get tag-region byte count for the in-flight wire line. */
 #define cli_recv_tag_bytes(cli) con_recv_tag_bytes(cli_connect(cli))
 /** Get message-region byte count for the in-flight wire line. */
@@ -1161,6 +1163,7 @@ struct Client {
 #define con_ws_close_sent(con)	((con)->con_ws_close_sent)
 /** Get per-class recv classifier state. */
 #define con_recv_state(con)     ((con)->con_recv_state)
+#define con_check_cookie(con)   ((con)->con_check_cookie)
 /** Get tag-region byte count for the in-flight wire line. */
 #define con_recv_tag_bytes(con) ((con)->con_recv_tag_bytes)
 /** Get message-region byte count for the in-flight wire line. */

@@ -106,6 +106,7 @@
 /** Context for async WEBIRC password verification */
 struct webirc_verify_ctx {
   int fd;                           /**< Client fd for lookup */
+  unsigned int cookie;              /**< client_check_cookie() at the start */
   char username[USERLEN + 1];       /**< WEBIRC username */
   char hostname[HOSTLEN + 1];       /**< WEBIRC hostname */
   char ipaddr[SOCKIPLEN + 1];       /**< WEBIRC IP address */
@@ -256,7 +257,8 @@ static void webirc_password_verified(int result, void *arg)
   cptr = LocalClientArray[ctx->fd];
 
   /* Verify client still exists and is pending verification */
-  if (!cptr || IsDead(cptr) || !IsWebIRCPending(cptr)) {
+  if (!cptr || IsDead(cptr) || !IsWebIRCPending(cptr)
+      || cli_check_cookie(cptr) != ctx->cookie) {
     Debug((DEBUG_DEBUG, "webirc_password_verified: client gone or not pending "
            "(fd %d)", ctx->fd));
     MyFree(ctx);
@@ -412,6 +414,7 @@ int m_webirc(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
 
     ctx = (struct webirc_verify_ctx *)MyMalloc(sizeof(struct webirc_verify_ctx));
     ctx->fd = cli_fd(cptr);
+    ctx->cookie = client_check_cookie(cptr);
     ctx->wconf = wconf;
     memcpy(&ctx->addr, &addr, sizeof(ctx->addr));
     ircd_strncpy(ctx->username, username, USERLEN + 1);

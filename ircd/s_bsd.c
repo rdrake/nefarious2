@@ -1784,6 +1784,22 @@ void client_resume_input(struct Client *cptr)
     read_packet(cptr, 0);
 }
 
+/** Give a client a new cookie for the password check it is starting.
+ * The check's callback finds the client by fd, and an fd is soon some
+ * other client's; the cookie tells the callback whether it still is the
+ * same one.
+ * @param cptr Local client starting a check.
+ * @return The cookie, never 0, to keep in the check's context.
+ */
+unsigned int client_check_cookie(struct Client *cptr)
+{
+  static unsigned int last;
+
+  if (++last == 0)
+    ++last;
+  return cli_check_cookie(cptr) = last;
+}
+
 /** Start a connection to another server.
  * @param aconf Connect block data for target server.
  * @param by Client who requested the connection (if any).
