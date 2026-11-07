@@ -24,7 +24,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # The release configuration: default (hardened) flags.
+          # The release configuration (hardening arrives in a later PR).
           - name: gcc
             cc: gcc
             cflags: -g -O2

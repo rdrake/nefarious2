@@ -51,6 +51,7 @@ class Client:
         self.sock = socket.create_connection(("127.0.0.1", PORT), 5)
         self.sock.setblocking(False)
         self.buf = b""
+        self.queue = []  # lines read but not yet consumed by expect()
         if caps:
             self.send("CAP LS 302")
             self.send("CAP REQ :" + " ".join(caps))
@@ -83,15 +84,20 @@ class Client:
     def expect(self, pattern, timeout=TIMEOUT):
         rx = re.compile(pattern)
         deadline = time.monotonic() + timeout
-        while time.monotonic() < deadline:
-            for line in self.lines(0.2):
+        while True:
+            # Drain any already-read lines first, so a line that shared a
+            # recv() with the one we matched last time is not lost.
+            while self.queue:
+                line = self.queue.pop(0)
                 if line.startswith("@"):  # match on the line without its tags
                     line = line.split(" ", 1)[-1]
                 if line.startswith("PING "):
                     self.send("PONG " + line[5:])
                 if rx.search(line):
                     return line
-        raise RuntimeError("%s: no line matching %r within %ss" % (self.nick, pattern, timeout))
+            if time.monotonic() >= deadline:
+                raise RuntimeError("%s: no line matching %r within %ss" % (self.nick, pattern, timeout))
+            self.queue.extend(self.lines(0.2))
 
 
 def wait_for_port(proc):
