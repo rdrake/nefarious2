@@ -5832,6 +5832,15 @@ static void recon_user_cb(const char *key, uint32_t key_len,
   via = (srv && IsServer(srv)) ? cli_from(srv) : NULL;
   if (via && IsServer(via) && !IsCrdtAware(via) && IsBurstOrBurstAck(via))
     return;                       /* P10 intro may still be in flight on this legacy burst */
+  /* A CRDT peer bursts P10 too while it holds bouncer sessions and the
+   * bouncer doc is off (s_serv.c crdt_burst_doc_covers_bouncer), and its
+   * bouncer burst gate can hold that burst back for up to 30 s while its
+   * doc ops keep arriving.  Until its EB, wait for the N: a copy made here
+   * first would meet the N under the same nick and numeric, and m_nick
+   * kills both.  The snapshot path is unaffected: its users come by the
+   * CR F's materialize, and the EB runs this reconcile again. */
+  if (via && IsServer(via) && IsCrdtAware(via) && IsBurst(via))
+    return;
   if (val->data_len != sizeof(struct CrdtUserRecord))
     return;                         /* M4 schema guard: another record size = another schema */
   rec = (const struct CrdtUserRecord *)val->data;
