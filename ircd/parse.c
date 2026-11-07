@@ -1983,6 +1983,10 @@ int parse_server(struct Client *cptr, char *buffer, char *bufend)
       ch = tagend;
       while (*ch == ' ')
         ch++;
+      /* Tags and nothing else: there is no message to parse, and the code
+       * below must not start walking from the terminating NUL. */
+      if (*ch == '\0')
+        return 0;
     }
     /* If no space found, malformed - continue with original parse */
   }
@@ -2026,7 +2030,7 @@ int parse_server(struct Client *cptr, char *buffer, char *bufend)
        * squit, is an SQUIT itself (the timestamp
        * protects us from being used wrong)
        */
-      if (ch[1] == 'Q')
+      if (*ch && ch[1] == 'Q')
       {
         para[0] = cli_name(cptr);
         from = cptr;
@@ -2070,11 +2074,12 @@ int parse_server(struct Client *cptr, char *buffer, char *bufend)
     else
       from = findNUser(numeric_prefix);
 
-    do
-    {
-      ++ch;
-    }
-    while (*ch != ' ' && *ch);
+    if (*ch)
+      do
+      {
+        ++ch;
+      }
+      while (*ch != ' ' && *ch);
 
     /*
      * If the client corresponding to the
@@ -2093,6 +2098,8 @@ int parse_server(struct Client *cptr, char *buffer, char *bufend)
       ServerStats->is_unpf++;
       while (*ch == ' ')
         ch++;
+      if (*ch == '\0')   /* a prefix and no command */
+        return 0;
       if (*ch == 'N' && (ch[1] == ' ' || ch[1] == 'I'))
         /* Only sent a KILL for a nick change */
       {
@@ -2108,7 +2115,7 @@ int parse_server(struct Client *cptr, char *buffer, char *bufend)
        * upstream against an squit:
        */
       if (ch[1] == 'Q' || (*ch == 'D' && ch[1] == ' ') ||
-          (*ch == 'K' && ch[2] == 'L'))
+          (*ch == 'K' && ch[1] && ch[2] == 'L'))
         from = cptr;
       else
         return 0;
