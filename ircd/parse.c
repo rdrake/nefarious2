@@ -2030,7 +2030,7 @@ int parse_server(struct Client *cptr, char *buffer, char *bufend)
        * squit, is an SQUIT itself (the timestamp
        * protects us from being used wrong)
        */
-      if (ch[1] == 'Q')
+      if (*ch && ch[1] == 'Q')
       {
         para[0] = cli_name(cptr);
         from = cptr;
