@@ -350,6 +350,10 @@ int db_env_open(const char *path,
   existing_names = rocksdb_list_column_families(env->db_opts, path,
                                                 &existing_count, &err);
   if (err) {
+    /* rocksdb_list_column_families mallocs the (empty) name array even
+     * when it fails; free it so the error paths below don't leak it. */
+    if (existing_names)
+      rocksdb_free(existing_names);
     /* Treat a missing-DB error as empty CF list.  Other errors
      * surface to the caller. */
     if (strstr(err, "No such file") || strstr(err, "does not exist")) {
