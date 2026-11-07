@@ -1174,6 +1174,90 @@ if test "x$with_libgit2" != xno; then
   fi
 fi
 
+dnl --disable-hardening: stack protector, _FORTIFY_SOURCE, PIE, RELRO.
+dnl Each flag is probed with -Werror and dropped when the compiler or
+dnl linker refuses it, so an old toolchain or another platform still
+dnl builds.  This runs after the library checks so they see the user's
+dnl flags only.
+AC_MSG_CHECKING([whether to enable hardened build flags])
+AC_ARG_ENABLE([hardening],
+[  --disable-hardening     Do not add stack protector, _FORTIFY_SOURCE, PIE and RELRO flags],
+[unet_cv_enable_hardening=$enable_hardening],
+[AC_CACHE_VAL(unet_cv_enable_hardening,
+[unet_cv_enable_hardening=yes])])
+AC_MSG_RESULT([$unet_cv_enable_hardening])
+
+unet_hardening_cflags=""
+unet_hardening_ldflags=""
+if test x"$unet_cv_enable_hardening" = xyes; then
+  dnl -fno-strict-overflow implies -fwrapv, which makes signed overflow
+  dnl defined and so turns off UBSan's signed-overflow check.  Leave it
+  dnl out of sanitizer builds, the same way _FORTIFY_SOURCE is below.
+  unet_harden_probe="-fstack-protector-strong -fstack-clash-protection -fcf-protection -fPIE"
+  case " $CFLAGS " in
+  *" -fsanitize="*) ;;
+  *) unet_harden_probe="$unet_harden_probe -fno-strict-overflow" ;;
+  esac
+  for unet_flag in $unet_harden_probe; do
+    AC_MSG_CHECKING([whether $CC accepts $unet_flag])
+    unet_save_CFLAGS=$CFLAGS
+    CFLAGS="$CFLAGS $unet_flag -Werror"
+    AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[]], [[]])],
+      [AC_MSG_RESULT([yes])
+       unet_hardening_cflags="$unet_hardening_cflags $unet_flag"],
+      [AC_MSG_RESULT([no])])
+    CFLAGS=$unet_save_CFLAGS
+  done
+
+  dnl _FORTIFY_SOURCE: level 3 where the toolchain takes it, else 2.  It
+  dnl only acts with optimization on, and is left out of sanitizer builds,
+  dnl where it hides overflows from ASan.
+  case " $CFLAGS " in
+  *" -fsanitize="*) ;;
+  *)
+    for unet_level in 3 2; do
+      AC_MSG_CHECKING([whether _FORTIFY_SOURCE=$unet_level works])
+      unet_save_CFLAGS=$CFLAGS
+      CFLAGS="$CFLAGS -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=$unet_level -Werror"
+      AC_COMPILE_IFELSE([AC_LANG_PROGRAM([[#include <string.h>]],
+                                         [[char b[4]; return strlen(strcpy(b, "x"));]])],
+        [AC_MSG_RESULT([yes]); unet_fortify=$unet_level],
+        [AC_MSG_RESULT([no]); unet_fortify=""])
+      CFLAGS=$unet_save_CFLAGS
+      if test -n "$unet_fortify"; then
+        unet_hardening_cflags="$unet_hardening_cflags -U_FORTIFY_SOURCE -D_FORTIFY_SOURCE=$unet_fortify"
+        break
+      fi
+    done
+    ;;
+  esac
+
+  unet_ld_flags="-Wl,-z,relro -Wl,-z,now -Wl,-z,noexecstack"
+  case " $unet_hardening_cflags " in
+  *" -fPIE "*) unet_ld_flags="-pie $unet_ld_flags" ;;
+  esac
+  for unet_flag in $unet_ld_flags; do
+    AC_MSG_CHECKING([whether the linker accepts $unet_flag])
+    unet_save_CFLAGS=$CFLAGS
+    unet_save_LDFLAGS=$LDFLAGS
+    CFLAGS="$CFLAGS $unet_hardening_cflags"
+    LDFLAGS="$LDFLAGS $unet_flag -Werror"
+    AC_LINK_IFELSE([AC_LANG_PROGRAM([[]], [[]])],
+      [AC_MSG_RESULT([yes])
+       unet_hardening_ldflags="$unet_hardening_ldflags $unet_flag"],
+      [AC_MSG_RESULT([no])
+       dnl -pie without the matching -fPIE objects is no good either way
+       if test x"$unet_flag" = x-pie; then
+         unet_hardening_cflags=`echo "$unet_hardening_cflags" | sed 's/ -fPIE//'`
+       fi])
+    CFLAGS=$unet_save_CFLAGS
+    LDFLAGS=$unet_save_LDFLAGS
+  done
+
+  CFLAGS="$CFLAGS$unet_hardening_cflags"
+  LDFLAGS="$LDFLAGS$unet_hardening_ldflags"
+fi
+
 dnl --with-maxcon allows us to set the maximum connections
 unet_maxcon=`ulimit -Sn`
 if test x"$unet_maxcon" = xunlimited; then
@@ -1212,6 +1296,7 @@ ircu is now hopefully configured for your system.
   Prefix:              $prefix
   Asserts:             $unet_cv_enable_asserts
   Warnings:            $unet_cv_enable_warnings
+  Hardening:           $unet_cv_enable_hardening
   Debug:               $unet_cv_enable_debug
   Profile:             $unet_cv_enable_profile
   Owner/mode:          $unet_cv_with_owner.$unet_cv_with_group ($unet_cv_with_mode)
