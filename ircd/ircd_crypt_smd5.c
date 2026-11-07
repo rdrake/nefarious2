@@ -84,7 +84,7 @@ static void to64(char *s, unsigned long v, int n)
 const char* ircd_crypt_smd5(const char* key, const char* salt)
 {
 const char *magic = "$1$";
-static char passwd[120];
+static __thread char passwd[120]; /* one per thread-pool thread */
 char *p;
 const char *sp, *ep;
 unsigned char final[16];
@@ -95,7 +95,6 @@ unsigned long l;
  assert(NULL != key);
  assert(NULL != salt);
 
- Debug((DEBUG_DEBUG, "ircd_crypt_smd5: key = %s", key));
  Debug((DEBUG_DEBUG, "ircd_crypt_smd5: salt = %s", salt));
 
  /* Refine the Salt first */

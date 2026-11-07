@@ -140,8 +140,6 @@ crypt_mechs_t* crypt_mech;
  assert(NULL != key);
  assert(NULL != salt);
 
- Debug((DEBUG_DEBUG, "ircd_crypt: key is %s", key));
- Debug((DEBUG_DEBUG, "ircd_crypt: salt is %s", salt));
 
  crypt_mech = crypt_mechs_root->next;
 
@@ -157,8 +155,6 @@ crypt_mechs_t* crypt_mech;
    continue;
   }
 
-  Debug((DEBUG_DEBUG, "ircd_crypt: comparing %s with %s", 
-   salt, crypt_mech->mech->crypt_token));
 
   if(0 == ircd_strncmp(crypt_mech->mech->crypt_token, salt, crypt_mech->mech->crypt_token_size))
   {

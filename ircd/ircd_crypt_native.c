@@ -35,6 +35,8 @@
 #include "ircd_alloc.h"
 
 /* #include <assert.h> -- Now using assert in ircd_log.h */
+#include <pthread.h>
+#include <string.h>
 #include <unistd.h>
 #ifdef HAVE_CRYPT_H
 #include <crypt.h>
@@ -52,13 +54,25 @@
  */
 const char* ircd_crypt_native(const char* key, const char* salt)
 {
+ /* crypt() returns a buffer of its own that the next call overwrites,
+  * and password checks run on several thread-pool threads at once.  So
+  * one call at a time, with the result copied out to this thread's own
+  * buffer before the lock is let go. */
+ static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
+ static __thread char result[256];
+ const char *hash;
+ size_t len = 0;
+
  assert(NULL != key);
  assert(NULL != salt);
 
- Debug((DEBUG_DEBUG, "ircd_crypt_native: key is %s", key));
- Debug((DEBUG_DEBUG, "ircd_crypt_native: salt is %s", salt));
+ pthread_mutex_lock(&lock);
+ hash = crypt(key, salt);
+ if (hash && (len = strlen(hash)) < sizeof(result))
+   memcpy(result, hash, len + 1);
+ pthread_mutex_unlock(&lock);
 
- return (const char*)crypt(key, salt);
+ return (hash && len < sizeof(result)) ? result : NULL;
 }
 
 /* register ourself with the list of crypt mechanisms -- hikari */

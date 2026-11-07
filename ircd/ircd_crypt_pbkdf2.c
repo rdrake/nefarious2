@@ -324,7 +324,7 @@ static int parse_pbkdf2_sha512_hash(const char *hash, int *iterations,
  */
 const char* ircd_crypt_pbkdf2(const char* key, const char* salt)
 {
-  static char result[256];
+  static __thread char result[256]; /* one per thread-pool thread */
   unsigned char salt_bytes[PBKDF2_SALT_LEN];
   unsigned char hash_bytes[PBKDF2_SHA256_LEN];
   unsigned char stored_hash[PBKDF2_SHA256_LEN];
@@ -416,7 +416,7 @@ void ircd_register_crypt_pbkdf2(void)
  */
 const char* ircd_crypt_pbkdf2_sha512(const char* key, const char* salt)
 {
-  static char result[512];
+  static __thread char result[512]; /* one per thread-pool thread */
   unsigned char salt_bytes[PBKDF2_SALT_LEN];
   unsigned char hash_bytes[PBKDF2_SHA512_LEN];
   unsigned char stored_hash[PBKDF2_SHA512_LEN];
