@@ -1458,7 +1458,7 @@ parse_client(struct Client *cptr, char *buffer, char *bufend)
     /* Registered clients must have negotiated *some* tag-using CAP
      * before they may send @-prefixed lines.  Without any such CAP,
      * the tag region would be a non-negotiated bytes channel — pair
-     * the recv-side 4095 byte cap (recv_classify) with a parse-side
+     * the recv-side tag cap (recv_classify) with a parse-side
      * rejection so the tag region is semantically gated, not just
      * byte-bounded.
      *

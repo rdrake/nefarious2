@@ -26,11 +26,15 @@ recv_classify(struct Client *cptr, const char *buf, unsigned int len)
   unsigned int i;
   int overrun = RECV_CLASSIFY_OK;
 
-  if (IsServer(cptr) || IsHandshake(cptr)) {
-    tag_cap = 8191;
-  } else {
-    tag_cap = 4095;
-  }
+  /* A client's own tag limit is 4095 ('@' included), but message-tags
+   * has a line over it rejected with ERR_INPUTTOOLONG, which parse.c
+   * sends, not the client dropped.  So the client cap here is only what
+   * dbuf_getmsg() can still read as one line: FULL_MSG_SIZE less a full
+   * body, its space and the NUL. */
+  if (IsServer(cptr) || IsHandshake(cptr))
+    tag_cap = IRCV3_TAG_MAX;
+  else
+    tag_cap = FULL_MSG_SIZE - BUFSIZE - 2;
   /* Body region is BUFSIZE (512) in both directions:
    *  - Server: legacy P10 body limit, never relaxed.
    *  - Client: IRCv3 message-tags spec is explicit that the tag region

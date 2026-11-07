@@ -2,7 +2,7 @@
  * recv_classify_cmocka.c - CMocka unit tests for recv_classify().
  *
  * Tests cover:
- *   - Client vs server caps (4095/FULL_MSG_SIZE vs 8191/512).
+ *   - Client vs server caps (8189/512 vs 8191/512).
  *   - State transitions (TAG → MSG on SPACE, reset on CR/LF).
  *   - Resumability across split inputs (the production hot-path property).
  *   - Tag-only lines (TAGMSG shape).
@@ -123,7 +123,9 @@ static void test_tagmsg_shape(void **state)
 
 /* ========== Per-class caps — client direction ========== */
 
-static void test_client_tag_just_under_cap(void **state)
+/* Over a client's own 4095-byte limit is not an overrun: parse.c answers
+ * that line with ERR_INPUTTOOLONG and the client stays. */
+static void test_client_tag_over_client_limit(void **state)
 {
     (void)state;
     struct Client cli;
@@ -131,11 +133,28 @@ static void test_client_tag_just_under_cap(void **state)
     char line[5000];
 
     setup_client(&cli, &con);
-    /* '@' + 4094 'x' = 4095 byte tag region (exactly at cap). */
+    /* '@' + 4096 'x' = 4097 byte tag region. */
     line[0] = '@';
-    memset(line + 1, 'x', 4094);
-    assert_int_equal(recv_classify(&cli, line, 4095), RECV_CLASSIFY_OK);
-    assert_int_equal(con_recv_tag_bytes(&con), 4095);
+    memset(line + 1, 'x', 4096);
+    assert_int_equal(recv_classify(&cli, line, 4097), RECV_CLASSIFY_OK);
+    assert_int_equal(con_recv_tag_bytes(&con), 4097);
+}
+
+static void test_client_tag_just_under_cap(void **state)
+{
+    (void)state;
+    struct Client cli;
+    struct Connection con;
+    char *line;
+
+    setup_client(&cli, &con);
+    line = malloc(8189);
+    /* '@' + 8188 'x' = 8189 byte tag region (exactly at cap). */
+    line[0] = '@';
+    memset(line + 1, 'x', 8188);
+    assert_int_equal(recv_classify(&cli, line, 8189), RECV_CLASSIFY_OK);
+    assert_int_equal(con_recv_tag_bytes(&con), 8189);
+    free(line);
 }
 
 static void test_client_tag_over_cap(void **state)
@@ -143,14 +162,16 @@ static void test_client_tag_over_cap(void **state)
     (void)state;
     struct Client cli;
     struct Connection con;
-    char line[5000];
+    char *line;
 
     setup_client(&cli, &con);
-    /* '@' + 4096 'x' = 4097 byte tag region (one over cap). */
+    line = malloc(8190);
+    /* '@' + 8189 'x' = 8190 byte tag region (one over cap). */
     line[0] = '@';
-    memset(line + 1, 'x', 4096);
-    assert_int_equal(recv_classify(&cli, line, 4097),
+    memset(line + 1, 'x', 8189);
+    assert_int_equal(recv_classify(&cli, line, 8190),
                      RECV_CLASSIFY_TAG_OVERRUN);
+    free(line);
 }
 
 static void test_client_msg_at_512(void **state)
@@ -305,10 +326,10 @@ static void test_split_mid_tag_overrun(void **state)
     r1 = recv_classify(&cli, part1, 2001);
     assert_int_equal(r1, RECV_CLASSIFY_OK);
 
-    /* Second half: 2096 more 'x' to push past 4095 cap. */
-    part2 = malloc(2096);
-    memset(part2, 'x', 2096);
-    r2 = recv_classify(&cli, part2, 2096);
+    /* Second half: 6192 more 'x' to push past the 8189 cap. */
+    part2 = malloc(6192);
+    memset(part2, 'x', 6192);
+    r2 = recv_classify(&cli, part2, 6192);
     assert_int_equal(r2, RECV_CLASSIFY_TAG_OVERRUN);
 
     free(part1);
@@ -407,6 +428,7 @@ int main(void)
         cmocka_unit_test(test_tag_then_msg),
         cmocka_unit_test(test_tagmsg_shape),
 
+        cmocka_unit_test(test_client_tag_over_client_limit),
         cmocka_unit_test(test_client_tag_just_under_cap),
         cmocka_unit_test(test_client_tag_over_cap),
         cmocka_unit_test(test_client_msg_at_512),
