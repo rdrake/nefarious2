@@ -379,6 +379,21 @@ int server_estab(struct Client *cptr, struct ConfItem *aconf)
  * N loop (and on bounce_burst's session iteration) keeps duplicate
  * racing-nick N's off the wire.
  */
+/** Does the CR F snapshot carry our bouncer sessions?  Only with
+ * CRDT_BOUNCER_DOC: without it the doc's bsess records are a shadow no
+ * peer acts on, and a snapshot in place of the burst would leave out the
+ * BS lines and the N of every session face.  A peer then never learns
+ * our sessions, and two copies of one session (every node restoring it
+ * after a simultaneous restart) never meet in m_nick's same-nick merge:
+ * the doc materializes the faces and its nick-collision renames all but
+ * one, leaving one session per node.  With local sessions and no bouncer
+ * doc, the peer gets the P10 burst, as at cold boot. */
+static int crdt_burst_doc_covers_bouncer(void)
+{
+  return feature_bool(FEAT_CRDT_BOUNCER_DOC)
+         || !feature_bool(FEAT_BOUNCER_ENABLE) || !bounce_have_local_sessions();
+}
+
 int server_finish_burst(struct Client *cptr)
 {
   struct Client *acptr;
@@ -409,7 +424,7 @@ int server_finish_burst(struct Client *cptr)
    * a complete source (e.g. at cold boot) — then we fall back to a normal BURST
    * so the peer is never left missing users. */
   if (IsCrdtAware(cptr) && crdt_primary_on() &&
-      crdt_shadow_doc_ready()) {
+      crdt_shadow_doc_ready() && crdt_burst_doc_covers_bouncer()) {
     crdt_send_snapshot(cptr);
     sendcmdto_one(&me, CMD_END_OF_BURST, cptr, "");
     sendcmdto_one(&me, CMD_END_OF_BURST_ACK, cptr, "");
