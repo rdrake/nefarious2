@@ -28,8 +28,10 @@ struct Client;
  * state reset on \r or \n (either terminator).  State is resumable across
  * calls so TCP segment boundaries mid-line do not lose context.
  *
- * Caps are direction-dependent:
- *   - Client (default):   tag <= 4095, msg <= FULL_MSG_SIZE.
+ * Caps ('@' included in the tag region):
+ *   - Client:             tag <= 8189, msg <= 512.  A client's 4095-byte
+ *     tag limit is parse.c's to enforce, with ERR_INPUTTOOLONG for that
+ *     line alone; 8189 is the most dbuf_getmsg() can read with a full body.
  *   - Server / handshake: tag <= 8191, msg <= 512 (legacy P10 body).
  *
  * @param cptr  Client whose Connection holds the classifier state.

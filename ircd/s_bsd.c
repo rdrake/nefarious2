@@ -1713,7 +1713,9 @@ ssl_read_again:
        */
       if (dolen == 0)
       {
-        if (DBufLength(&(cli_recvQ(cptr))) < (FULL_MSG_SIZE - 2))
+        /* dbuf_getmsg() reads a line of up to FULL_MSG_SIZE - 1 bytes; one
+         * that long may still be waiting for its CR LF. */
+        if (DBufLength(&(cli_recvQ(cptr))) < FULL_MSG_SIZE)
           SetFlag(cptr, FLAG_NONL);
         else
         {
