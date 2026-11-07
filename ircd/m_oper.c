@@ -161,6 +161,7 @@ static void oper_password_verified(int result, void *arg)
             "Failed OPER attempt by %s (%s@%s) (attach failed after async)",
             cli_name(sptr), cli_user(sptr)->username, cli_user(sptr)->realhost);
         MyFree(ctx);
+        client_resume_input(sptr);
         return;
       }
     }
@@ -180,6 +181,7 @@ static void oper_password_verified(int result, void *arg)
   }
 
   MyFree(ctx);
+  client_resume_input(sptr);
 }
 
 /** Copy @a modes into @a buf (of @a size) without any 'b'.  b is the

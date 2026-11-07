@@ -288,12 +288,15 @@ static void webirc_password_verified(int result, void *arg)
     sendto_opmask_butone_global(&me, SNO_WEBIRC,
                                 "WEBIRC Attempt with invalid password from %s [%s]",
                                 cli_sockhost(cptr), cli_sock_ip(cptr));
-    exit_client(cptr, cptr, &me, "WEBIRC Password invalid for your host");
     Debug((DEBUG_INFO, "webirc_password_verified: WEBIRC failed for %s [%s]",
            cli_sockhost(cptr), cli_sock_ip(cptr)));
+    exit_client(cptr, cptr, &me, "WEBIRC Password invalid for your host");
+    MyFree(ctx);
+    return;
   }
 
   MyFree(ctx);
+  client_resume_input(cptr);
 }
 
 /*

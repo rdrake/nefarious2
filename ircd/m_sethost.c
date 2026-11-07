@@ -180,6 +180,7 @@ static void sethost_password_verified(int result, void *arg)
   }
 
   MyFree(ctx);
+  client_resume_input(sptr);
 }
 
 /*

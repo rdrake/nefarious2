@@ -1313,6 +1313,11 @@ struct Client {
 #define IsWebIRCPending(x)      HasFlag(x, FLAG_WEBIRC_PENDING)
 /** Return non-zero if the client has pending async SETHOST verification. */
 #define IsSetHostPending(x)     HasFlag(x, FLAG_SETHOST_PENDING)
+/** Is a password check on the thread pool holding this client's input?
+ * The lines after it wait in the recvQ, so their replies cannot overtake
+ * its own; client_resume_input() parses them once it is done. */
+#define IsInputHeld(x)          (IsOperPending(x) || IsWebIRCPending(x) \
+                                 || IsSetHostPending(x))
 /** Return non-zero if the client has an active UDP ping request. */
 #define IsUPing(x)              HasFlag(x, FLAG_UPING)
 /** Return non-zero if the client has no '\n' in its buffer. */
