@@ -28,9 +28,9 @@ struct Client;
  * state reset on \r or \n (either terminator).  State is resumable across
  * calls so TCP segment boundaries mid-line do not lose context.
  *
- * Caps are direction-dependent:
- *   - Client (default):   tag <= 4095, msg <= FULL_MSG_SIZE.
- *   - Server / handshake: tag <= 8191, msg <= 512 (legacy P10 body).
+ * Caps are the same in both directions: tag <= 8191 (IRCV3_TAG_MAX, '@'
+ * included), msg <= 512 (BUFSIZE).  A client's 4095-byte tag limit is
+ * parse.c's to enforce, with ERR_INPUTTOOLONG for that line alone.
  *
  * @param cptr  Client whose Connection holds the classifier state.
  * @param buf   Newly-read bytes.
