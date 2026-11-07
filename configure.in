@@ -1190,8 +1190,15 @@ AC_MSG_RESULT([$unet_cv_enable_hardening])
 unet_hardening_cflags=""
 unet_hardening_ldflags=""
 if test x"$unet_cv_enable_hardening" = xyes; then
-  for unet_flag in -fstack-protector-strong -fstack-clash-protection \
-                   -fcf-protection -fno-strict-overflow -fPIE; do
+  dnl -fno-strict-overflow implies -fwrapv, which makes signed overflow
+  dnl defined and so turns off UBSan's signed-overflow check.  Leave it
+  dnl out of sanitizer builds, the same way _FORTIFY_SOURCE is below.
+  unet_harden_probe="-fstack-protector-strong -fstack-clash-protection -fcf-protection -fPIE"
+  case " $CFLAGS " in
+  *" -fsanitize="*) ;;
+  *) unet_harden_probe="$unet_harden_probe -fno-strict-overflow" ;;
+  esac
+  for unet_flag in $unet_harden_probe; do
     AC_MSG_CHECKING([whether $CC accepts $unet_flag])
     unet_save_CFLAGS=$CFLAGS
     CFLAGS="$CFLAGS $unet_flag -Werror"
