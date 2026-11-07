@@ -46,6 +46,7 @@ CMOCKA_TESTPROGS = \
 	history_trim_cmocka \
 	chathistory_presence_cmocka \
 	recv_classify_cmocka \
+	crypt_threads_cmocka \
 	register_throttle_cmocka \
 	ipcheck_refund_cmocka \
 	ipcheck_cmocka \
@@ -103,6 +104,7 @@ DEP_SRC = \
 	history_trim_cmocka.c \
 	chathistory_presence_cmocka.c \
 	recv_classify_cmocka.c \
+	crypt_threads_cmocka.c \
 	register_throttle_cmocka.c \
 	ipcheck_refund_cmocka.c \
 	ipcheck_cmocka.c \
@@ -265,6 +267,12 @@ history_trim_cmocka: $(HISTORY_TRIM_CMOCKA_OBJS)
 CHATHISTORY_PRESENCE_CMOCKA_OBJS = chathistory_presence_cmocka.o test_stub.o ../chathistory_presence.o ../ircd_alloc.o ../ircd_string.o
 chathistory_presence_cmocka: $(CHATHISTORY_PRESENCE_CMOCKA_OBJS)
 	${CC} -o $@ $(LDFLAGS) $(CHATHISTORY_PRESENCE_CMOCKA_OBJS) $(CMOCKA_LIBS)
+
+# crypt_threads tests - password hashes computed on several threads at once
+CRYPT_THREADS_CMOCKA_OBJS = crypt_threads_cmocka.o test_stub.o ../ircd_crypt_native.o \
+	../ircd_crypt_smd5.o ../ircd_crypt_bcrypt.o ../ircd_md5.o ../ircd_alloc.o
+crypt_threads_cmocka: $(CRYPT_THREADS_CMOCKA_OBJS)
+	${CC} -o $@ $(LDFLAGS) $(CRYPT_THREADS_CMOCKA_OBJS) $(CMOCKA_LIBS) -lcrypt -lpthread
 
 # recv_classify tests - per-class recv-path byte classifier
 RECV_CLASSIFY_CMOCKA_OBJS = recv_classify_cmocka.o test_stub.o ../recv_classify.o

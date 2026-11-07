@@ -52,6 +52,8 @@
 #include "struct.h"
 #include "sys.h"
 #include "watch.h"
+
+#include <pthread.h>
 #include "whowas.h"
 #include "zline.h"
 
@@ -137,9 +139,17 @@ const char* debug_serveropts(void)
  * as DEBUGMODE has been defined, else don't waste the fd.
  * @param use_tty Passed to log_debug_init().
  */
+#ifdef DEBUGMODE
+/** The thread that may write debug output (see vdebug()). */
+static pthread_t debug_thread;
+static int debug_thread_set;
+#endif
+
 void debug_init(int use_tty)
 {
 #ifdef  DEBUGMODE
+  debug_thread = pthread_self();
+  debug_thread_set = 1;
   if (debuglevel >= 0) {
     printf("isatty = %d ttyname = %s\n", isatty(2), ttyname(2));
     log_debug_init(use_tty);
@@ -158,6 +168,12 @@ void vdebug(int level, const char *form, va_list vl)
 {
   static int loop = 0;
   int err = errno;
+
+  /* The log is the main thread's.  A Debug() from a thread-pool worker
+   * (a password check) or a boot-time store opener would race it, so
+   * output from any other thread is dropped. */
+  if (debug_thread_set && !pthread_equal(pthread_self(), debug_thread))
+    return;
 
   if (!loop && (debuglevel >= 0) && (level <= debuglevel))
   {

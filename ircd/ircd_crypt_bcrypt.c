@@ -27,6 +27,7 @@
 #include "config.h"
 #include "ircd_crypt.h"
 #include "ircd_crypt_bcrypt.h"
+#include "ircd_crypt_native.h"
 #include "ircd_log.h"
 #include "s_debug.h"
 #include "ircd_alloc.h"
@@ -118,20 +119,19 @@ static char* generate_bcrypt_salt(char* salt, int cost)
  */
 const char* ircd_crypt_bcrypt(const char* key, const char* salt)
 {
-  static char newsalt[30];
+  char newsalt[30];
   const char* result;
 
   assert(NULL != key);
   assert(NULL != salt);
 
-  Debug((DEBUG_DEBUG, "ircd_crypt_bcrypt: key = %s", key));
   Debug((DEBUG_DEBUG, "ircd_crypt_bcrypt: salt = %s", salt));
 
   /* If salt is already a bcrypt hash/salt, use it directly */
   if (strlen(salt) >= 28 && salt[0] == '$' && salt[1] == '2' &&
       (salt[2] == 'a' || salt[2] == 'b' || salt[2] == 'x' || salt[2] == 'y') && salt[3] == '$')
   {
-    result = crypt(key, salt);
+    result = ircd_crypt_native(key, salt);
   }
   else
   {
@@ -142,7 +142,7 @@ const char* ircd_crypt_bcrypt(const char* key, const char* salt)
       return NULL;
     }
     Debug((DEBUG_DEBUG, "ircd_crypt_bcrypt: generated salt = %s", newsalt));
-    result = crypt(key, newsalt);
+    result = ircd_crypt_native(key, newsalt);
   }
 
   if (result == NULL)

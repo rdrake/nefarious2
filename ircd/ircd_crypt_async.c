@@ -51,26 +51,15 @@ static void *crypt_verify_work(void *arg)
 {
   struct crypt_verify_ctx *ctx = arg;
   int *result;
-  char *computed;
 
   result = (int *)MyMalloc(sizeof(int));
   if (!result)
     return NULL;  /* crypt_verify_done() reports NULL as an error */
 
-  /* Call the blocking crypt function - this is the slow part */
-  computed = ircd_crypt(ctx->password, ctx->hash);
-
-  if (!computed) {
-    *result = CRYPT_VERIFY_ERROR;
-  } else if (strcmp(computed, ctx->hash) == 0) {
-    *result = CRYPT_VERIFY_MATCH;
-  } else {
-    *result = CRYPT_VERIFY_NOMATCH;
-  }
-  MyFree(computed);  /* ircd_crypt() returns an allocated string */
-
-  Debug((DEBUG_DEBUG, "crypt_verify_work: result=%d for hash prefix %.8s...",
-         *result, ctx->hash));
+  /* The blocking hash, the slow part; the same constant-time compare as
+   * the synchronous path. */
+  *result = oper_password_match(ctx->password, ctx->hash)
+            ? CRYPT_VERIFY_MATCH : CRYPT_VERIFY_NOMATCH;
 
   return result;
 }
