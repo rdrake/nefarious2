@@ -4495,6 +4495,7 @@ int bounce_session_transition(struct BouncerSession *session,
                                                 session,
                                                 params->legacy_done,
                                                 taken);
+      crdt_sync_push();   /* the demote's doc tombstone, after its BX C */
       while (taken) {
         struct SLink *next = taken->next;
         free_link(taken);
@@ -10863,14 +10864,13 @@ int bounce_demote_live_primary_to_alias(struct Client *acptr,
    * own local alias is never exited by its own tombstone.
    *
    * Not gated on CRDT_BOUNCER_DOC: the user collection exists whenever the
-   * shadow doc does, and the record lingers there all the same.  Hard mode
-   * (every node restores the same persisted session, then the P10 burst's
-   * same-nick merge swaps two of them) left the swapped primaries' records
-   * in the doc of every CRDT peer: users > live and a digest split.  The
-   * live join does the same ungated, and bounce_promote_alias writes the
-   * record back ungated. */
+   * shadow doc does.  The live join tombstones ungated too, and
+   * bounce_promote_alias writes the record back ungated.  Without the bouncer
+   * doc a peer learns of the demote only by BX C, so the op is not pushed
+   * here: a peer that saw the tombstone first would exit the face as a plain
+   * user.  The transition pushes it after the finish's BX C. */
   if (MyConnect(acptr))   /* crdt_shadow_user_remove checks the features */
-    crdt_shadow_user_remove(acptr, NULL);   /* internal move, no reason to carry */
+    crdt_shadow_user_remove_unpushed(acptr, NULL);  /* internal move, no reason */
 
   /* Promote the Client to alias: flag, NULL alias_primary (caller
    * patches via bounce_finish_live_primary_demote), drop from nick

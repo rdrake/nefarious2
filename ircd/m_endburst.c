@@ -181,7 +181,7 @@ int ms_end_of_burst(struct Client* cptr, struct Client* sptr, int parc, char* pa
    * signal (fires for direct AND propagated relinks via EOB propagation), so re-run the
    * burst-safe user reconcile NOW to re-materialize them immediately.  reconcile_users
    * self-gates (shadow + FEAT_CRDT_PRIMARY + a PER-USER owning-server burst guard, so it
-   * never pre-creates a user a still-bursting legacy peer will deliver) and is idempotent
+   * never pre-creates a user a still-bursting peer will deliver by N) and is idempotent
    * (findNUser skips already-live users), so calling it on every EOB is safe + cheap. */
   crdt_shadow_reconcile_users();
 

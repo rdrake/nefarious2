@@ -365,6 +365,14 @@ int server_estab(struct Client *cptr, struct ConfItem *aconf)
   return server_finish_burst(cptr);
 }
 
+/** Does the CR F snapshot stand in for our bouncer burst?  Without
+ * CRDT_BOUNCER_DOC it carries no BS lines and no N for a session face. */
+static int crdt_burst_doc_covers_bouncer(void)
+{
+  return feature_bool(FEAT_CRDT_BOUNCER_DOC)
+         || !feature_bool(FEAT_BOUNCER_ENABLE) || !bounce_have_local_sessions();
+}
+
 /** Send the deferred-able tail of the burst: N tokens for users,
  * BS for bouncer sessions, channel BURST modes, EB.
  *
@@ -379,21 +387,6 @@ int server_estab(struct Client *cptr, struct ConfItem *aconf)
  * N loop (and on bounce_burst's session iteration) keeps duplicate
  * racing-nick N's off the wire.
  */
-/** Does the CR F snapshot carry our bouncer sessions?  Only with
- * CRDT_BOUNCER_DOC: without it the doc's bsess records are a shadow no
- * peer acts on, and a snapshot in place of the burst would leave out the
- * BS lines and the N of every session face.  A peer then never learns
- * our sessions, and two copies of one session (every node restoring it
- * after a simultaneous restart) never meet in m_nick's same-nick merge:
- * the doc materializes the faces and its nick-collision renames all but
- * one, leaving one session per node.  With local sessions and no bouncer
- * doc, the peer gets the P10 burst, as at cold boot. */
-static int crdt_burst_doc_covers_bouncer(void)
-{
-  return feature_bool(FEAT_CRDT_BOUNCER_DOC)
-         || !feature_bool(FEAT_BOUNCER_ENABLE) || !bounce_have_local_sessions();
-}
-
 int server_finish_burst(struct Client *cptr)
 {
   struct Client *acptr;
@@ -422,7 +415,9 @@ int server_finish_burst(struct Client *cptr)
    * still closes the burst. (Mirrors the IsIRCv3Aware burst-content gates.)
    * crdt_shadow_doc_ready() guards against skipping BURST when our doc is not yet
    * a complete source (e.g. at cold boot) — then we fall back to a normal BURST
-   * so the peer is never left missing users. */
+   * so the peer is never left missing users.  So does holding sessions the doc
+   * does not carry (crdt_burst_doc_covers_bouncer): their copies on the peer
+   * merge only through m_nick's same-nick rules, at the N. */
   if (IsCrdtAware(cptr) && crdt_primary_on() &&
       crdt_shadow_doc_ready() && crdt_burst_doc_covers_bouncer()) {
     crdt_send_snapshot(cptr);

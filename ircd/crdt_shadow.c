@@ -767,6 +767,8 @@ void crdt_shadow_user_add(struct Client *cptr)
   crdt_sync_push();                    /* eager-propagate to CRDT peers */
 }
 
+static int user_remove_hold_push;   /* crdt_shadow_user_remove_unpushed */
+
 void crdt_shadow_user_remove(struct Client *cptr, const char *comment)
 {
   char num[16];
@@ -782,7 +784,17 @@ void crdt_shadow_user_remove(struct Client *cptr, const char *comment)
    * cross-path ordering to lose (an ephemeral CR M copy raced the delta
    * two hops out and lost, 2026-09-20). */
   crdt_user_remove_reason(&g_crdt, user_numeric(cptr, num, sizeof num), comment);
-  crdt_sync_push();                    /* eager-propagate to CRDT peers */
+  if (!user_remove_hold_push)
+    crdt_sync_push();                  /* eager-propagate to CRDT peers */
+}
+
+/** As crdt_shadow_user_remove, but leave the op for the caller's next
+ *  crdt_sync_push: a demote announces the face as an alias (BX C) first. */
+void crdt_shadow_user_remove_unpushed(struct Client *cptr, const char *comment)
+{
+  user_remove_hold_push = 1;
+  crdt_shadow_user_remove(cptr, comment);
+  user_remove_hold_push = 0;
 }
 
 /* 5-5e M2 (doc-native bouncer, SHADOW): thin wrappers so bouncer_session.c can mirror
@@ -5826,21 +5838,21 @@ static void recon_user_cb(const char *key, uint32_t key_len,
    * NICK could still arrive via P10 on THIS server, i.e. we reach its owning server
    * through a LEGACY (non-CRDT) uplink that is currently bursting.  If we reach the
    * owning server via a CRDT peer (every user on a leaf; CRDT-origin users on the
-   * gateway), the user comes via the doc only → always safe.  This is also why x3's
+   * gateway), the user comes via the doc only, once that peer's burst is over
+   * (below).  This is also why x3's
    * perpetual burst is harmless: on a leaf we reach x3 through nef3 (CRDT), and on
    * the gateway x3's users arrive via P10 so findNUser skips them. */
   via = (srv && IsServer(srv)) ? cli_from(srv) : NULL;
-  if (via && IsServer(via) && !IsCrdtAware(via) && IsBurstOrBurstAck(via))
-    return;                       /* P10 intro may still be in flight on this legacy burst */
-  /* A CRDT peer bursts P10 too while it holds bouncer sessions and the
-   * bouncer doc is off (s_serv.c crdt_burst_doc_covers_bouncer), and its
-   * bouncer burst gate can hold that burst back for up to 30 s while its
-   * doc ops keep arriving.  Until its EB, wait for the N: a copy made here
-   * first would meet the N under the same nick and numeric, and m_nick
-   * kills both.  The snapshot path is unaffected: its users come by the
-   * CR F's materialize, and the EB runs this reconcile again. */
-  if (via && IsServer(via) && IsCrdtAware(via) && IsBurst(via))
-    return;
+  /* The same holds for a CRDT uplink until its EB: a CRDT peer that holds
+   * bouncer sessions the doc does not carry bursts P10 (s_serv.c
+   * crdt_burst_doc_covers_bouncer), and its bouncer burst gate
+   * (BOUNCE_LEGACY_GATE_SECS) can hold that burst back while its doc ops keep
+   * arriving.  A copy made first would meet the N under the same nick and
+   * numeric, and m_nick kills both.  The EB runs this reconcile again
+   * (m_endburst.c).  via is the direct link, so this covers servers behind it. */
+  if (via && IsServer(via) && (IsCrdtAware(via) ? IsBurst(via)
+                                                : IsBurstOrBurstAck(via)))
+    return;                       /* a P10 intro may still be in flight on this burst */
   if (val->data_len != sizeof(struct CrdtUserRecord))
     return;                         /* M4 schema guard: another record size = another schema */
   rec = (const struct CrdtUserRecord *)val->data;
@@ -5862,15 +5874,16 @@ static void recon_user_cb(const char *key, uint32_t key_len,
  * fallback).  Idempotent (findNUser inside crdt_materialize_one_user); a
  * tombstoned/deleted user is skipped (data_len mismatch) so a quit user is never
  * re-created.  The inbound-burst collision guard is PER-USER (recon_user_cb, scoped
- * to the legacy uplink toward each user's owning server) — a global gate would wedge
+ * to the uplink toward each user's owning server: legacy while it bursts, CRDT
+ * until its EB) — a global gate would wedge
  * forever on a perpetually in-burst services pseudo-server (x3.services). */
 void crdt_shadow_reconcile_users(void)
 {
   struct recon_user_ctx c = { 0 };
   if (!crdt_primary_on())
     return;
-  /* The burst guard is PER-USER (in recon_user_cb, scoped to the legacy uplink
-   * toward each user's owning server), not a global gate here — see the rationale
+  /* The burst guard is PER-USER (in recon_user_cb, scoped to the uplink toward
+   * each user's owning server), not a global gate here — see the rationale
    * there (x3.services sits perpetually in burst; a global gate would wedge all
    * materialization). */
   crdt_lwwmap_foreach(&g_crdt.users, recon_user_cb, &c);

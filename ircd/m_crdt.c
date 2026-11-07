@@ -1079,7 +1079,15 @@ int ms_crdt(struct Client *cptr, struct Client *sptr, int parc, char *parv[])
                                  svbytes, (size_t)svn);
       /* if the peer is behind the GC floor, the ops it lacks are gone from the
        * oplog -> send a full snapshot instead of an incomplete delta */
-      if (crdt_shadow_peer_behind_floor(svbytes, (size_t)svn))
+      /* Not while we gate this peer's burst: a P10 burst may follow (s_serv.c
+       * crdt_burst_doc_covers_bouncer), and a snapshot now would have the peer
+       * build our users before their N, a collision m_nick kills both copies
+       * over.  The peer builds a delta's users only after our EB
+       * (crdt_shadow.c recon_user_cb); a snapshot still needed comes on a CR S
+       * after the release. */
+      if (IsBurstGated(cptr))
+        send_crdt_delta(cptr, svbytes, svn);
+      else if (crdt_shadow_peer_behind_floor(svbytes, (size_t)svn))
         send_crdt_snapshot(cptr);
       /* Fix A: equal SV but different doc digest = SV-invisible divergence the
        * delta path cannot repair (an empty delta) -> escalate to a CR F snapshot,

@@ -180,6 +180,7 @@ void crdt_shadow_user_add(struct Client *cptr);
 
 /** Mirror a user removal (called from exit_one_client for IsUser clients). */
 void crdt_shadow_user_remove(struct Client *cptr, const char *comment);
+void crdt_shadow_user_remove_unpushed(struct Client *cptr, const char *comment);
 
 /** 5-5e M2 (doc-native bouncer, SHADOW): mirror/remove a bouncer-session record in the
  *  BSESSIONS doc collection.  Callers enforce single-writer (primary holder). */
