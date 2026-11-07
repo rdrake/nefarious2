@@ -478,12 +478,16 @@ static int crule_parseorexpr(CRuleNodePtr * orrootp, int *next_tokp, const char*
     errcode = crule_parseandexpr(&andexpr, next_tokp, ruleptr);
     if ((errcode == CR_NOERR) && (*next_tokp == CR_OR))
     {
+      /* An operator with nothing before it ("&&", "a && && b") */
+      if (andexpr == NULL)
+        return (CR_EXPCTAND);
       orptr = (CRuleNodePtr) MyMalloc(sizeof(struct CRuleNode));
 #ifdef CR_DEBUG
       fprintf(stderr, "allocating or element at %ld\n", orptr);
 #endif
       orptr->funcptr = crule__andor;
       orptr->numargs = 3;
+      orptr->arg[1] = NULL;    /* filled once the next operand parses */
       orptr->arg[2] = (void *)1;
       if (*orrootp != NULL)
       {
@@ -539,12 +543,16 @@ static int crule_parseandexpr(CRuleNodePtr * androotp, int *next_tokp, const cha
     errcode = crule_parseprimary(&primary, next_tokp, ruleptr);
     if ((errcode == CR_NOERR) && (*next_tokp == CR_AND))
     {
+      /* An operator with nothing before it ("&&", "a && && b") */
+      if (primary == NULL)
+        return (CR_EXPCTPRIM);
       andptr = (CRuleNodePtr) MyMalloc(sizeof(struct CRuleNode));
 #ifdef CR_DEBUG
       fprintf(stderr, "allocating and element at %ld\n", andptr);
 #endif
       andptr->funcptr = crule__andor;
       andptr->numargs = 3;
+      andptr->arg[1] = NULL;    /* filled once the next operand parses */
       andptr->arg[2] = (void *)0;
       if (*androotp != NULL)
       {
@@ -757,16 +765,17 @@ static int crule_parsearglist(CRuleNodePtr argrootp, int *next_tokp, const char*
 /*
  * This function is recursive..  I wish I knew a nonrecursive way but
  * I don't.  Anyway, recursion is fun..  :)
- * DO NOT CALL THIS FUNCTION WITH A POINTER TO A NULL POINTER
- * (i.e.: If *elem is NULL, you're doing it wrong - seg fault)
  */
 /** Free a connection rule and all its children.
- * @param[in,out] elem Pointer to pointer to element to free.  MUST NOT BE NULL.
+ * @param[in,out] elem Pointer to pointer to element to free (which may
+ *   itself be NULL: the parser's error paths free half-built trees).
  */
 void crule_free(struct CRuleNode** elem)
 {
   int arg, numargs;
 
+  if (*elem == NULL)
+    return;
   if ((*(elem))->funcptr == crule__not)
   {
     /* type conversions and ()'s are fun! ;)  here have an aspirin.. */
