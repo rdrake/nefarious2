@@ -10860,8 +10860,16 @@ int bounce_demote_live_primary_to_alias(struct Client *acptr,
    * still a non-alias primary (crdt_shadow_user_remove guards IsBouncerAlias).
    * MyConnect gate = single-writer (only the owning server tombstones; peers
    * converge via the delta).  Reap skips MyUser + IsBouncerAlias, so leaf3's
-   * own local alias is never exited by its own tombstone. */
-  if (feature_bool(FEAT_CRDT_BOUNCER_DOC) && MyConnect(acptr))
+   * own local alias is never exited by its own tombstone.
+   *
+   * Not gated on CRDT_BOUNCER_DOC: the user collection exists whenever the
+   * shadow doc does, and the record lingers there all the same.  Hard mode
+   * (every node restores the same persisted session, then the P10 burst's
+   * same-nick merge swaps two of them) left the swapped primaries' records
+   * in the doc of every CRDT peer: users > live and a digest split.  The
+   * live join does the same ungated, and bounce_promote_alias writes the
+   * record back ungated. */
+  if (MyConnect(acptr))   /* crdt_shadow_user_remove checks the features */
     crdt_shadow_user_remove(acptr, NULL);   /* internal move, no reason to carry */
 
   /* Promote the Client to alias: flag, NULL alias_primary (caller
