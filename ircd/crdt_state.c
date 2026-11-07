@@ -174,6 +174,8 @@ void crdt_state_clear(struct CrdtNetworkState *st)
   crdt_lwwmap_clear(&st->kick_info);
   free(st->part_reasons);
   st->part_reasons = NULL;
+  free(st->held_seq);
+  st->held_seq = NULL;
   st->part_reasons_n = st->part_reasons_cap = 0;
   crdt_lwwmap_clear(&st->chanmeta);
   crdt_lwwmap_clear(&st->glines);
@@ -1953,17 +1955,79 @@ struct CrdtLWWMap *crdt_state_lww_for(struct CrdtNetworkState *st,
   return lww_for(st, coll);
 }
 
-void crdt_state_apply_op(struct CrdtNetworkState *st, const struct CrdtOp *op)
+int crdt_state_ts_too_far_ahead(const struct CrdtNetworkState *st,
+                                const struct HLC *ts, uint64_t *ahead_ms)
+{
+  uint64_t now;
+  if (!st->wall_ms || ts->node_id == st->my_numeric)
+    return 0;                      /* our own stamp: see op_held */
+  now = st->wall_ms();
+  if (ts->physical_ms <= now + CRDT_OP_MAX_FORWARD_MS)
+    return 0;
+  if (ahead_ms)
+    *ahead_ms = ts->physical_ms - now;
+  return 1;
+}
+
+/* A remote op stamped too far ahead (a skewed writer) is held: applying it
+ * with the clock left behind would let it outrank every later local write
+ * to its key, and moving the clock would drag every other collection's
+ * local ops with it.  Nothing changes, so anti-entropy offers it again. */
+static int op_held(struct CrdtNetworkState *st, const struct CrdtOp *op)
+{
+  uint64_t ahead = 0;
+  int held;
+  /* Our own op echoed back (from before a restart that corrected a fast
+   * clock) is never held: it raises our SV, which resume_seq lifts next_seq
+   * past, or peers would drop our new ops as already seen. */
+  if (op->origin == st->my_numeric)
+    return 0;
+  held = crdt_state_ts_too_far_ahead(st, &op->ts, &ahead);
+  if (!held && op->coll == CRDT_COLL_CHAN_CTIME && op->val
+      && op->val_len == sizeof(struct ctime_payload)) {
+    struct ctime_payload pl;
+    memcpy(&pl, op->val, sizeof pl);
+    held = crdt_state_ts_too_far_ahead(st, &pl.set_hlc, &ahead)
+           || crdt_state_ts_too_far_ahead(st, &pl.del_hlc, &ahead);
+  }
+  if (held) {
+    st->held_ops++;
+    st->held_last_origin = op->origin;
+    st->held_last_ahead_ms = ahead;
+  }
+  return held;
+}
+
+int crdt_state_apply_op(struct CrdtNetworkState *st, const struct CrdtOp *op)
 {
   /* origin/tag.origin index seq[CRDT_MAX_SERVERS] (sv_has_seen below, sv_update
    * at the bottom, OR-Set GC on the tag) — crdt_op_decode already rejects OOB
    * values at the wire; mirror it here so no in-process caller can index the
    * state vector out of bounds either. */
   if (op->origin >= CRDT_MAX_SERVERS || op->tag.origin >= CRDT_MAX_SERVERS)
-    return;
+    return 1;
 
   if (crdt_sv_has_seen(&st->local_sv, op->origin, op->seq))
-    return;                                  /* idempotent */
+    return 1;                                /* idempotent */
+  if (st->held_seq && st->held_seq[op->origin].lo
+      && op->seq > st->held_seq[op->origin].lo) {
+    st->withheld_ops++;
+    return 0;                                /* waits behind its origin's held op */
+  }
+  if (op_held(st, op)) {
+    struct CrdtHeldRange *h;
+    st->withheld_ops++;
+    if (!st->held_seq)
+      st->held_seq = calloc(CRDT_MAX_SERVERS, sizeof *st->held_seq);
+    if (st->held_seq) {
+      h = &st->held_seq[op->origin];
+      if (!h->lo || op->seq < h->lo)
+        h->lo = op->seq;
+      if (op->seq > h->hi)
+        h->hi = op->seq;
+    }
+    return 0;
+  }
 
   if (op->coll == CRDT_COLL_CHAN_MEMBERS) {
     struct CrdtChannel *ch = chan_get(st, op->chan, op->chan_len, 1);
@@ -2044,6 +2108,14 @@ void crdt_state_apply_op(struct CrdtNetworkState *st, const struct CrdtOp *op)
 
   oplog_append(&st->oplog, op_clone(op));     /* keep for relay */
   crdt_sv_update(&st->local_sv, op->origin, op->seq);
+  if (st->held_seq && st->held_seq[op->origin].lo == op->seq) {
+    struct CrdtHeldRange *h = &st->held_seq[op->origin];
+    if (h->hi > h->lo)
+      h->lo = h->hi;           /* a higher op was held too: wait for it next */
+    else
+      h->lo = h->hi = 0;       /* the held ops are in: the rest may follow */
+  }
+  return 1;
 }
 
 int crdt_state_sync(struct CrdtNetworkState *dst,
@@ -2052,8 +2124,8 @@ int crdt_state_sync(struct CrdtNetworkState *dst,
   int applied = 0;
   for (struct CrdtOp *op = src->oplog.head; op; op = op->next) {
     if (!crdt_sv_has_seen(&dst->local_sv, op->origin, op->seq)) {
-      crdt_state_apply_op(dst, op);
-      applied++;
+      if (crdt_state_apply_op(dst, op))
+        applied++;
     }
   }
   return applied;

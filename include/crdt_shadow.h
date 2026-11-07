@@ -698,6 +698,9 @@ int crdt_shadow_encode_delta(const uint8_t *remote_sv, size_t sv_len,
 
 /** Decode + apply a delta into the shadow document. Returns ops applied, or -1. */
 int crdt_shadow_apply_delta(const uint8_t *buf, size_t len);
+/** Did the last crdt_shadow_apply_delta hold any op (stamped too far ahead)?
+ *  Then its blob must not be relayed as is: it carries the held ops. */
+int crdt_shadow_last_apply_held(void);
 
 /** Encode the ops WE created (origin == my_numeric) that have not yet been
  *  eager-pushed, advancing the high-water mark. Returns bytes (>4 if any ops

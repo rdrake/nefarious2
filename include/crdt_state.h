@@ -27,6 +27,11 @@
 #define CRDT_QUIT_RING      64
 #define CRDT_PARTREASON_LEN 192 /* part comment carried on a member REMOVE op */
 #define CRDT_PARTKEY_LEN    256 /* "<chan> <numeric>" */
+/** How far past this node's wall clock a remote op's stamp may run before the
+ *  op is held (not applied, the clock not moved, the SV not advanced) until
+ *  anti-entropy offers it again.  A constant, so every node draws the line
+ *  in the same place; it matches HLC_MAX_FORWARD_MS's default. */
+#define CRDT_OP_MAX_FORWARD_MS 60000
 #define CRDT_PARTREASON_MAX 4096 /* parked part reasons held between reconciles */
 #define CRDT_HOSTLEN     80   /* >= HOSTLEN(75)+1 */
 #define CRDT_REALLEN     56   /* >= REALLEN(50)+1 */
@@ -479,6 +484,23 @@ struct CrdtNetworkState {
    *  tombstone.  The bouncer reap needs a tombstone it has not
    *  acted on yet (a record of that key still exists here). */
   int                   (*gc_hold)(uint8_t coll, const char *key, uint32_t key_len);
+  /** Optional wall clock (ms) for the forward bound on remote ops: an op
+   *  stamped more than CRDT_OP_MAX_FORWARD_MS past it is held, not applied
+   *  (crdt_state_apply_op).  NULL: no bound (the engine reads no clock). */
+  uint64_t              (*wall_ms)(void);
+  /** Remote ops held by that bound so far, and the last one's origin and
+   *  how far ahead it was (ms), for the caller to report. */
+  uint64_t                held_ops;
+  /** Per origin, the lowest and highest seq held (lo 0: none), allocated on
+   *  the first hold.  The SV is a high-water mark, so no op of a held origin
+   *  above lo applies before lo does; then none above hi before hi does,
+   *  whichever delta or push brings it. */
+  struct CrdtHeldRange { uint64_t lo, hi; } *held_seq;
+  /** Ops the last apply calls withheld (held, or waiting behind a hold), for
+   *  the caller to tell whether a received blob may be relayed as is. */
+  uint64_t                withheld_ops;
+  uint16_t                held_last_origin;
+  uint64_t                held_last_ahead_ms;
 };
 
 /* ---- lifecycle ---- */
@@ -850,8 +872,14 @@ struct CrdtLWWMap *crdt_state_lww_for(struct CrdtNetworkState *st,
 void crdt_chan_ctime_merge(struct CrdtNetworkState *st, const char *chan,
                            uint32_t clen, uint64_t value,
                            struct HLC set_hlc, struct HLC del_hlc);
-/** Apply a single remote op (idempotent via state-vector check). */
-void crdt_state_apply_op(struct CrdtNetworkState *st, const struct CrdtOp *op);
+/** Apply a single remote op (idempotent via state-vector check).
+ *  @return 1 if applied or already seen, 0 if held: stamped beyond
+ *  CRDT_OP_MAX_FORWARD_MS past st->wall_ms(), so nothing changed. */
+int  crdt_state_apply_op(struct CrdtNetworkState *st, const struct CrdtOp *op);
+/** Is @a ts beyond the forward bound (a held stamp)?  0 when st->wall_ms is
+ *  NULL.  Sets *@a ahead_ms to how far past the clock it is, when held. */
+int  crdt_state_ts_too_far_ahead(const struct CrdtNetworkState *st,
+                                 const struct HLC *ts, uint64_t *ahead_ms);
 /** Delta sync: replay every op in src's oplog that dst hasn't seen, into dst.
  *  Models "src sends dst the delta dst is missing." Returns ops applied. */
 int  crdt_state_sync(struct CrdtNetworkState *dst,

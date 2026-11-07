@@ -1079,6 +1079,128 @@ static void test_bsess_op_replicates(void **state)
   crdt_state_clear(&s2);
 }
 
+/* The forward bound: an op stamped more than CRDT_OP_MAX_FORWARD_MS past the
+ * receiver's wall clock is held (nothing applied, clock and SV untouched),
+ * and so are the rest of its origin's ops in that delta.  Once the clock is
+ * in range the same delta applies.  A snapshot leaves held entries out and
+ * then adopts no SV. */
+static uint64_t g_fake_wall;
+static uint64_t fake_wall(void) { return g_fake_wall; }
+
+static void test_forward_bound_holds_ops(void **state)
+{
+  (void)state;
+  static uint8_t buf[65536];
+  struct CrdtNetworkState s1, s2, s3;
+  struct CrdtUserRecord ua = mkuser("alice", 1, "alice", 0x01010101);
+  struct CrdtUserRecord ub = mkuser("bob", 1, "bob", 0x02020202);
+  struct HLC clk;
+  uint64_t ahead = 0;
+  int n;
+  crdt_state_init(&s1, 4);
+  crdt_state_init(&s2, 3);
+  crdt_state_init(&s3, 5);
+  crdt_user_set(&s1, "AAAAA", &ua);
+  crdt_user_set(&s1, "AAAAB", &ub);
+  crdt_chan_join(&s1, "#c", "AAAAA");
+
+  s2.wall_ms = fake_wall;
+  g_fake_wall = s1.clock.physical_ms - CRDT_OP_MAX_FORWARD_MS - 5000;
+  assert_true(crdt_state_ts_too_far_ahead(&s2, &s1.clock, &ahead));
+  assert_true(ahead > CRDT_OP_MAX_FORWARD_MS);
+  clk = s2.clock;
+  n = crdt_delta_encode(&s1.oplog, &s2.local_sv, buf, sizeof buf);
+  assert_true(n > 0);
+  assert_int_equal(0, crdt_delta_apply(&s2, buf, (size_t)n));
+  assert_int_equal(1, (int)s2.held_ops);         /* the rest waited behind it */
+  assert_int_equal(4, s2.held_last_origin);
+  assert_int_equal(0, (int)s2.local_sv.seq[4]);
+  assert_null(crdt_user_get(&s2, "AAAAA"));
+  assert_true(hlc_compare(&clk, &s2.clock) == 0);
+  assert_int_equal(0, (int)s2.oplog.count);      /* nothing to relay */
+
+  /* A later op of that origin arriving on its own (an eager push), in bound
+   * by then, still waits: applying it would mark the held ones seen. */
+  {
+    static struct CrdtStateVector upto;
+    struct CrdtUserRecord uc = mkuser("carol", 1, "carol", 0x03030303);
+    upto = s1.local_sv;
+    g_fake_wall = s1.oplog.head->ts.physical_ms - CRDT_OP_MAX_FORWARD_MS - 1;
+    crdt_user_set(&s1, "AAAAC", &uc);
+    g_fake_wall += 2000;
+    assert_false(crdt_state_ts_too_far_ahead(&s2, &s1.oplog.tail->ts, NULL));
+    n = crdt_delta_encode(&s1.oplog, &upto, buf, sizeof buf);
+    assert_int_equal(0, crdt_delta_apply(&s2, buf, (size_t)n));
+    assert_int_equal(0, (int)s2.local_sv.seq[4]);
+    assert_null(crdt_user_get(&s2, "AAAAC"));
+  }
+
+  g_fake_wall = s1.clock.physical_ms;            /* clock in range: applies */
+  n = crdt_delta_encode(&s1.oplog, &s2.local_sv, buf, sizeof buf);
+  assert_int_equal(4, crdt_delta_apply(&s2, buf, (size_t)n));
+  assert_true(crdt_state_digest(&s1) == crdt_state_digest(&s2));
+
+  s3.wall_ms = fake_wall;                        /* snapshot */
+  g_fake_wall = s1.clock.physical_ms - CRDT_OP_MAX_FORWARD_MS - 5000;
+  n = crdt_snapshot_encode(&s1, buf, sizeof buf);
+  assert_true(n > 0);
+  assert_int_equal(0, crdt_snapshot_apply(&s3, buf, (size_t)n));
+  assert_null(crdt_user_get(&s3, "AAAAA"));
+  assert_int_equal(0, (int)s3.local_sv.seq[4]);  /* no SV adopted */
+  assert_true(s3.held_ops >= 2);
+  g_fake_wall = s1.clock.physical_ms;
+  assert_int_equal(0, crdt_snapshot_apply(&s3, buf, (size_t)n));
+  assert_non_null(crdt_user_get(&s3, "AAAAA"));
+  assert_true(s3.local_sv.seq[4] == s1.local_sv.seq[4]);
+  assert_true(crdt_state_digest(&s1) == crdt_state_digest(&s3));
+
+  crdt_state_clear(&s1);
+  crdt_state_clear(&s2);
+  crdt_state_clear(&s3);
+}
+
+/* A hold remembers the highest held seq too: an older held op that applies
+ * first must not let a later in-bound op jump past a higher held one. */
+static void test_forward_bound_hold_range(void **state)
+{
+  (void)state;
+  static uint8_t buf[65536];
+  static struct CrdtStateVector upto;
+  struct CrdtNetworkState s1, s2;
+  struct CrdtUserRecord u = mkuser("alice", 1, "alice", 0x01010101);
+  const struct CrdtOp *o1, *o2, *o3;
+  int n;
+  crdt_state_init(&s1, 4);
+  crdt_state_init(&s2, 3);
+  crdt_user_set(&s1, "AAAAA", &u);
+  crdt_user_set(&s1, "AAAAB", &u);
+  crdt_user_set(&s1, "AAAAC", &u);
+  o1 = s1.oplog.head; o2 = o1->next; o3 = o2->next;
+  s2.wall_ms = fake_wall;
+  g_fake_wall = o1->ts.physical_ms - CRDT_OP_MAX_FORWARD_MS - 5000;
+
+  upto = s1.local_sv;                       /* a peer that sends op 3 alone */
+  upto.seq[4] = o2->seq;
+  n = crdt_delta_encode(&s1.oplog, &upto, buf, sizeof buf);
+  assert_int_equal(0, crdt_delta_apply(&s2, buf, (size_t)n));
+  assert_int_equal(0, crdt_state_apply_op(&s2, o1));   /* and op 1, held lower */
+
+  g_fake_wall = s1.clock.physical_ms;       /* in bound now */
+  assert_int_equal(1, crdt_state_apply_op(&s2, o1));
+  {
+    struct CrdtUserRecord u4 = mkuser("dave", 1, "dave", 0x04040404);
+    crdt_user_set(&s1, "AAAAD", &u4);       /* op 4, alone, e.g. an eager push */
+  }
+  assert_int_equal(0, crdt_state_apply_op(&s2, s1.oplog.tail));
+  assert_true(s2.local_sv.seq[4] == o1->seq);          /* op 3 still owed */
+  assert_int_equal(1, crdt_state_apply_op(&s2, o2));
+  assert_int_equal(1, crdt_state_apply_op(&s2, o3));
+  assert_int_equal(1, crdt_state_apply_op(&s2, s1.oplog.tail));
+  assert_true(crdt_state_digest(&s1) == crdt_state_digest(&s2));
+  crdt_state_clear(&s1);
+  crdt_state_clear(&s2);
+}
+
 /* Equal-stamp tie in the doc's LWW map: a live write beats a tombstone and
  * the larger value bytes win, whichever arrives first (md_lww_take agrees). */
 static void lww_tie_apply(struct CrdtLWWMap *m, int order)
@@ -4619,6 +4741,8 @@ int main(void)
     cmocka_unit_test(test_bsess_winner),
     cmocka_unit_test(test_bsess_gc_hold),
     cmocka_unit_test(test_lww_equal_stamp_tie),
+    cmocka_unit_test(test_forward_bound_holds_ops),
+    cmocka_unit_test(test_forward_bound_hold_range),
     cmocka_unit_test(test_bconn_roster),
     cmocka_unit_test(test_blease_compare),
     cmocka_unit_test(test_blease_decide),

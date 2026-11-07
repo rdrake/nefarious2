@@ -6600,11 +6600,50 @@ int crdt_shadow_encode_delta(const uint8_t *remote_sv, size_t sv_len,
   return crdt_delta_encode(&g_crdt.oplog, &rsv, buf, cap);
 }
 
+/* Report ops the forward bound held (crdt_state_apply_op): each one is
+ * logged as a count, and opers get a notice at most once a minute. */
+static void report_held_ops(uint64_t before)
+{
+  static time_t last_notice;
+  uint64_t n = g_crdt.held_ops - before;
+  if (!n)
+    return;
+  log_write(LS_SYSTEM, L_WARNING, 0,
+            "CRDT: held %llu op(s) stamped too far ahead; the last from server %u, "
+            "%llu ms past our clock (bound %u ms)", (unsigned long long)n,
+            (unsigned)g_crdt.held_last_origin,
+            (unsigned long long)g_crdt.held_last_ahead_ms,
+            (unsigned)CRDT_OP_MAX_FORWARD_MS);
+  if (CurrentTime - last_notice >= 60) {
+    last_notice = CurrentTime;
+    sendto_opmask_butone(0, SNO_OLDSNO, "CRDT: holding ops from server %u "
+                         "stamped %llu ms ahead of our clock (check its time)",
+                         (unsigned)g_crdt.held_last_origin,
+                         (unsigned long long)g_crdt.held_last_ahead_ms);
+  }
+}
+
+static int g_last_apply_held;
+
 int crdt_shadow_apply_delta(const uint8_t *buf, size_t len)
 {
+  uint64_t before;
+  int n;
   if (!g_inited)
     return -1;
-  return crdt_delta_apply(&g_crdt, buf, len);
+  {
+    uint64_t wh = g_crdt.withheld_ops;
+    before = g_crdt.held_ops;
+    n = crdt_delta_apply(&g_crdt, buf, len);
+    g_last_apply_held = g_crdt.withheld_ops != wh;
+  }
+  report_held_ops(before);
+  return n;
+}
+
+int crdt_shadow_last_apply_held(void)
+{
+  return g_last_apply_held;
 }
 
 int crdt_shadow_encode_local_unpushed(uint8_t *buf, size_t cap)
@@ -6644,9 +6683,47 @@ int crdt_shadow_encode_snapshot(uint8_t *buf, size_t cap)
   return g_inited ? crdt_snapshot_encode(&g_crdt, buf, cap) : -1;
 }
 
+/* A snapshot that left entries out (stamped beyond the forward bound) adopts
+ * no SV, and a fresher one from the same peer may hold a fresher skewed entry
+ * again.  The first such cut is kept and retried here as its stamps age into
+ * the bound, so the SV and floor it carries are adopted in the end.  Each
+ * retry merges the whole old cut again, so tombstone GC waits while one is
+ * kept (crdt_shadow_gc): a delete newer than the cut stays to outrank it. */
+static uint8_t *g_pending_snap;
+static size_t g_pending_snap_len;
+
 int crdt_shadow_apply_snapshot(const uint8_t *buf, size_t len)
 {
-  return g_inited ? crdt_snapshot_apply(&g_crdt, buf, len) : -1;
+  uint64_t before;
+  int rc;
+  if (!g_inited)
+    return -1;
+  before = g_crdt.held_ops;
+  rc = crdt_snapshot_apply(&g_crdt, buf, len);
+  if (rc == 0 && g_crdt.held_ops == before && g_pending_snap) {
+    MyFree(g_pending_snap);    /* a newer cut was adopted whole: the old one is moot */
+    g_pending_snap = NULL;
+    g_pending_snap_len = 0;
+  } else if (rc == 0 && g_crdt.held_ops != before && !g_pending_snap
+             && (g_pending_snap = MyMalloc(len ? len : 1))) {
+    memcpy(g_pending_snap, buf, len);
+    g_pending_snap_len = len;
+  }
+  report_held_ops(before);
+  return rc;
+}
+
+static void retry_pending_snapshot(void)
+{
+  uint64_t before = g_crdt.held_ops;
+  if (!g_pending_snap)
+    return;
+  if (crdt_snapshot_apply(&g_crdt, g_pending_snap, g_pending_snap_len) != 0
+      || g_crdt.held_ops == before) {
+    MyFree(g_pending_snap);              /* adopted (or unreadable): done */
+    g_pending_snap = NULL;
+    g_pending_snap_len = 0;
+  }
 }
 
 int crdt_shadow_peer_behind_floor(const uint8_t *sv, size_t len)
@@ -6801,7 +6878,7 @@ static void crdt_shadow_gc(void)
                 "CRDT GC: reclaimed %d orphan tempshun register(s) (departed users)",
                 orph);
   }
-  freed = crdt_state_gc(&g_crdt, &gmin);
+  freed = g_pending_snap ? 0 : crdt_state_gc(&g_crdt, &gmin);
   if (freed > 0)
     log_write(LS_SYSTEM, L_NOTICE, 0,
               "CRDT GC: reclaimed %d op/tombstone(s) (causally stable)", freed);
@@ -6812,6 +6889,7 @@ static void crdt_shadow_verify_cb(struct Event *ev)
 {
   if (ev_type(ev) != ET_EXPIRE)
     return;
+  retry_pending_snapshot();
   /* MR-6-1 §2.8 redundancy guard (log-only): an overlay-primary node below 2
    * live overlay edges is one edge loss from a full partition — alarm every
    * cycle while degraded (the log IS the alarm; /CRDT link is the remedy). */
@@ -6970,6 +7048,7 @@ void crdt_shadow_init(uint16_t my_numeric)
     return;
   crdt_state_init(&g_crdt, my_numeric);
   g_crdt.gc_hold = shadow_gc_hold;
+  g_crdt.wall_ms = hlc_wall_clock_ms;
   g_boot_enabled = feature_bool(FEAT_CRDT_ENABLED) ? 1 : 0;
   g_boot_primary = feature_bool(FEAT_CRDT_PRIMARY) ? 1 : 0;
   /* Restart-epoch defense: seed next_seq from the wall clock (ms) so a restarted

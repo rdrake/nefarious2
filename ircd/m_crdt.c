@@ -1121,7 +1121,8 @@ int ms_crdt(struct Client *cptr, struct Client *sptr, int parc, char *parv[])
           /* Phase 4 foundation: eager multi-hop relay — forward the just-applied
            * ops onward to our OTHER CRDT peers (gossip flood; the applied>0 guard +
            * SV dedup terminate the cascade) so 2-hop peers converge sub-second. */
-          crdt_relay_delta(cptr, bin, bn);
+          if (!crdt_shadow_last_apply_held())  /* a held op must not ride on */
+            crdt_relay_delta(cptr, bin, bn);
           /* Phase 3d/3e/3f: drive live topics + channel modes + membership that just
            * arrived via CRDT (+ gateway to legacy). Idempotent; no-op unless
            * FEAT_CRDT_PRIMARY. */

@@ -213,10 +213,10 @@ int crdt_delta_apply(struct CrdtNetworkState *st,
     int n = crdt_op_decode(&op, r.p + r.off, r.len - r.off);
     if (n < 0) return -1;
     r.off += (size_t)n;
-    if (!crdt_sv_has_seen(&st->local_sv, op.origin, op.seq)) {
-      crdt_state_apply_op(st, &op);
+    /* A held op, and every later op of its origin, waits (crdt_state_apply_op) */
+    if (!crdt_sv_has_seen(&st->local_sv, op.origin, op.seq)
+        && crdt_state_apply_op(st, &op))
       applied++;
-    }
     crdt_op_free_fields(&op);
   }
   crdt_state_resume_seq(st);   /* resume our seq past any adopted SV (restart epoch) */
@@ -431,6 +431,8 @@ int crdt_snapshot_apply(struct CrdtNetworkState *st,
   struct CrdtStateVector snap_sv;
   uint16_t svlen;
   uint32_t lww_total, chan_n, i;
+  uint64_t ahead = 0;
+  int held = 0;     /* entries stamped beyond the forward bound, left out */
 
   /* state vector */
   svlen = rget_u16(&r);
@@ -461,7 +463,12 @@ int crdt_snapshot_apply(struct CrdtNetworkState *st,
     rget_blob(&r, &val, vlen);
     if (r.err) { free(key); free(val); return -1; }
     map = crdt_state_lww_for(st, (enum CrdtCollection)coll);
-    if (map) {
+    if (map && crdt_state_ts_too_far_ahead(st, &ts, &ahead)) {
+      held++;                     /* as a delta op would be: not applied */
+      st->held_ops++;
+      st->held_last_origin = ts.node_id;
+      st->held_last_ahead_ms = ahead;
+    } else if (map) {
       if (deleted)
         crdt_lwwmap_delete(map, key ? key : "", klen, ts, writer);
       else if (coll == (uint8_t)CRDT_COLL_BLEASES &&
@@ -513,7 +520,14 @@ int crdt_snapshot_apply(struct CrdtNetworkState *st,
       cd.logical = rget_u16(&r);
       cd.node_id = rget_u16(&r);
       if (r.err) return -1;
-      crdt_chan_ctime_merge(st, cname, nlen, cv, cs, cd);
+      if (crdt_state_ts_too_far_ahead(st, &cs, &ahead)
+          || crdt_state_ts_too_far_ahead(st, &cd, &ahead)) {
+        held++;
+        st->held_ops++;
+        st->held_last_origin = cs.node_id;
+        st->held_last_ahead_ms = ahead;
+      } else
+        crdt_chan_ctime_merge(st, cname, nlen, cv, cs, cd);
     }
   }
 
@@ -536,10 +550,23 @@ int crdt_snapshot_apply(struct CrdtNetworkState *st,
 
   if (r.err) return -1;
 
+  /* An entry left out above is not known yet: adopting the sender's SV (or
+   * raising the floor to it) would mark it seen.  The merged rest stands;
+   * deltas, or the next snapshot, bring the held entries once in bound. */
+  if (held) {
+    /* ...but our own seq still resumes past what the sender knows of us */
+    crdt_sv_update(&st->local_sv, st->my_numeric, snap_sv.seq[st->my_numeric]);
+    crdt_state_resume_seq(st);
+    return 0;
+  }
+
   /* we now know everything up to the sender's SV (own newer ops are preserved
    * by the merge semantics; crdt_sv_update never lowers) */
-  for (i = 0; i < CRDT_MAX_SERVERS; i++)
+  for (i = 0; i < CRDT_MAX_SERVERS; i++) {
     crdt_sv_update(&st->local_sv, (uint16_t)i, snap_sv.seq[i]);
+    if (st->held_seq && st->held_seq[i].lo && snap_sv.seq[i] >= st->held_seq[i].hi)
+      st->held_seq[i].lo = st->held_seq[i].hi = 0;  /* it carries the held ops' state */
+  }
   crdt_state_resume_seq(st);   /* resume our seq past the adopted SV (restart epoch) */
 
   /* Phase 4c: a snapshot delivers STATE up to snap_sv but NO ops below it — those
