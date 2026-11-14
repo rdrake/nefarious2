@@ -62,6 +62,7 @@
 #include "msgq.h"
 #include "class.h"
 #include "bouncer_session.h"
+#include "bouncer_wire.h"
 #include "history.h"
 #include "history_trim_codec.h"
 #include "ml_content.h"
@@ -228,6 +229,7 @@ static void emit_bxm_to_remote_member(struct Client *member,
                                        struct Connection *con,
                                        int is_notice,
                                        const char *batch_base_msgid,
+                                       uint64_t batch_time_ms,
                                        const char *batch_paste_url,
                                        int member_index);
 
@@ -377,6 +379,15 @@ static int deliver_multiline_dm_to_one(struct Client *sptr,
  * member_index is the loop index of the alias within its session;
  * baked into the batch_id to keep concurrent emissions to different
  * aliases from colliding on the receiver's per-link batch table.
+ *
+ * The client-only tags and the batch's time ride the start line's tag
+ * region toward a link that takes S2S tags (#229), whole up to 4094
+ * bytes, outside the 510-byte body.  For receivers that do not read the
+ * region the start line also carries them as its body "@<ctags>"
+ * parameter, only when that is whole (bounce_bxm_body_ctags_sendable):
+ * at most BX_M_BODY_CTAGS_MAX bytes and the line still fits, so the
+ * text parameter is never cut off; otherwise such a receiver delivers
+ * the batch untagged.
  */
 static void emit_bxm_to_remote_member(struct Client *member,
                                        const char *member_numeric,
@@ -385,6 +396,7 @@ static void emit_bxm_to_remote_member(struct Client *member,
                                        struct Connection *con,
                                        int is_notice,
                                        const char *batch_base_msgid,
+                                       uint64_t batch_time_ms,
                                        const char *batch_paste_url,
                                        int member_index)
 {
@@ -406,18 +418,28 @@ static void emit_bxm_to_remote_member(struct Client *member,
     if (first) {
       const char *msgid = (batch_base_msgid && *batch_base_msgid)
                           ? batch_base_msgid : "*";
-      if (ctags && *ctags) {
-        sendcmdto_one(&me, CMD_BOUNCER_TRANSFER, member,
-                      "M +%s %s %s%s %s %s %s @%s :%s",
-                      bxm_batch_id, member_numeric,
-                      NumNick(sender_primary), bx_tok,
-                      cli_name(acptr), msgid, ctags, text);
+      size_t clen = ctags ? strlen(ctags) : 0;
+      int body_ctags = clen <= BX_M_BODY_CTAGS_MAX
+        && bounce_bxm_body_ctags_sendable(clen,
+             send_s2s_untagged_fits(&me, TOK_BOUNCER_TRANSFER,
+                                    "M +%s %s %s%s %s %s @%s :%s",
+                                    bxm_batch_id, member_numeric,
+                                    NumNick(sender_primary), bx_tok,
+                                    cli_name(acptr), msgid, ctags, text));
+      if (body_ctags) {
+        sendcmdto_one_ctags(&me, CMD_BOUNCER_TRANSFER, member,
+                            batch_time_ms, msgid, ctags,
+                            "M +%s %s %s%s %s %s %s @%s :%s",
+                            bxm_batch_id, member_numeric,
+                            NumNick(sender_primary), bx_tok,
+                            cli_name(acptr), msgid, ctags, text);
       } else {
-        sendcmdto_one(&me, CMD_BOUNCER_TRANSFER, member,
-                      "M +%s %s %s%s %s %s %s :%s",
-                      bxm_batch_id, member_numeric,
-                      NumNick(sender_primary), bx_tok,
-                      cli_name(acptr), msgid, text);
+        sendcmdto_one_ctags(&me, CMD_BOUNCER_TRANSFER, member,
+                            batch_time_ms, msgid, ctags,
+                            "M +%s %s %s%s %s %s %s :%s",
+                            bxm_batch_id, member_numeric,
+                            NumNick(sender_primary), bx_tok,
+                            cli_name(acptr), msgid, text);
       }
       first = 0;
     } else if (concat) {
@@ -1852,8 +1874,8 @@ process_multiline_batch(struct Client *sptr)
              * from the echo loop's (i, and -1 for the primary). */
             emit_bxm_to_remote_member(alias, acptr_sess->hs_aliases[i].ba_numeric,
                                       fwd_source, acptr, con, is_notice,
-                                      batch_base_msgid, batch_paste_url,
-                                      -(2 + i));
+                                      batch_base_msgid, batch_time_ms,
+                                      batch_paste_url, -(2 + i));
           } else {
             fallback_count++;
             ml_send_dm_fallback(sptr, alias, con_ml_messages(con),
@@ -1912,18 +1934,23 @@ process_multiline_batch(struct Client *sptr)
             emit_bxm_to_remote_member(sender_primary, primary_nn,
                                       sender_primary, acptr, con,
                                       is_notice, batch_base_msgid,
-                                      batch_paste_url,
+                                      batch_time_ms, batch_paste_url,
                                       -1 /* sentinel: not in alias loop */);
           } else {
             char rcpt_nn[6];
             int first_line = 1;
             ircd_snprintf(0, rcpt_nn, sizeof(rcpt_nn), "%s%s",
                           NumNick(sender_primary));
+            /* The first line carries the msgid, and with it the
+             * client tags and time in its tag region (#229); later
+             * lines carry "*" and neither. */
             for (lp = con_ml_messages(con); lp; lp = lp->next) {
               char *text = lp->value.cp + 1;
               if (*text == '\0')
                 continue;
-              sendcmdto_one(&me, CMD_BOUNCER_TRANSFER, sender_primary,
+              sendcmdto_one_ctags(&me, CMD_BOUNCER_TRANSFER, sender_primary,
+                  batch_time_ms, first_line ? batch_base_msgid : "*",
+                  first_line ? con_ml_client_tags(con) : NULL,
                   "E %s %s%s %s %s %s :%s",
                   rcpt_nn, NumNick(sender_primary), bx_tok,
                   cli_name(acptr),
@@ -1968,14 +1995,17 @@ process_multiline_batch(struct Client *sptr)
                                         sender_sess->hs_aliases[i].ba_numeric,
                                         sender_primary, acptr, con,
                                         is_notice, batch_base_msgid,
-                                        batch_paste_url, i);
+                                        batch_time_ms, batch_paste_url, i);
             } else {
               int first_line = 1;
+              /* First line: msgid, client tags and time (#229). */
               for (lp = con_ml_messages(con); lp; lp = lp->next) {
                 char *text = lp->value.cp + 1;
                 if (*text == '\0')
                   continue;
-                sendcmdto_one(&me, CMD_BOUNCER_TRANSFER, member,
+                sendcmdto_one_ctags(&me, CMD_BOUNCER_TRANSFER, member,
+                    batch_time_ms, first_line ? batch_base_msgid : "*",
+                    first_line ? con_ml_client_tags(con) : NULL,
                     "E %s %s%s %s %s %s :%s",
                     sender_sess->hs_aliases[i].ba_numeric,
                     NumNick(sender_primary), bx_tok,

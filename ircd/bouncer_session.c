@@ -12153,14 +12153,20 @@ void bounce_forward_pm_to_aliases(struct Client *from, struct Client *target,
  *                    caller armed (sendcmdto_set_client_event), as a
  *                    delivered message is (sendcmdto_one_delivery): its
  *                    msgid and time, never a label or a batch they have open.
+ * @param[in] event_ms The message's time (epoch ms), the one its msgid
+ *                     was minted with; rides the BX E tag region.
  * @param[in] client_tags Sender's client-only tags (+reply, an edit tag), or
- *                        NULL. Local members get them; BX E does not carry
- *                        them.
+ *                        NULL. Local members get them; so do members on
+ *                        other servers, in the BX E line's compact tag
+ *                        region toward a link that takes S2S tags (#229):
+ *                        @A<event_ms><msgid>,C<client_tags>, whole, outside
+ *                        the 510-byte body.  A receiver that does not read
+ *                        it delivers the copy as before.
  */
 void bounce_echo_pm_to_session(struct Client *sender, struct Client *target,
                                const char *cmd, const char *tok,
                                const char *text, const char *msgid,
-                               const char *client_tags)
+                               uint64_t event_ms, const char *client_tags)
 {
   struct Client *primary;
   struct BouncerSession *sess;
@@ -12210,7 +12216,8 @@ void bounce_echo_pm_to_session(struct Client *sender, struct Client *target,
     } else {
       char nn[6];
       ircd_snprintf(0, nn, sizeof(nn), "%s%s", NumNick(primary));
-      sendcmdto_one(&me, CMD_BOUNCER_TRANSFER, primary,
+      sendcmdto_one_ctags(&me, CMD_BOUNCER_TRANSFER, primary,
+          event_ms, msgid, client_tags,
           "E %s %s%s %s %s %s :%s",
           nn, NumNick(primary), tok, cli_name(target),
           msgid ? msgid : "*", text);
@@ -12231,7 +12238,8 @@ void bounce_echo_pm_to_session(struct Client *sender, struct Client *target,
       if (sess->hs_aliases[i].ba_caps_known
           && !(sess->hs_aliases[i].ba_caps & BX_CAP_ECHO_MESSAGE))
         continue;
-      sendcmdto_one(&me, CMD_BOUNCER_TRANSFER, alias,
+      sendcmdto_one_ctags(&me, CMD_BOUNCER_TRANSFER, alias,
+          event_ms, msgid, client_tags,
           "E %s %s%s %s %s %s :%s",
           sess->hs_aliases[i].ba_numeric,
           NumNick(primary), tok, cli_name(target),

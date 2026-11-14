@@ -1178,11 +1178,12 @@ extern void bounce_sync_alias_identity(struct Client *primary);
  * @param[in] msgid   Message ID for the BX E copies (may be NULL or empty);
  *                    local members are tagged from the armed event (see
  *                    the definition).
+ * @param[in] event_ms The message's time (epoch ms), for the BX E tag region.
  * @param[in] client_tags Sender's client-only tags, or NULL (see the definition).
  */
 extern void bounce_echo_pm_to_session(struct Client *sender,
     struct Client *target, const char *cmd, const char *tok,
-    const char *text, const char *msgid,
+    const char *text, const char *msgid, uint64_t event_ms,
     const char *client_tags);
 
 /** Prepare bouncer sessions for SQUIT promotion.
