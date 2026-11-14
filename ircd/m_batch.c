@@ -389,6 +389,12 @@ static int deliver_multiline_dm_to_one(struct Client *sptr,
  * text parameter is never cut off; otherwise such a receiver delivers
  * the batch untagged.
  */
+
+/** The BX M start line with the body "@<ctags>" parameter: batch id,
+ * destination, the primary's numeric (two %s), P|O, target nick, msgid,
+ * client tags, first line.  One literal for the fit check and the send. */
+#define BXM_START_CTAGS_FMT "M +%s %s %s%s %s %s %s @%s :%s"
+
 static void emit_bxm_to_remote_member(struct Client *member,
                                        const char *member_numeric,
                                        struct Client *sender_primary,
@@ -419,17 +425,19 @@ static void emit_bxm_to_remote_member(struct Client *member,
       const char *msgid = (batch_base_msgid && *batch_base_msgid)
                           ? batch_base_msgid : "*";
       size_t clen = ctags ? strlen(ctags) : 0;
-      int body_ctags = clen <= BX_M_BODY_CTAGS_MAX
-        && bounce_bxm_body_ctags_sendable(clen,
+      /* Measured with the format the line is sent with (one literal, so
+       * the two cannot drift): the body parameter goes out only when the
+       * whole line, text included, fits untagged. */
+      int body_ctags = bounce_bxm_body_ctags_sendable(clen,
              send_s2s_untagged_fits(&me, TOK_BOUNCER_TRANSFER,
-                                    "M +%s %s %s%s %s %s @%s :%s",
+                                    BXM_START_CTAGS_FMT,
                                     bxm_batch_id, member_numeric,
                                     NumNick(sender_primary), bx_tok,
                                     cli_name(acptr), msgid, ctags, text));
       if (body_ctags) {
         sendcmdto_one_ctags(&me, CMD_BOUNCER_TRANSFER, member,
                             batch_time_ms, msgid, ctags,
-                            "M +%s %s %s%s %s %s %s @%s :%s",
+                            BXM_START_CTAGS_FMT,
                             bxm_batch_id, member_numeric,
                             NumNick(sender_primary), bx_tok,
                             cli_name(acptr), msgid, ctags, text);
