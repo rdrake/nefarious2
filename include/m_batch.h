@@ -40,6 +40,13 @@ extern int format_batch_open_tags_delivered(char *buf, size_t buflen,
                                             const char *msgid,
                                             const char *ctags);
 
+/** The BX M start line with the body "@<ctags>" parameter: batch id,
+ * destination, the primary's numeric (two %s), P|O, target nick, msgid,
+ * client tags, first line.  One literal for the fit check and the send
+ * (emit_bxm_to_remote_member, m_batch.c); send_s2s_tags_cmocka checks it
+ * measures the text. */
+#define BXM_START_CTAGS_FMT "M +%s %s %s%s %s %s %s @%s :%s"
+
 /** Free any S2S multiline batches buffered against \a link.
  * Called from exit_one_client when a directly-connected server exits,
  * so partially-accumulated batches whose terminating ML "-" token will

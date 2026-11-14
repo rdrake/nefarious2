@@ -140,6 +140,22 @@ int ircd_snprintf(struct Client *dest, char *buf, size_t buf_len,
   va_list ap;
   int n;
   (void)dest;
+  if (strcmp(format, "%C %s %v") == 0) {   /* send_s2s_untagged_fits() */
+    struct Client *from;
+    const char *tok;
+    struct VarData *vd;
+    va_list cp;
+    va_start(ap, format);
+    from = va_arg(ap, struct Client *);
+    tok = va_arg(ap, const char *);
+    vd = va_arg(ap, struct VarData *);
+    va_end(ap);
+    n = snprintf(buf, buf_len, "%s %s ", cli_yxx(from), tok);
+    va_copy(cp, vd->vd_args);
+    n += vsnprintf(buf + n, buf_len - n, vd->vd_format, cp);
+    va_end(cp);
+    return n;
+  }
   if (strcmp(format, "%%s%s") != 0) {
     fail();
     return 0;
@@ -488,9 +504,33 @@ static void test_bx_ctags_full_size_is_whole(void **state)
   assert_string_equal(last_tags + 2 + 7 + 14 + 2 + 4094, " ");
 }
 
+/* The BX M start line's fit check measures the text too (#229 review):
+ * the check and the send share BXM_START_CTAGS_FMT, so a format one
+ * conversion short -- the text left unmeasured -- would pass a line that
+ * is cut on the wire.  444 bytes of tags fit with a short text; with a
+ * 100-byte text the same line is over 510. */
+static int bxm_fits(const char *ctags, const char *text)
+{
+  return send_s2s_untagged_fits(&me, "BX", BXM_START_CTAGS_FMT,
+                                "AAB17946704930", "ACAAB", "AB", "AAB", "P",
+                                "rr", BXE_ID, ctags, text);
+}
+
+static void test_bxm_start_fit_measures_the_text(void **state)
+{
+  static char ctags[445], text[101];
+  (void)state;
+  memset(ctags, 'z', sizeof(ctags) - 1);
+  memcpy(ctags, "+k=", 3);
+  memset(text, 't', sizeof(text) - 1);
+  assert_true(bxm_fits(ctags, "t"));
+  assert_false(bxm_fits(ctags, text));
+}
+
 int main(void)
 {
   const struct CMUnitTest tests[] = {
+    cmocka_unit_test_setup(test_bxm_start_fit_measures_the_text, setup),
     cmocka_unit_test_setup(test_bx_ctags_toward_v3_link, setup),
     cmocka_unit_test_setup(test_bx_ctags_toward_legacy_link_is_bare, setup),
     cmocka_unit_test_setup(test_bx_ctags_without_tags_is_bare, setup),

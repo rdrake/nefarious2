@@ -63,6 +63,7 @@
 #include "class.h"
 #include "bouncer_session.h"
 #include "bouncer_wire.h"
+#include "m_batch.h"
 #include "history.h"
 #include "history_trim_codec.h"
 #include "ml_content.h"
@@ -389,11 +390,6 @@ static int deliver_multiline_dm_to_one(struct Client *sptr,
  * text parameter is never cut off; otherwise such a receiver delivers
  * the batch untagged.
  */
-
-/** The BX M start line with the body "@<ctags>" parameter: batch id,
- * destination, the primary's numeric (two %s), P|O, target nick, msgid,
- * client tags, first line.  One literal for the fit check and the send. */
-#define BXM_START_CTAGS_FMT "M +%s %s %s%s %s %s %s @%s :%s"
 
 static void emit_bxm_to_remote_member(struct Client *member,
                                        const char *member_numeric,
