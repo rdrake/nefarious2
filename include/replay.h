@@ -84,7 +84,7 @@ struct ReplayState {
    * page (a sendQ pause can leave it half sent across CAP changes): its
    * chathistory batch is sent when batch_framed (batch was active when it
    * opened), and its rows are filtered by type_mask, the row types the
-   * page was READ with (chathistory_type_mask(): 0 = every type) -- so
+   * page was READ with (chathistory_type_mask(), never 0) -- so
    * what is sent matches what was counted for the page and its end tag. */
   int batch_framed;
   unsigned int type_mask;
@@ -205,7 +205,8 @@ extern void replay_leg_done(struct Client *sptr, unsigned long seq, const char *
                             unsigned int type_mask);
 
 /** The row types a history page read now for @a sptr may carry, as a bit
- * mask over enum HistoryMessageType (0 = every type): the mask the walk
+ * mask over enum HistoryMessageType (never 0, so status messages need
+ * a bit of their own): the mask the walk
  * filters with (m_chathistory.c).  A page keeps the mask it was read with
  * (ReplayState.type_mask). */
 extern unsigned int chathistory_type_mask(struct Client *sptr, const char *target);

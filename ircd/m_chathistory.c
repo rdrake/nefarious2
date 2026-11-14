@@ -6941,7 +6941,7 @@ static struct FedRequest *start_fed_query_ex(struct Client *sptr, const char *ta
          * keeps its slot; older responders ignore both. */
         /* Trailing type mask (hex): the row types the requester can
          * receive, so the responder skips the rest INSIDE its walk and
-         * its limit+1 probe counts VISIBLE rows.  0 = all types.  Older
+         * its limit+1 probe counts VISIBLE rows; never 0.  Older
          * responders ignore the extra param (audit #8). */
         sendcmdto_one(&me, CMD_CHATHISTORY, server, "Q %s %c %s %d %s %s %s %c%s %x",
                       target, s2s_subcmd, s2s_ref, limit, reqid, dest_yxx,
@@ -7356,8 +7356,13 @@ int start_redact_fed_query(struct Client *sptr, struct Channel *chptr,
     if (!has_chathistory_advertisement(server))
       continue;
 
-    sendcmdto_one(&me, CMD_CHATHISTORY, server, "Q %s X %s 1 %s",
-                  target, s2s_ref, reqid);
+    /* Addressed to that server itself, with the redacter's type mask: a
+     * status message's row is answered only to a requester that may read
+     * it (requester_type_mask; an older responder ignores the rest). */
+    sendcmdto_one(&me, CMD_CHATHISTORY, server, "Q %s X %s 1 %s %s * P%s%s %x",
+                  target, s2s_ref, reqid, cli_yxx(server),
+                  cli_yxx(cli_user(sptr)->server), cli_yxx(sptr),
+                  requester_type_mask(sptr, target));
   }
 
   return 0;
@@ -7381,11 +7386,6 @@ struct AutoReplayContext {
   time_t since_time;               /**< Baseline timestamp (for read marker comparison) */
   char timestamp[HISTORY_TIMESTAMP_LEN]; /**< Formatted baseline ts */
   int incomplete;                  /**< A channel was skipped (no fed slot) */
-  /** The row types this replay reads and sends, decided at its start
-   * (requester_type_mask) less any status message: each channel's request
-   * carries its own mask, these and the status messages of the statuses
-   * held in that channel (req->type_mask). */
-  unsigned int type_mask;
 };
 
 /** Process the next channel in the auto-replay chain.
@@ -7823,7 +7823,6 @@ int chathistory_auto_replay_fed(struct Client *sptr, time_t since_time, int limi
                 cli_yxx(cli_user(sptr)->server), cli_yxx(sptr));
   ctx->cursor = cli_user(sptr)->channel;
   ctx->limit = limit;
-  ctx->type_mask = requester_type_mask(sptr, NULL);
   ctx->total_replayed = 0;
   ctx->chan_count = 0;
   ctx->since_time = since_time;
@@ -8440,7 +8439,7 @@ int ms_chathistory(struct Client *cptr, struct Client *sptr, int parc, char *par
     char *dest_numeric = NULL;
     char *ref2 = NULL;
     const char *requester = NULL;   /* P<yxx> / F<yxx>, see start_fed_query */
-    unsigned int req_type_mask = 0; /* row types the requester can receive; 0 = all */
+    unsigned int req_type_mask = 0; /* row types the requester can receive */
     struct PresenceQueryFilter *fed_pf = NULL;
     char query_subcmd_char;
     int between_desc = -1;   /* W: walk direction for the overflow trim */
@@ -8472,7 +8471,8 @@ int ms_chathistory(struct Client *cptr, struct Client *sptr, int parc, char *par
     if (parc >= 10 && parv[9][0] != '\0')
       requester = parv[9];
     /* Optional trailing requester type mask (hex): the row types the
-     * requester can receive.  0 / absent = all types (audit #8). */
+     * requester can receive (audit #8).  0 / absent, from an older
+     * binary, is every type but the status-message ones. */
     {
       if (parc >= 11 && parv[10][0] != '\0')
         req_type_mask = (unsigned int)strtoul(parv[10], NULL, 16);
@@ -8894,6 +8894,15 @@ int ms_chathistory(struct Client *cptr, struct Client *sptr, int parc, char *par
       if (ref[0] == 'M' && ref[1]) {
         struct HistoryMessage *single_msg = NULL;
         int lrc = history_lookup_message(target, ref + 1, &single_msg);
+        /* A row the requester's type mask does not name -- a status
+         * message, for a requester without the status or with no mask --
+         * is not there for it. */
+        if (lrc == 0 && single_msg
+            && !history_type_wanted(req_type_mask, single_msg->type)) {
+          history_free_messages(single_msg);
+          single_msg = NULL;
+          lrc = 1;
+        }
         if (lrc == 0 && single_msg) {
           /* The row first, then its context children, each after its
            * CH C: a REDACT among them tells the requester the message is

@@ -677,7 +677,12 @@ static void store_channel_history(struct Client *sptr, struct Channel *chptr,
   if (chptr->mode.exmode & EXMODE_NOSTORAGE)
     return;
 
-  /* Check if sender has +Y (no storage) user mode — store gap marker */
+  /* Check if sender has +Y (no storage) user mode — store gap marker.
+   * Not for a status message: a gap is an ordinary row every reader is
+   * shown (sender, time, msgid) and it stamps TARGETS, which a message
+   * for the channel's ops must not do; it is simply not stored. */
+  if (IsNoStorage(sptr) && history_type_is_statusmsg(type))
+    return;
   if (IsNoStorage(sptr)) {
     history_store_message(msgid, timestamp, chptr->chname, NULL, sender,
                           account, HISTORY_GAP, "", NULL, owner);
