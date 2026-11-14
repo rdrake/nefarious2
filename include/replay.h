@@ -208,7 +208,7 @@ extern void replay_leg_done(struct Client *sptr, unsigned long seq, const char *
  * mask over enum HistoryMessageType (0 = every type): the mask the walk
  * filters with (m_chathistory.c).  A page keeps the mask it was read with
  * (ReplayState.type_mask). */
-extern unsigned int chathistory_type_mask(struct Client *sptr);
+extern unsigned int chathistory_type_mask(struct Client *sptr, const char *target);
 
 /** Name the other party of the PM pair key @a pair_key for @a sptr: the
  * live client on the other half's account, else the newest row's sender

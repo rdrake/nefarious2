@@ -593,7 +593,8 @@ int hm_parse_ids(char *list, const char **ids, int max)
  * a TAGMSG or a stored multiline. */
 static int hm_redactable(const struct HistoryMessage *m)
 {
-  return m->type == HISTORY_PRIVMSG || m->type == HISTORY_NOTICE
+  return history_type_base(m->type) == HISTORY_PRIVMSG
+         || history_type_base(m->type) == HISTORY_NOTICE
          || m->type == HISTORY_TAGMSG || m->type == HISTORY_MULTILINE;
 }
 

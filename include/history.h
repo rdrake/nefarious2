@@ -116,8 +116,68 @@ enum HistoryMessageType {
                           *   record type (not in-band content bytes) is
                           *   what marks a record as multiline, so client
                           *   message bytes can never forge one. */
+  /* Status messages (PRIVMSG/NOTICE to "@#chan", "%#chan", "+#chan"):
+   * one type per command and status, so a walk's type mask -- which every
+   * reader builds per requester and the federation carries (CH Q) --
+   * says which of them the requester may read: the statuses it holds in
+   * that channel now (requester_type_mask).  A server that predates them
+   * refuses the types as out of range (history_type_valid) instead of
+   * serving them as ordinary channel messages.  Keep the six together,
+   * in this order (history_statusmsg_type). */
+  ,HISTORY_SM_PRIVMSG_OP    = 13, /**< PRIVMSG @#chan */
+  HISTORY_SM_PRIVMSG_HOP    = 14, /**< PRIVMSG %#chan */
+  HISTORY_SM_PRIVMSG_VOICE  = 15, /**< PRIVMSG +#chan */
+  HISTORY_SM_NOTICE_OP      = 16, /**< NOTICE @#chan */
+  HISTORY_SM_NOTICE_HOP     = 17, /**< NOTICE %#chan */
+  HISTORY_SM_NOTICE_VOICE   = 18  /**< NOTICE +#chan */
   ,HISTORY_TYPE_COUNT       /**< one past the last type (for masks) */
 };
+
+/** Is @a type a status message's row (HISTORY_SM_*)? */
+static inline int history_type_is_statusmsg(int type)
+{
+  return type >= HISTORY_SM_PRIVMSG_OP && type <= HISTORY_SM_NOTICE_VOICE;
+}
+
+/** The command a message-like row is: HISTORY_NOTICE for a NOTICE or a
+ * status NOTICE, HISTORY_PRIVMSG for a status PRIVMSG, else @a type
+ * itself.  For the rules that hold for every PRIVMSG or NOTICE row
+ * (redaction, client tags, search, the multiline check). */
+static inline int history_type_base(int type)
+{
+  if (type >= HISTORY_SM_PRIVMSG_OP && type <= HISTORY_SM_PRIVMSG_VOICE)
+    return HISTORY_PRIVMSG;
+  if (type >= HISTORY_SM_NOTICE_OP && type <= HISTORY_SM_NOTICE_VOICE)
+    return HISTORY_NOTICE;
+  return type;
+}
+
+/** The status a status message's row is addressed to ('@', '%' or '+'),
+ * or '\0' for any other row. */
+static inline char history_type_status(int type)
+{
+  if (!history_type_is_statusmsg(type))
+    return '\0';
+  switch ((type - HISTORY_SM_PRIVMSG_OP) % 3) {
+  case 0: return '@';
+  case 1: return '%';
+  default: return '+';
+  }
+}
+
+/** The row type of a status message: @a notice nonzero for a NOTICE,
+ * @a status '@', '%' or '+'.  -1 for any other status. */
+static inline int history_statusmsg_type(int notice, char status)
+{
+  int base = notice ? HISTORY_SM_NOTICE_OP : HISTORY_SM_PRIVMSG_OP;
+
+  switch (status) {
+  case '@': return base;
+  case '%': return base + 1;
+  case '+': return base + 2;
+  default:  return -1;
+  }
+}
 
 /** Is @a type a row type this server knows?  A row's type can come from
  * another server (CH R / B) or from stored data: it is checked where a

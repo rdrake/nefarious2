@@ -415,6 +415,98 @@ static void test_ordinary_channel_send_with_ctags_drops_statusmsg_mark(void **st
   assert_null(strstr(all_tags, ",P"));
 }
 
+/* --- A status message as the PRIVMSG/NOTICE it is ('S' links) ------ */
+
+/* The PRIVMSG/NOTICE form's tag region in all_tags: the one carrying
+ * ,P<status>.  Its msgid is the wall line's (one region, formatted once). */
+static const char *region_with(const char *seg)
+{
+  return strstr(all_tags, seg);
+}
+
+/* A PRIVMSG armed for a wall send: the 'S' form marked ,P@ and the wall
+ * line marked ,P, each before the terminal ,C, with one msgid. */
+static void test_statusmsg_privmsg_both_forms(void **state)
+{
+  static struct Channel chan;
+  const char *sm, *wall;
+  (void)state;
+  memset(&chan, 0, sizeof(chan));
+  strcpy(chan.chname, "#c");
+
+  sendcmdto_set_statusmsg_privmsg("hello");
+  sendcmdto_channel_butone_with_client_tags(&user, "WALLCHOPS", "WC", &chan, NULL,
+                                            SKIP_DEAF | SKIP_BURST | SKIP_NONOPS,
+                                            '\0', "+x=a", "%s :%s", "#c", "@ hello");
+  assert_non_null(sm = region_with(",P@,C+x=a "));
+  assert_non_null(wall = region_with(",P,C+x=a "));
+  assert_non_null(region_with(",P@ "));               /* the plain variants */
+  assert_non_null(region_with(",P "));
+  /* same "@A<time><msgid>" head */
+  {
+    const char *a = strstr(all_tags, "@A");
+    const char *b = strstr(a + 1, "@A");
+    assert_non_null(b);
+    assert_int_equal(0, strncmp(a, b, 2 + 7 + 14));
+  }
+  (void)sm; (void)wall;
+}
+
+/* A NOTICE: the 'S' form marked ,P%, the wall line carries no ,P -- the
+ * wall line IS the NOTICE form toward every other link. */
+static void test_statusmsg_notice_wall_line_unmarked(void **state)
+{
+  static struct Channel chan;
+  char buf[512];
+  (void)state;
+  memset(&chan, 0, sizeof(chan));
+  strcpy(chan.chname, "#c");
+
+  sendcmdto_set_statusmsg_notice("hello");
+  sendcmdto_channel_butone_with_client_tags(&user, "WALLHOPS", "WH", &chan, NULL,
+                                            SKIP_DEAF | SKIP_BURST | SKIP_NONHOPS,
+                                            '\0', NULL, "%s :%s", "#c", "% hello");
+  assert_non_null(region_with(",P% "));
+  assert_null(region_with(",P "));
+  /* and nothing is left armed */
+  format_s2s_tags_with_client(buf, sizeof(buf), NULL, NULL, NULL, 0);
+  assert_null(strstr(buf, ",P"));
+}
+
+/* Armed, but the send has no wall status filter: neither form. */
+static void test_statusmsg_notice_ordinary_send_unmarked(void **state)
+{
+  static struct Channel chan;
+  (void)state;
+  memset(&chan, 0, sizeof(chan));
+  strcpy(chan.chname, "#c");
+
+  sendcmdto_set_statusmsg_notice("hello");
+  sendcmdto_channel_butone_with_client_tags(&user, "NOTICE", "O", &chan, NULL,
+                                            SKIP_DEAF | SKIP_BURST, '\0', NULL,
+                                            "%s :%s", "#c", "hello");
+  assert_non_null(strstr(all_tags, "@A"));
+  assert_null(strstr(all_tags, ",P"));
+}
+
+/* Arming one kind disarms the other: a NOTICE armed after a PRIVMSG
+ * leaves no ,P for the wall line. */
+static void test_statusmsg_arms_replace(void **state)
+{
+  static struct Channel chan;
+  (void)state;
+  memset(&chan, 0, sizeof(chan));
+  strcpy(chan.chname, "#c");
+
+  sendcmdto_set_statusmsg_privmsg("hello");
+  sendcmdto_set_statusmsg_notice("hello");
+  sendcmdto_channel_butone_with_client_tags(&user, "WALLVOICES", "WV", &chan, NULL,
+                                            SKIP_DEAF | SKIP_BURST | SKIP_NONVOICES,
+                                            '\0', NULL, "%s :%s", "#c", "+ hello");
+  assert_non_null(region_with(",P+ "));
+  assert_null(region_with(",P "));
+}
+
 /* --- A session echo line toward a server (#229) -------------------- */
 
 #define BXE_ID "AzAAEG7Hq2LmAF"
@@ -625,6 +717,10 @@ int main(void)
     cmocka_unit_test_setup(test_bx_ctags_full_size_is_whole, setup),
     cmocka_unit_test_setup(test_ordinary_channel_send_drops_statusmsg_mark, setup),
     cmocka_unit_test_setup(test_ordinary_channel_send_with_ctags_drops_statusmsg_mark, setup),
+    cmocka_unit_test_setup(test_statusmsg_privmsg_both_forms, setup),
+    cmocka_unit_test_setup(test_statusmsg_notice_wall_line_unmarked, setup),
+    cmocka_unit_test_setup(test_statusmsg_notice_ordinary_send_unmarked, setup),
+    cmocka_unit_test_setup(test_statusmsg_arms_replace, setup),
     cmocka_unit_test_setup(test_statusmsg_mark_placed_and_consumed, setup),
     cmocka_unit_test_setup(test_statusmsg_mark_alone, setup),
     cmocka_unit_test_setup(test_statusmsg_mark_order_with_every_segment, setup),

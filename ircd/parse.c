@@ -2061,8 +2061,18 @@ int parse_server(struct Client *cptr, char *buffer, char *bufend)
                * users as one (ms_wallchops & co).  It carries no data; a
                * ,P with data is a later version's segment, not this one,
                * and is skipped like any unknown segment. */
+              /* ,P<status> (one of @ % +): the line, a PRIVMSG or
+               * NOTICE to a channel, is addressed to the members with
+               * that status ("<status><chan>"), not to the channel:
+               * ms_privmsg / ms_notice deliver, store and relay it as
+               * one (server_relay_channel_statusmsg).  Any other data is
+               * a later version's and is skipped. */
               if (seg_end == seg_data)
                 cli_s2s_statusmsg(cptr) = 1;
+              else if (seg_end - seg_data == 1
+                       && (seg_data[0] == '@' || seg_data[0] == '%'
+                           || seg_data[0] == '+'))
+                cli_s2s_statusmsg(cptr) = seg_data[0];
               break;
             }
             default:

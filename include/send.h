@@ -119,6 +119,7 @@ extern void sendcmdto_set_s2s_fallback(const char *msgid);
  * members get it as "PRIVMSG <status><chan> :<text>", IRCv3-aware links
  * get the wall line marked ,P.  NULL or "" disarms. */
 extern void sendcmdto_set_statusmsg_privmsg(const char *text);
+extern void sendcmdto_set_statusmsg_notice(const char *text);
 /* Whether a send toward this link carries the S2S compact tag region
  * (server link or &me, IRCv3-aware, P10_MESSAGE_TAGS on). */
 extern int send_s2s_tags_on(struct Client *to);

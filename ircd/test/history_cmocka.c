@@ -404,6 +404,63 @@ static void test_rdx_wm_truncated_no_rows_keeps(void **state)
   assert_int_equal(7, wm);
 }
 
+/* ========== status-message row types (history.h, #226) ========== */
+
+/* The six HISTORY_SM_* types: one per command and status, mapped both
+ * ways, each a PRIVMSG or NOTICE underneath, none an ordinary row. */
+static void test_statusmsg_types_map(void **state)
+{
+    static const char st[] = "@%+";
+    int notice, i;
+    (void)state;
+
+    for (notice = 0; notice <= 1; notice++)
+        for (i = 0; i < 3; i++) {
+            int t = history_statusmsg_type(notice, st[i]);
+            assert_true(history_type_valid(t));
+            assert_true(history_type_is_statusmsg(t));
+            assert_int_equal(history_type_status(t), st[i]);
+            assert_int_equal(history_type_base(t),
+                             notice ? HISTORY_NOTICE : HISTORY_PRIVMSG);
+        }
+    assert_int_equal(history_statusmsg_type(0, '#'), -1);
+    assert_int_equal(history_statusmsg_type(1, '\0'), -1);
+    for (i = 0; i < HISTORY_SM_PRIVMSG_OP; i++) {
+        assert_false(history_type_is_statusmsg(i));
+        assert_int_equal(history_type_status(i), '\0');
+        assert_int_equal(history_type_base(i), i);
+    }
+    assert_false(history_type_valid(HISTORY_SM_NOTICE_VOICE + 1));
+    /* a type mask holds every type */
+    assert_true(HISTORY_TYPE_COUNT <= 32);
+}
+
+/* A status message's row round-trips with its type; a row with a type
+ * this binary does not know (a newer one's) does not decode at all, so it
+ * never replays as something else. */
+static void test_statusmsg_record_roundtrip(void **state)
+{
+    char buf[1024];
+    struct HistoryMessage msg;
+    int len;
+    (void)state;
+
+    len = serialize_message(buf, sizeof(buf), HISTORY_SM_NOTICE_HOP,
+                            "n!u@h", "acct", "for the halfops");
+    assert_true(len > 0);
+    memset(&msg, 0, sizeof(msg));
+    assert_int_equal(0, deserialize_message(buf, len, &msg));
+    assert_int_equal(msg.type, HISTORY_SM_NOTICE_HOP);
+    assert_string_equal(msg.content, "for the halfops");
+
+    len = serialize_message(buf, sizeof(buf), HISTORY_PRIVMSG, "n!u@h", "acct", "x");
+    assert_true(len > 0 && buf[0] == '0' && buf[1] == '|');
+    memmove(buf + 1, buf, (size_t)len + 1);   /* "00|..." -> make it "99|..." */
+    buf[0] = buf[1] = '9';                     /* type 99: unknown */
+    memset(&msg, 0, sizeof(msg));
+    assert_int_not_equal(0, deserialize_message(buf, len + 1, &msg));
+}
+
 /* ========== redact_authorize (redact_index.c): the one REDACT rule ========== */
 
 /* A plain member's request for a PRIVMSG row sent at t=1000; each case
@@ -477,6 +534,20 @@ static void test_redact_auth_not_message(void **state)
   in.msg_type = HISTORY_TAGMSG;
   assert_int_equal(REDACT_AUTH_OK, redact_authorize(&in, &w));
   in.msg_type = HISTORY_MULTILINE;
+  assert_int_equal(REDACT_AUTH_OK, redact_authorize(&in, &w));
+}
+
+/* Redaction treats a status message as the PRIVMSG/NOTICE it is. */
+static void test_redact_auth_statusmsg(void **state)
+{
+  struct redact_auth_in in = rda_base(10);
+  long w = -1;
+  (void)state;
+  in.msg_type = HISTORY_SM_PRIVMSG_OP;
+  in.msg_account = "a";
+  in.req_account = "a";
+  assert_int_equal(REDACT_AUTH_OK, redact_authorize(&in, &w));
+  in.msg_type = HISTORY_SM_NOTICE_VOICE;
   assert_int_equal(REDACT_AUTH_OK, redact_authorize(&in, &w));
 }
 
@@ -1625,6 +1696,9 @@ int main(void)
     cmocka_unit_test(test_redact_auth_oper_window),
     cmocka_unit_test(test_redact_auth_chanop_others),
     cmocka_unit_test(test_redact_auth_not_message),
+    cmocka_unit_test(test_redact_auth_statusmsg),
+    cmocka_unit_test(test_statusmsg_types_map),
+    cmocka_unit_test(test_statusmsg_record_roundtrip),
     cmocka_unit_test(test_redact_auth_unauth_mask),
     cmocka_unit_test(test_redact_auth_header_repaired),
     cmocka_unit_test(test_redact_auth_window_expired_other),

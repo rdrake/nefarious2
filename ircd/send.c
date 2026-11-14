@@ -219,6 +219,10 @@ static char s2s_fallback_override[S2S_MSGID_BUFSIZE] = "";
  * and by the end-of-line reset, so neither half outlives its message. */
 static int s2s_statusmsg_override = 0;
 static const char *statusmsg_user_text = NULL;
+/** The armed status message is a NOTICE (sendcmdto_set_statusmsg_notice):
+ * local members get it as one, the wall line carries no ,P, and links
+ * that announced 'S' get it as an O line.  Cleared with the text. */
+static int statusmsg_is_notice = 0;
 
 /** Client-only tags (compact-tag ,C segment) for the next S2S emit
  * through sendcmdto_serv_butone_v3() (audit 0.1): a channel TAGMSG
@@ -381,6 +385,7 @@ void sendcmdto_set_s2s_fallback(const char *msgid)
  *            "<status> " lead. */
 void sendcmdto_set_statusmsg_privmsg(const char *text)
 {
+  statusmsg_is_notice = 0;
   if (text && *text) {
     statusmsg_user_text = text;
     s2s_statusmsg_override = 1;
@@ -388,6 +393,54 @@ void sendcmdto_set_statusmsg_privmsg(const char *text)
     statusmsg_user_text = NULL;
     s2s_statusmsg_override = 0;
   }
+}
+
+/** Arm a status-message NOTICE for the next
+ * sendcmdto_channel_butone_with_client_tags() of a wall command, as
+ * sendcmdto_set_statusmsg_privmsg() arms a PRIVMSG: local members that
+ * pass the wall's status filter get ":<from> NOTICE <status><chan>
+ * :<text>", links that announced 'S' an O line marked ,P<status>, and
+ * every other link the wall line as it is, with no ,P (the wall line IS
+ * the NOTICE form there).  NULL or "" disarms.
+ * @param[in] text The NOTICE's text, without the wall line's lead. */
+void sendcmdto_set_statusmsg_notice(const char *text)
+{
+  s2s_statusmsg_override = 0;
+  if (text && *text) {
+    statusmsg_user_text = text;
+    statusmsg_is_notice = 1;
+  } else {
+    statusmsg_user_text = NULL;
+    statusmsg_is_notice = 0;
+  }
+}
+
+/** Copy the compact tag region @a tags ("@A...[,C...] ") to @a out with
+ * the segment @a seg (",P" or ",P@") placed where it belongs: before the
+ * terminal ,C segment, else before the trailing space.  The time and
+ * msgid are base64 and no segment before ,C holds a comma or a "C" after
+ * one, so the first ",C" past the head starts the client tags (as
+ * sendcmdto_channel_butone_with_client_tags cuts the plain prefix).
+ * @return 0, or -1 when the result does not fit (@a out is then ""). */
+static int s2s_tags_insert_seg(char *out, size_t outlen, const char *tags,
+                               const char *seg)
+{
+  const char *head = tags + 2;   /* past "@A" */
+  const char *at = strstr(head + strcspn(head, ", "), ",C");
+  size_t tlen = strlen(tags), slen = strlen(seg), pos;
+
+  if (!at)
+    at = tags + tlen - 1;        /* the trailing space */
+  pos = (size_t)(at - tags);
+  if (tlen + slen + 1 > outlen) {
+    if (outlen)
+      out[0] = '\0';
+    return -1;
+  }
+  memcpy(out, tags, pos);
+  memcpy(out + pos, seg, slen);
+  memcpy(out + pos + slen, tags + pos, tlen - pos + 1);
+  return 0;
 }
 
 /** Arm client-only tags (,C<client_tags>) for the next
@@ -502,6 +555,7 @@ void sendcmdto_reset_s2s_overrides(void)
   s2s_fallback_override[0] = '\0';
   s2s_statusmsg_override = 0;
   statusmsg_user_text = NULL;
+  statusmsg_is_notice = 0;
   s2s_client_tags_override = NULL;
   s2s_raw_tags[0] = '\0';
   s2s_want_tags = 0;
@@ -2228,6 +2282,7 @@ void sendcmdto_one_tags_with_client(struct Client *from,
   s2s_fallback_override[0] = '\0';
   s2s_statusmsg_override = 0;
   statusmsg_user_text = NULL;
+  statusmsg_is_notice = 0;
 }
 
 /** Send a line toward a server link with a stored row's client-only tags
@@ -4076,6 +4131,7 @@ void sendcmdto_channel_butone(struct Client *from, const char *cmd,
    * nor deliver it as one (see s2s_statusmsg_override). */
   s2s_statusmsg_override = 0;
   statusmsg_user_text = NULL;
+  statusmsg_is_notice = 0;
 
   /* Consume alias source override for split S2S delivery.
    * When set, we build two S2S buffers: primary numeric for most servers,
@@ -4277,10 +4333,24 @@ void sendcmdto_channel_butone_with_client_tags(struct Client *from,
   char userfmt_tags[64];
   int has_ctags = (client_tags && *client_tags);
   const char *sm_text = statusmsg_user_text;   /* #226, see below */
+  int sm_notice = statusmsg_is_notice;
+  int sm_mark = s2s_statusmsg_override;        /* the wall line's ,P */
   char sm_status = '\0';
+  /* The status message as the PRIVMSG/NOTICE it is, for links that
+   * announced 'S' (FLAG_STATUSMSG_AWARE): "<tags,P<status>> <from> P|O
+   * <chan> :<sm_text>", each variant beside its wall-line twin. */
+  struct MsgBuf *sm_mb = NULL, *sm_mb_v3 = NULL;
+  struct MsgBuf *sm_mb_alias = NULL, *sm_mb_alias_v3 = NULL;
+  char sm_tagbuf[sizeof(s2s_tagbuf) + 8];
+  char sm_tagbuf_v3[sizeof(s2s_tagbuf_v3) + 8];
+  char wall_tagbuf[sizeof(s2s_tagbuf) + 8];
+  char wall_tagbuf_v3[sizeof(s2s_tagbuf_v3) + 8];
+  const char *wtags = s2s_tagbuf;        /* the wall line's tag region */
+  const char *wtags_v3 = s2s_tagbuf_v3;
 
   vd.vd_format = pattern;
   statusmsg_user_text = NULL;
+  statusmsg_is_notice = 0;
 
   /* Consume alias source override for split S2S delivery */
   alias_from = s2s_alias_source;
@@ -4318,12 +4388,15 @@ void sendcmdto_channel_butone_with_client_tags(struct Client *from,
   if (!sm_status)
     sm_text = NULL;
   else if (sm_text)
-    usercmd = MSG_PRIVATE;
-  /* No status-message PRIVMSG here (no wall status filter, or nothing
-   * armed): the S2S line must not carry its ,P mark either -- an arm
-   * paired with an ordinary channel send would otherwise mark a P line. */
+    usercmd = sm_notice ? MSG_NOTICE : MSG_PRIVATE;
+  /* No status message here (no wall status filter, or nothing armed):
+   * the S2S line must not carry its ,P mark either -- an arm paired with
+   * an ordinary channel send would otherwise mark a P line. */
   if (!sm_text)
-    s2s_statusmsg_override = 0;
+    sm_mark = 0;
+  /* The tag region is formatted without ,P; each form places its own
+   * (s2s_tags_insert_seg, below). */
+  s2s_statusmsg_override = 0;
 
   if (sm_text)
     user_mb = msgq_make(0, "%:#C %s %c%s :%s", from, usercmd, sm_status,
@@ -4376,9 +4449,46 @@ void sendcmdto_channel_butone_with_client_tags(struct Client *from,
     } else if (format_s2s_tags(s2s_tagbuf, sizeof(s2s_tagbuf), cptr, NULL, 0))
       has_prefix = 1;
 
+    /* A status message: the PRIVMSG/NOTICE form's tags (,P<status>)
+     * from the region just formatted, so both forms carry one msgid and
+     * time; then the wall line's own (,P for a PRIVMSG -- a NOTICE's
+     * wall line is the NOTICE form itself -- else unchanged).  With
+     * no tag region (tags off) every link gets the wall line. */
+    if (has_prefix && sm_text) {
+      char seg[4] = { ',', 'P', sm_status, '\0' };
+
+      if (s2s_tags_insert_seg(sm_tagbuf, sizeof(sm_tagbuf), s2s_tagbuf, seg) == 0
+          && (!has_ctags
+              || s2s_tags_insert_seg(sm_tagbuf_v3, sizeof(sm_tagbuf_v3),
+                                     s2s_tagbuf_v3, seg) == 0)) {
+        const char *smtok = sm_notice ? TOK_NOTICE : TOK_PRIVATE;
+
+        sm_mb = msgq_make(&me, "%s%C %s %s :%s", sm_tagbuf, from, smtok,
+                          to->chname, sm_text);
+        if (has_ctags)
+          sm_mb_v3 = msgq_make(&me, "%s%C %s %s :%s", sm_tagbuf_v3, from, smtok,
+                               to->chname, sm_text);
+        if (alias_from) {
+          sm_mb_alias = msgq_make(&me, "%s%C %s %s :%s", sm_tagbuf, alias_from,
+                                  smtok, to->chname, sm_text);
+          if (has_ctags)
+            sm_mb_alias_v3 = msgq_make(&me, "%s%C %s %s :%s", sm_tagbuf_v3,
+                                       alias_from, smtok, to->chname, sm_text);
+        }
+      }
+    }
+    if (has_prefix && sm_mark) {
+      if (s2s_tags_insert_seg(wall_tagbuf, sizeof(wall_tagbuf), s2s_tagbuf, ",P") == 0)
+        wtags = wall_tagbuf;
+      if (has_ctags
+          && s2s_tags_insert_seg(wall_tagbuf_v3, sizeof(wall_tagbuf_v3),
+                                 s2s_tagbuf_v3, ",P") == 0)
+        wtags_v3 = wall_tagbuf_v3;
+    }
+
     if (has_prefix) {
       va_start(vd.vd_args, pattern);
-      serv_mb_tags = msgq_make(&me, "%s%C %s %v", s2s_tagbuf, from, tok, &vd);
+      serv_mb_tags = msgq_make(&me, "%s%C %s %v", wtags, from, tok, &vd);
       va_end(vd.vd_args);
       serv_mb = serv_mb_tags;
 
@@ -4388,7 +4498,7 @@ void sendcmdto_channel_butone_with_client_tags(struct Client *from,
 
       if (has_ctags) {
         va_start(vd.vd_args, pattern);
-        serv_mb_v3 = msgq_make(&me, "%s%C %s %v", s2s_tagbuf_v3, from, tok, &vd);
+        serv_mb_v3 = msgq_make(&me, "%s%C %s %v", wtags_v3, from, tok, &vd);
         va_end(vd.vd_args);
       }
     } else {
@@ -4406,7 +4516,7 @@ void sendcmdto_channel_butone_with_client_tags(struct Client *from,
   if (alias_from) {
     va_start(vd.vd_args, pattern);
     if (serv_mb_tags)
-      serv_mb_alias = msgq_make(&me, "%s%C %s %v", s2s_tagbuf, alias_from, tok, &vd);
+      serv_mb_alias = msgq_make(&me, "%s%C %s %v", wtags, alias_from, tok, &vd);
     else
       serv_mb_alias = msgq_make(&me, "%C %s %v", alias_from, tok, &vd);
     va_end(vd.vd_args);
@@ -4415,7 +4525,7 @@ void sendcmdto_channel_butone_with_client_tags(struct Client *from,
      * the v3 prefix was successfully built above. */
     if (serv_mb_v3) {
       va_start(vd.vd_args, pattern);
-      serv_mb_alias_v3 = msgq_make(&me, "%s%C %s %v", s2s_tagbuf_v3, alias_from, tok, &vd);
+      serv_mb_alias_v3 = msgq_make(&me, "%s%C %s %v", wtags_v3, alias_from, tok, &vd);
       va_end(vd.vd_args);
     }
   }
@@ -4485,7 +4595,16 @@ void sendcmdto_channel_butone_with_client_tags(struct Client *from,
        */
       struct Client *peer_link = cli_from(member->user);
       int is_v3 = IsIRCv3Aware(peer_link);
-      if (serv_mb_legacy && !is_v3) {
+      if (sm_mb && is_v3 && IsStatusMsgAware(peer_link)) {
+        /* The status message as the PRIVMSG/NOTICE it is: the link
+         * delivers, stores and relays it as one.  The same choice of
+         * numeric and ,C variant as below. */
+        if (peer_link == primary_dir && sm_mb_alias)
+          send_buffer(member->user,
+                      sm_mb_alias_v3 ? sm_mb_alias_v3 : sm_mb_alias, 0);
+        else
+          send_buffer(member->user, sm_mb_v3 ? sm_mb_v3 : sm_mb, 0);
+      } else if (serv_mb_legacy && !is_v3) {
         send_buffer(member->user, serv_mb_legacy, 0);
       } else if (peer_link == primary_dir && is_v3) {
         /* (A legacy link here -- tags off, so no legacy buffer was built
@@ -4532,6 +4651,14 @@ void sendcmdto_channel_butone_with_client_tags(struct Client *from,
     msgq_clean(serv_mb_alias_v3);
   if (serv_mb_legacy)
     msgq_clean(serv_mb_legacy);
+  if (sm_mb)
+    msgq_clean(sm_mb);
+  if (sm_mb_v3)
+    msgq_clean(sm_mb_v3);
+  if (sm_mb_alias)
+    msgq_clean(sm_mb_alias);
+  if (sm_mb_alias_v3)
+    msgq_clean(sm_mb_alias_v3);
 }
 
 /** Send a (prefixed) WALL of type \a type to all users except \a one.
