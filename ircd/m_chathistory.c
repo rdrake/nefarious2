@@ -4140,6 +4140,39 @@ static void append_write_chunk_data(struct WriteChunkEntry *chunk, const char *b
   chunk->b64_len += add_len;
 }
 
+/** The CH W / CH WB type letters, one per enum HistoryMessageType a
+ * write carries.  The status-message letters a-f go only to storage
+ * servers that announced 'S' (forward_history_write). */
+static const struct { int type; char letter; } ch_write_types[] = {
+  { HISTORY_PRIVMSG, 'P' }, { HISTORY_NOTICE, 'N' }, { HISTORY_JOIN, 'J' },
+  { HISTORY_PART, 'L' },    { HISTORY_QUIT, 'Q' },   { HISTORY_KICK, 'I' },
+  { HISTORY_MODE, 'M' },    { HISTORY_TOPIC, 'O' },  { HISTORY_TAGMSG, 'T' },
+  { HISTORY_NICK, 'K' },    { HISTORY_REDACT, 'R' },
+  { HISTORY_SM_PRIVMSG_OP, 'a' },  { HISTORY_SM_PRIVMSG_HOP, 'b' },
+  { HISTORY_SM_PRIVMSG_VOICE, 'c' }, { HISTORY_SM_NOTICE_OP, 'd' },
+  { HISTORY_SM_NOTICE_HOP, 'e' },  { HISTORY_SM_NOTICE_VOICE, 'f' },
+};
+
+/** @return The letter for @a type, or 'P' for a type writes do not carry. */
+static char ch_write_letter(int type)
+{
+  size_t i;
+  for (i = 0; i < sizeof(ch_write_types) / sizeof(ch_write_types[0]); i++)
+    if (ch_write_types[i].type == type)
+      return ch_write_types[i].letter;
+  return 'P';
+}
+
+/** @return The type for @a letter, or -1 for an unknown letter. */
+static int ch_write_type(char letter)
+{
+  size_t i;
+  for (i = 0; i < sizeof(ch_write_types) / sizeof(ch_write_types[0]); i++)
+    if (ch_write_types[i].letter == letter)
+      return ch_write_types[i].type;
+  return -1;
+}
+
 /** Process a completed write forward (store if appropriate).
  * @param[in] target Channel name.
  * @param[in] msgid Message ID.
@@ -4175,30 +4208,10 @@ static void process_write_forward(const char *target, const char *msgid,
     return;
   }
 
-  /* Convert type char to enum */
-  switch (type_char) {
-    case 'P': type = HISTORY_PRIVMSG; break;
-    case 'N': type = HISTORY_NOTICE; break;
-    case 'J': type = HISTORY_JOIN; break;
-    case 'L': type = HISTORY_PART; break;
-    case 'Q': type = HISTORY_QUIT; break;
-    case 'I': type = HISTORY_KICK; break;
-    case 'M': type = HISTORY_MODE; break;
-    case 'O': type = HISTORY_TOPIC; break;
-    case 'T': type = HISTORY_TAGMSG; break;
-    case 'K': type = HISTORY_NICK; break;
-    case 'R': type = HISTORY_REDACT; break;
-    /* Status messages (history_ch_write_type): sent only to a storage
-     * server that announced them ('S', forward_history_write). */
-    case 'a': type = HISTORY_SM_PRIVMSG_OP; break;
-    case 'b': type = HISTORY_SM_PRIVMSG_HOP; break;
-    case 'c': type = HISTORY_SM_PRIVMSG_VOICE; break;
-    case 'd': type = HISTORY_SM_NOTICE_OP; break;
-    case 'e': type = HISTORY_SM_NOTICE_HOP; break;
-    case 'f': type = HISTORY_SM_NOTICE_VOICE; break;
-    default:
-      Debug((DEBUG_DEBUG, "CH W: Unknown type '%c' for %s", type_char, target));
-      return;
+  type = ch_write_type(type_char);
+  if (type < 0) {
+    Debug((DEBUG_DEBUG, "CH W: Unknown type '%c' for %s", type_char, target));
+    return;
   }
 
   /* Split + unescape the federation payload (history_forward_encode on
@@ -4487,27 +4500,7 @@ void forward_history_write(struct Channel *chptr, struct Client *sptr,
   account = (cli_user(sptr) && cli_user(sptr)->account[0])
             ? cli_user(sptr)->account : "*";
 
-  /* Convert type to char */
-  switch (type) {
-    case HISTORY_PRIVMSG: type_char = 'P'; break;
-    case HISTORY_NOTICE:  type_char = 'N'; break;
-    case HISTORY_JOIN:    type_char = 'J'; break;
-    case HISTORY_PART:    type_char = 'L'; break;
-    case HISTORY_QUIT:    type_char = 'Q'; break;
-    case HISTORY_KICK:    type_char = 'I'; break;
-    case HISTORY_MODE:    type_char = 'M'; break;
-    case HISTORY_TOPIC:   type_char = 'O'; break;
-    case HISTORY_TAGMSG:  type_char = 'T'; break;
-    case HISTORY_NICK:    type_char = 'K'; break;
-    case HISTORY_REDACT:  type_char = 'R'; break;
-    case HISTORY_SM_PRIVMSG_OP:    type_char = 'a'; break;
-    case HISTORY_SM_PRIVMSG_HOP:   type_char = 'b'; break;
-    case HISTORY_SM_PRIVMSG_VOICE: type_char = 'c'; break;
-    case HISTORY_SM_NOTICE_OP:     type_char = 'd'; break;
-    case HISTORY_SM_NOTICE_HOP:    type_char = 'e'; break;
-    case HISTORY_SM_NOTICE_VOICE:  type_char = 'f'; break;
-    default: type_char = 'P'; break;
-  }
+  type_char = ch_write_letter(type);
 
   /* Find nearest server with storage advertisement */
   for (lp = cli_serv(&me)->down; lp; lp = lp->next) {
@@ -9648,27 +9641,9 @@ int ms_chathistory(struct Client *cptr, struct Client *sptr, int parc, char *par
       }
     } else {
       /* Parse type character */
-      char type_char = parv[7][0];
-      int type_int = 0;
-      switch (type_char) {
-        case 'P': type_int = HISTORY_PRIVMSG; break;
-        case 'N': type_int = HISTORY_NOTICE; break;
-        case 'J': type_int = HISTORY_JOIN; break;
-        case 'L': type_int = HISTORY_PART; break;
-        case 'Q': type_int = HISTORY_QUIT; break;
-        case 'I': type_int = HISTORY_KICK; break;
-        case 'M': type_int = HISTORY_MODE; break;
-        case 'O': type_int = HISTORY_TOPIC; break;
-        case 'T': type_int = HISTORY_TAGMSG; break;
-        case 'K': type_int = HISTORY_NICK; break;
-        case 'R': type_int = HISTORY_REDACT; break;   /* re-review R15 */
-        case 'a': type_int = HISTORY_SM_PRIVMSG_OP; break;
-        case 'b': type_int = HISTORY_SM_PRIVMSG_HOP; break;
-        case 'c': type_int = HISTORY_SM_PRIVMSG_VOICE; break;
-        case 'd': type_int = HISTORY_SM_NOTICE_OP; break;
-        case 'e': type_int = HISTORY_SM_NOTICE_HOP; break;
-        case 'f': type_int = HISTORY_SM_NOTICE_VOICE; break;
-      }
+      int type_int = ch_write_type(parv[7][0]);
+      if (type_int < 0)
+        type_int = HISTORY_PRIVMSG;   /* as before: an unknown letter is a PRIVMSG */
       chunk = create_write_chunk(target, msgid, parv[4], type_int, parv[5], parv[6]);
       if (!chunk) {
         Debug((DEBUG_DEBUG, "CH WB: No slots available for %s", chunk_key));
@@ -9686,27 +9661,8 @@ int ms_chathistory(struct Client *cptr, struct Client *sptr, int parc, char *par
       size_t decoded_len;
       char type_char;
 
-      /* Convert type enum back to char for process_write_forward */
-      switch (chunk->type) {
-        case HISTORY_PRIVMSG: type_char = 'P'; break;
-        case HISTORY_NOTICE:  type_char = 'N'; break;
-        case HISTORY_JOIN:    type_char = 'J'; break;
-        case HISTORY_PART:    type_char = 'L'; break;
-        case HISTORY_QUIT:    type_char = 'Q'; break;
-        case HISTORY_KICK:    type_char = 'I'; break;
-        case HISTORY_MODE:    type_char = 'M'; break;
-        case HISTORY_TOPIC:   type_char = 'O'; break;
-        case HISTORY_TAGMSG:  type_char = 'T'; break;
-        case HISTORY_NICK:    type_char = 'K'; break;
-        case HISTORY_REDACT:  type_char = 'R'; break;
-        case HISTORY_SM_PRIVMSG_OP:    type_char = 'a'; break;
-        case HISTORY_SM_PRIVMSG_HOP:   type_char = 'b'; break;
-        case HISTORY_SM_PRIVMSG_VOICE: type_char = 'c'; break;
-        case HISTORY_SM_NOTICE_OP:     type_char = 'd'; break;
-        case HISTORY_SM_NOTICE_HOP:    type_char = 'e'; break;
-        case HISTORY_SM_NOTICE_VOICE:  type_char = 'f'; break;
-        default: type_char = 'P'; break;
-      }
+      /* Back to the letter for process_write_forward */
+      type_char = ch_write_letter(chunk->type);
 
       if (ch_base64_decode(chunk->b64_data, chunk->b64_len, &decoded, &decoded_len)) {
         Debug((DEBUG_DEBUG, "CH WB: Decoded %zu bytes for %s", decoded_len, target));

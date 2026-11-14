@@ -1547,7 +1547,7 @@ static void statusmsg_wall(char status, const char **cmd, const char **tok,
  * Between servers, a link that announced 'S' (FLAG_STATUSMSG_AWARE) gets
  * the PRIVMSG/NOTICE itself, "<from> P|O <chan> :<text>", marked with the
  * compact-tag segment ,P<status>; it delivers, stores and relays it as one
- * (server_relay_channel_statusmsg).  Every other link gets the wall line
+ * (server_relay_tagged_statusmsg).  Every other link gets the wall line
  * a NOTICE to the same target always sent, "<from> WC <chan> :@ <text>"
  * (WH "% ", WV "+ "), so legacy servers and their users get exactly that;
  * toward an IRCv3-aware link a PRIVMSG's wall line also carries the bare
@@ -1684,10 +1684,7 @@ void relay_channel_statusmsg(struct Client *sptr, char status, const char *name,
         from = cli_user(sptr)->alias_primary;
       }
 
-      if (notice)
-        sendcmdto_set_statusmsg_notice(mytext);
-      else
-        sendcmdto_set_statusmsg_privmsg(mytext);
+      sendcmdto_set_statusmsg(mytext, notice);
       sendcmdto_channel_butone_with_client_tags(from, wcmd, wtok, chptr,
                          cli_from(sptr), SKIP_DEAF | SKIP_BURST | wskip, '\0',
                          (client_tags && *client_tags) ? client_tags : NULL,
@@ -1709,21 +1706,12 @@ void relay_channel_statusmsg(struct Client *sptr, char status, const char *name,
 #ifdef USE_ROCKSDB
         if (msgid[0])
           sendcmdto_set_client_event(msgid, history_parse_ms(timestamp));
-        /* (CMD_* is two arguments: no ?: across them) */
-        if (notice)
-          sendcmdto_one_tags_ext(sptr, CMD_NOTICE, sptr, msgid,
-                                 "%c%H :%s", status, chptr, mytext);
-        else
-          sendcmdto_one_tags_ext(sptr, CMD_PRIVATE, sptr, msgid,
-                                 "%c%H :%s", status, chptr, mytext);
+        sendcmdto_one_tags_ext(sptr, cmdname, notice ? TOK_NOTICE : TOK_PRIVATE,
+                               sptr, msgid, "%c%H :%s", status, chptr, mytext);
         sendcmdto_set_client_msgid(NULL);
 #else
-        if (notice)
-          sendcmdto_one_tags(sptr, CMD_NOTICE, sptr, "%c%H :%s", status, chptr,
-                             mytext);
-        else
-          sendcmdto_one_tags(sptr, CMD_PRIVATE, sptr, "%c%H :%s", status, chptr,
-                             mytext);
+        sendcmdto_one_tags(sptr, cmdname, notice ? TOK_NOTICE : TOK_PRIVATE,
+                           sptr, "%c%H :%s", status, chptr, mytext);
 #endif
       }
     }
@@ -1753,9 +1741,8 @@ void relay_channel_statusmsg(struct Client *sptr, char status, const char *name,
  * answers the device that sent the line, not its primary -- delivered to
  * local members with the status as ":<from> PRIVMSG|NOTICE
  * <status><chan> :<text>", stored as a status message (HISTORY_SM_*,
- * under the storage gate every channel row passes), and relayed on as
- * relay_channel_statusmsg relays it: the PRIVMSG/NOTICE to 'S' links,
- * the wall line to every other.
+ * under the storage gate every channel row passes), and relayed on in
+ * the forms relay_channel_statusmsg describes.
  *
  * @param[in] sptr The sender (a remote user).
  * @param[in] chptr The channel.
@@ -1845,10 +1832,7 @@ static void server_relay_statusmsg_core(struct Client *sptr, struct Channel *chp
     }
 #endif
 
-    if (notice)
-      sendcmdto_set_statusmsg_notice(ptext);
-    else
-      sendcmdto_set_statusmsg_privmsg(ptext);
+    sendcmdto_set_statusmsg(ptext, notice);
     sendcmdto_channel_butone_with_client_tags(sptr, wcmd, wtok, chptr, one,
                        SKIP_DEAF | SKIP_BURST | wskip, '\0',
                        (client_tags && *client_tags) ? client_tags : NULL,
