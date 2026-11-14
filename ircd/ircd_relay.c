@@ -2158,102 +2158,31 @@ void relay_private_message(struct Client* sptr, const char* name, const char* te
                             history_parse_ms(pm_timestamp),
                             cli_client_tags(sptr));
 
-  /* Echo private message back to sender if they have echo-message cap */
+  /* Echo private message back to sender if they have echo-message cap.
+   * With client-only tags (+reply, an edit tag) it goes out as a channel
+   * message's echo does (relay_channel_message): the client tags, then
+   * this answer's batch or label, and the event's tags on the sender's
+   * own caps -- the msgid and time armed above, account, the oper and bot
+   * tags -- as every other copy of the message has them.  The innermost
+   * batch on the connection is this line's own (send.c's nesting model:
+   * an async LIST's batch is detached between its lines). */
+  if (feature_bool(FEAT_CAP_echo_message) && CapOwnHas(sptr, CAP_ECHOMSG)) {
+    const char *echo_client_tags = cli_client_tags(sptr);
+
+    if (echo_client_tags && *echo_client_tags && CapOwnHas(sptr, CAP_MSGTAGS))
+      sendcmdto_one_client_tags(sptr, MSG_PRIVATE, sptr, echo_client_tags,
+                                "%C :%s", acptr, mytext);
+    else
+      sendcmdto_one_tags_ext(sptr, CMD_PRIVATE, sptr, pm_msgid,
+                             "%C :%s", acptr, mytext);
+  }
+  sendcmdto_set_client_msgid(NULL);
+
 #ifdef USE_ROCKSDB
-  {
-    int need_echo = feature_bool(FEAT_CAP_echo_message) && CapOwnHas(sptr, CAP_ECHOMSG);
-
-    if (need_echo) {
-      const char *echo_client_tags = cli_client_tags(sptr);
-      if (echo_client_tags && *echo_client_tags && CapActive(sptr, CAP_MSGTAGS)) {
-        /* Include client-only tags in echo per IRCv3 echo-message spec */
-        char echo_tagbuf[4608];
-        int tpos = 0;
-        echo_tagbuf[0] = '@';
-        tpos = 1;
-        /* Client tags first */
-        tpos += snprintf(echo_tagbuf + tpos, sizeof(echo_tagbuf) - tpos, "%s", echo_client_tags);
-        /* Then server tags: the answer's batch or label, msgid, time */
-        if (cli_labeled_batch(sptr) && cli_batch_id(sptr)[0])
-          tpos += snprintf(echo_tagbuf + tpos, sizeof(echo_tagbuf) - tpos, ";batch=%s", cli_batch_id(sptr));
-        else if (cli_label(sptr)[0] && LabeledResponseInUse(sptr) && !cli_label_responded(sptr)) {
-          tpos += snprintf(echo_tagbuf + tpos, sizeof(echo_tagbuf) - tpos, ";label=%s", cli_label(sptr));
-          cli_label_responded(sptr) = 1;
-        }
-        if (pm_msgid[0])
-          tpos += snprintf(echo_tagbuf + tpos, sizeof(echo_tagbuf) - tpos, ";msgid=%s", pm_msgid);
-        /* The sender's account, as on every other line it is sent: a client
-         * matches its own edit to the line it edits by account. */
-        if (feature_bool(FEAT_CAP_account_tag) && CapOwnHas(sptr, CAP_ACCOUNTTAG)
-            && IsAccount(sptr))
-          tpos += snprintf(echo_tagbuf + tpos, sizeof(echo_tagbuf) - tpos, ";account=%s",
-                           cli_user(sptr)->account);
-        if (feature_bool(FEAT_CAP_server_time) && CapActive(sptr, CAP_SERVERTIME)) {
-          /* The echo carries the message's one time (the stored row's),
-           * not the wall clock at send. */
-          char iso[40];
-          history_format_iso_ms(iso, sizeof(iso),
-                                pm_timestamp[0] ? history_parse_ms(pm_timestamp)
-                                                : history_event_time_ms(NULL));
-          tpos += snprintf(echo_tagbuf + tpos, sizeof(echo_tagbuf) - tpos,
-                           ";time=%s", iso);
-        }
-        echo_tagbuf[tpos] = '\0';
-        sendrawto_one(sptr, "%s :%s!%s@%s PRIVMSG %C :%s",
-                      echo_tagbuf, cli_name(sptr), cli_user(sptr)->username,
-                      cli_user(sptr)->host, acptr, mytext);
-      } else {
-        sendcmdto_one_tags_ext(sptr, CMD_PRIVATE, sptr, pm_msgid,
-                               "%C :%s", acptr, mytext);
-      }
-    }
-    sendcmdto_set_client_msgid(NULL);
-
-    /* Store private message in history database (if enabled) */
-    if (pm_msgid[0])
-      store_private_history(sptr, acptr, mytext, HISTORY_PRIVMSG, pm_msgid, pm_timestamp,
-                            cli_client_tags(sptr));
-  }
-#else
-  {
-    int need_echo = feature_bool(FEAT_CAP_echo_message) && CapOwnHas(sptr, CAP_ECHOMSG);
-    if (need_echo) {
-      const char *echo_client_tags = cli_client_tags(sptr);
-      if (echo_client_tags && *echo_client_tags && CapActive(sptr, CAP_MSGTAGS)) {
-        char echo_tagbuf[4608];
-        int tpos = 0;
-        echo_tagbuf[0] = '@';
-        tpos = 1;
-        tpos += snprintf(echo_tagbuf + tpos, sizeof(echo_tagbuf) - tpos, "%s", echo_client_tags);
-        if (cli_labeled_batch(sptr) && cli_batch_id(sptr)[0])
-          tpos += snprintf(echo_tagbuf + tpos, sizeof(echo_tagbuf) - tpos, ";batch=%s", cli_batch_id(sptr));
-        else if (cli_label(sptr)[0] && LabeledResponseInUse(sptr) && !cli_label_responded(sptr)) {
-          tpos += snprintf(echo_tagbuf + tpos, sizeof(echo_tagbuf) - tpos, ";label=%s", cli_label(sptr));
-          cli_label_responded(sptr) = 1;
-        }
-        if (pm_msgid[0])
-          tpos += snprintf(echo_tagbuf + tpos, sizeof(echo_tagbuf) - tpos, ";msgid=%s", pm_msgid);
-        if (feature_bool(FEAT_CAP_server_time) && CapActive(sptr, CAP_SERVERTIME)) {
-          /* The echo carries the message's one time (the stored row's),
-           * not the wall clock at send. */
-          char iso[40];
-          history_format_iso_ms(iso, sizeof(iso),
-                                pm_timestamp[0] ? history_parse_ms(pm_timestamp)
-                                                : history_event_time_ms(NULL));
-          tpos += snprintf(echo_tagbuf + tpos, sizeof(echo_tagbuf) - tpos,
-                           ";time=%s", iso);
-        }
-        echo_tagbuf[tpos] = '\0';
-        sendrawto_one(sptr, "%s :%s!%s@%s PRIVMSG %C :%s",
-                      echo_tagbuf, cli_name(sptr), cli_user(sptr)->username,
-                      cli_user(sptr)->host, acptr, mytext);
-      } else {
-        sendcmdto_one_tags_ext(sptr, CMD_PRIVATE, sptr, pm_msgid,
-                               "%C :%s", acptr, mytext);
-      }
-    }
-    sendcmdto_set_client_msgid(NULL);
-  }
+  /* Store private message in history database (if enabled) */
+  if (pm_msgid[0])
+    store_private_history(sptr, acptr, mytext, HISTORY_PRIVMSG, pm_msgid, pm_timestamp,
+                          cli_client_tags(sptr));
 #endif
 }
 

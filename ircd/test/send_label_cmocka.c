@@ -661,6 +661,66 @@ static void test_delivery_session_echo_outside_open_batch(void **state)
   sendcmdto_set_client_msgid(NULL);
 }
 
+/* A private message's echo to its sender with client-only tags
+ * (relay_private_message: sendcmdto_one_client_tags, as a channel
+ * message's echo): the client tags, the line's label once, and the
+ * event's tags as every other copy has them -- the armed msgid and exact
+ * time, account, bot.  Inside the labeled batch the line opened (an away
+ * reply or a WARN beside it), the batch instead of the label.  An async
+ * LIST's batch, detached between its lines, catches neither. */
+static void test_pm_echo_with_client_tags(void **state)
+{
+  char list[16], v[64];
+  const char *s;
+
+  (void)state;
+  FlagSet(cli_active_own(&asker), CAP_ACCOUNTTAG);
+  ircd_strncpy(cli_user(&asker)->account, "acct1", sizeof(cli_user(&asker)->account));
+  SetAccount(&asker);
+  SetBot(&asker);
+
+  /* an earlier line's async LIST: its batch detached from the stack */
+  label_pending(&asker, "LIST1");
+  send_batch_start(&asker, "labeled-response");
+  batch_detach(&asker, list, sizeof(list));
+  assert_true(list[0] != '\0');
+  n_sent = 0;
+  memset(sent, 0, sizeof(sent));
+
+  /* the PRIVMSG's bare echo: the one line that answers it */
+  label_pending(&asker, "PM1");
+  sendcmdto_set_client_event("MSGID00000011", 1700000000321ULL);
+  sendcmdto_one_client_tags(&asker, MSG_PRIVATE, &asker, "+draft/reply=MSGID00000001",
+                            "%s :%s", "other", "edited");
+  s = line_to(&asker);
+  assert_non_null(s);
+  assert_true(!strncmp(s, "@+draft/reply=MSGID00000001;", 28));
+  assert_string_equal(tag_value(s, "label", v, sizeof(v)), "PM1");
+  assert_false(has_tag(s, "batch"));
+  assert_string_equal(tag_value(s, "msgid", v, sizeof(v)), "MSGID00000011");
+  assert_string_equal(tag_value(s, "time", v, sizeof(v)), "2023-11-14T22:13:20.321Z");
+  assert_string_equal(tag_value(s, "account", v, sizeof(v)), "acct1");
+  assert_true(has_tag(s, "bot"));
+  assert_string_equal(body_of(s), ":nick!u@h.example PRIVMSG other :edited");
+  assert_int_equal(cli_label_responded(&asker), 1);
+
+  /* inside the labeled batch the line opened: the batch, not the label */
+  n_sent = 0;
+  memset(sent, 0, sizeof(sent));
+  label_pending(&asker, "PM2");
+  cli_label_responded(&asker) = 1;   /* the BATCH + line took it */
+  batch_open(&asker, "BID9");
+  sendcmdto_one_client_tags(&asker, MSG_PRIVATE, &asker, "+draft/reply=MSGID00000001",
+                            "%s :%s", "other", "edited");
+  s = line_to(&asker);
+  assert_string_equal(tag_value(s, "batch", v, sizeof(v)), "BID9");
+  assert_false(has_tag(s, "label"));
+  assert_string_equal(tag_value(s, "msgid", v, sizeof(v)), "MSGID00000011");
+  sendcmdto_set_client_msgid(NULL);
+  cli_connect(&asker)->con_batch_depth = 0;
+  cli_labeled_batch(&asker) = 0;
+}
+
 /* ------------------------------------------------------------------ */
 /* The asker's copy when there is nothing to answer, and when it gets  */
 /* none                                                                */
@@ -1801,6 +1861,7 @@ int main(void)
     cmocka_unit_test_setup_teardown(test_delivery_client_tags, setup, teardown),
     cmocka_unit_test_setup_teardown(test_delivery_no_tags_at_all, setup, teardown),
     cmocka_unit_test_setup_teardown(test_delivery_session_echo_outside_open_batch, setup, teardown),
+    cmocka_unit_test_setup_teardown(test_pm_echo_with_client_tags, setup, teardown),
     cmocka_unit_test_setup_teardown(test_common_channels_but_devices, setup, teardown),
   };
 
