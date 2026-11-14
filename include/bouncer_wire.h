@@ -1999,4 +1999,66 @@ enum nick_request_action {
 extern enum nick_request_action
 nick_request_action(const struct nick_request_facts *f);
 
+/** The event a session echo line (BX E, or the start line of a BX M
+ * batch) delivers to a device: its time and the sender's client-only
+ * tags (#229). */
+struct bounce_bx_event {
+  uint64_t time_ms;          /**< the message's time, epoch ms; 0 = none
+                              *   known (the receiver's clock then) */
+  const char *client_tags;   /**< the sender's client-only tags, or NULL */
+};
+
+/** Pick the event of a session echo line from the line's own msgid
+ * parameter and the compact tag region it may have come with.
+ *
+ * The region (the link's S2S stash, or the copy a deferred line kept) is
+ * used only when it is the region of THIS line: current (the link's line
+ * being handled, or the deferred line's own copy) and naming the same
+ * msgid as the line's msgid parameter.  A deferred BX E replays while
+ * another line (the BX C) is being handled, so a current stash can belong
+ * to another line; the msgid match is what tells.  Otherwise the time is
+ * the one the msgid itself carries and there are no client tags: the
+ * message's exact time from any sender, old or new.
+ *
+ * @param[in] region_current Nonzero when the region is the current one.
+ * @param[in] region_msgid   The region's msgid (NULL/"" = none).
+ * @param[in] region_time_ms The region's time (0 = none).
+ * @param[in] region_ctags   The region's ,C client tags (NULL/"" = none).
+ * @param[in] line_msgid     The line's msgid parameter ("*" = none).
+ * @param[in] line_msgid_ms  The time \a line_msgid carries (its decode;
+ *                           0 for "*" or an id of another shape).
+ * @param[out] ev            The event. */
+extern void bounce_bx_event_pick(int region_current, const char *region_msgid,
+                                 uint64_t region_time_ms,
+                                 const char *region_ctags,
+                                 const char *line_msgid,
+                                 uint64_t line_msgid_ms,
+                                 struct bounce_bx_event *ev);
+
+/** The client tags a BX M batch keeps from its start line: the region's
+ * (picked by bounce_bx_event_pick()) ahead of the start line's body
+ * "@<ctags>" parameter, which an older sender sends and a newer one sends
+ * beside the region only for older receivers.  NULL when neither has any.
+ * @param[in] ev         The start line's event.
+ * @param[in] body_ctags The body parameter without its '@', or NULL. */
+extern const char *bounce_bxm_start_ctags(const struct bounce_bx_event *ev,
+                                          const char *body_ctags);
+
+/** The most client-tag bytes a BX M start line's body "@<ctags>"
+ * parameter may carry: an older receiver copies it into a 512-byte
+ * buffer (511 bytes and the NUL), so a longer one would reach its
+ * devices cut mid-tag. */
+#define BX_M_BODY_CTAGS_MAX 511
+
+/** Whether a sender puts its client tags in a BX M start line's body
+ * "@<ctags>" parameter as well as in the tag region (#229 transition, for
+ * receivers that do not read the region): only whole -- at most
+ * BX_M_BODY_CTAGS_MAX bytes, and the untagged line with them fits the
+ * 510-byte cut, so the text parameter is not lost.  Otherwise the
+ * parameter is left out and an older receiver delivers the batch
+ * untagged.
+ * @param[in] ctags_len  strlen of the client tags (0 = none).
+ * @param[in] line_fits  The untagged start line with the parameter fits. */
+extern int bounce_bxm_body_ctags_sendable(size_t ctags_len, int line_fits);
+
 #endif /* INCLUDED_bouncer_wire_h */

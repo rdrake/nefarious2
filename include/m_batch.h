@@ -8,6 +8,9 @@
 #ifndef INCLUDED_m_batch_h
 #define INCLUDED_m_batch_h
 
+#include <stddef.h>   /* size_t */
+#include <stdint.h>   /* uint64_t */
+
 struct Client;
 struct Channel;
 struct SLink;
@@ -24,6 +27,18 @@ extern void send_multiline_fallback(struct Client *sptr, struct Client *to,
                                      int is_channel, struct Channel *chptr,
                                      const char *paste_url_str,
                                      const char *client_tags, int is_notice);
+
+/** The BATCH + opener tags of a multiline batch delivered to \a to that
+ * answers none of its commands (a BX M session echo): time, msgid,
+ * account, client-only tags, on \a to's caps; never nested in a batch it
+ * has open, never labeled.  \a time_ms 0 = now.  Returns the bytes
+ * written, 0 for none (m_batch.c). */
+extern int format_batch_open_tags_delivered(char *buf, size_t buflen,
+                                            struct Client *to,
+                                            struct Client *from,
+                                            uint64_t time_ms,
+                                            const char *msgid,
+                                            const char *ctags);
 
 /** Free any S2S multiline batches buffered against \a link.
  * Called from exit_one_client when a directly-connected server exits,

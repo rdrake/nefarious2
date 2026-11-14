@@ -13242,6 +13242,39 @@ static void s2s_bxm_cleanup_alias(struct Client *alias);
  * than the pending-BX implementation block — read it. */
 static int bx_drain_in_progress = 0;
 
+/* The tag region a deferred BX line kept from its own arrival (#229),
+ * armed by drain_pending_bx_for_alias() for that line's replay only: a
+ * replay runs while another line (the BX C) is being handled, so the
+ * link's stash is that line's.  Read through bx_line_event(). */
+static struct {
+  int armed;                         /**< the deferred line had a region */
+  char msgid[S2S_MSGID_BUFSIZE];     /**< its msgid */
+  uint64_t time_ms;                  /**< its time */
+  const char *client_tags;           /**< its ,C tags, or NULL */
+} bx_replay_region;
+
+/** The event (time, client-only tags) a session echo line delivers:
+ * the line's own tag region when it is this line's -- the link's stash
+ * while this line is handled, or the copy a deferred line kept for its
+ * replay -- and names the line's msgid parameter; otherwise the time the
+ * msgid carries and no tags (bounce_bx_event_pick(), #229). */
+static void bx_line_event(struct Client *cptr, const char *line_msgid,
+                          struct bounce_bx_event *ev)
+{
+  uint64_t decoded = 0;
+
+  if (line_msgid && strcmp(line_msgid, "*") != 0)
+    decoded = msgid_decode_time_ms(line_msgid);
+  if (bx_drain_in_progress)
+    bounce_bx_event_pick(bx_replay_region.armed, bx_replay_region.msgid,
+                         bx_replay_region.time_ms, bx_replay_region.client_tags,
+                         line_msgid, decoded, ev);
+  else
+    bounce_bx_event_pick(sendcmdto_stash_is_current(cptr),
+                         cli_s2s_msgid(cptr), cli_s2s_time_ms(cptr),
+                         cli_s2s_client_tags(cptr), line_msgid, decoded, ev);
+}
+
 int bounce_handle_bt(struct Client *cptr, struct Client *sptr,
                      int parc, char *parv[])
 {
@@ -15780,6 +15813,7 @@ static int bounce_alias_echo(struct Client *cptr, struct Client *sptr,
   struct Client *target, *from;
   const char *tok_char, *target_nick, *msgid, *text;
   const char *msg_cmd, *msg_tok;
+  struct bounce_bx_event ev;
 
   if (parc < 8)
     return protocol_violation(sptr, "BX E requires 7 parameters");
@@ -15794,9 +15828,15 @@ static int bounce_alias_echo(struct Client *cptr, struct Client *sptr,
     return 0;
   }
 
-  /* Forward if target is not on this server */
+  /* The message's time and the sender's client-only tags (#229): the
+   * line's own tag region, else the time its msgid carries. */
+  bx_line_event(cptr, parv[6], &ev);
+
+  /* Forward if target is not on this server, keeping the region (a
+   * link that takes S2S tags gets it; any other the bare line). */
   if (!MyConnect(target)) {
-    sendcmdto_one(sptr, CMD_BOUNCER_TRANSFER, target,
+    sendcmdto_one_ctags(sptr, CMD_BOUNCER_TRANSFER, target,
+        ev.time_ms, parv[6], ev.client_tags,
         "E %s %s %s %s %s :%s",
         parv[2], parv[3], parv[4], parv[5], parv[6], parv[7]);
     return 0;
@@ -15827,9 +15867,17 @@ static int bounce_alias_echo(struct Client *cptr, struct Client *sptr,
     msg_tok = TOK_NOTICE;
   }
 
-  /* Deliver the echo to the local client */
-  sendcmdto_one_tags_ext(from, msg_cmd, msg_tok, target, msgid,
+  /* Deliver the echo to the local client as the delivered message, as
+   * the local session echo is (bounce_echo_pm_to_session): the message's
+   * msgid and its one time (the region's, else the msgid's; the clock
+   * only for a line with neither), the sender's client-only tags under
+   * message-tags (decided here, on the device's own server), and never
+   * the device's label or a batch it has open. */
+  if (msgid)
+    sendcmdto_set_client_event(msgid, ev.time_ms);
+  sendcmdto_one_delivery(from, msg_cmd, msg_tok, target, ev.client_tags,
                          "%s :%s", target_nick, text);
+  sendcmdto_set_client_msgid(NULL);
   return 0;
 }
 
@@ -15862,6 +15910,11 @@ struct PendingBxEntry {
   char *parv[MAXPARA + 1];      /**< deep-copied; NULL-terminated */
   time_t buffered_at;
   char subcmd_char;             /**< 'E'/'M'/'K'/'U' for diagnostics */
+  /* The line's own compact tag region, kept for its replay (#229): the
+   * link's stash is another line's by then.  kept_msgid empty = none. */
+  char kept_msgid[S2S_MSGID_BUFSIZE];
+  uint64_t kept_time_ms;
+  char *kept_ctags;             /**< heap copy of ,C, or NULL */
 };
 
 static struct PendingBxEntry *pending_bx[MAXCONNECTIONS];
@@ -15882,6 +15935,8 @@ free_pending_bx_entry(struct PendingBxEntry *entry)
     if (entry->parv[i])
       MyFree(entry->parv[i]);
   }
+  if (entry->kept_ctags)
+    MyFree(entry->kept_ctags);
   MyFree(entry);
 }
 
@@ -15964,6 +16019,15 @@ defer_bx_for_alias(const char *alias_numeric,
   entry->parv[entry->parc] = NULL;
   entry->buffered_at = CurrentTime;
   entry->subcmd_char = (parv[1] && parv[1][0]) ? parv[1][0] : '?';
+  /* Keep the line's own tag region: its replay runs during another
+   * line, whose tags the link's stash then holds (#229). */
+  if (cptr && sendcmdto_stash_is_current(cptr) && cli_s2s_msgid(cptr)[0]) {
+    ircd_strncpy(entry->kept_msgid, cli_s2s_msgid(cptr),
+                 sizeof(entry->kept_msgid));
+    entry->kept_time_ms = cli_s2s_time_ms(cptr);
+    if (cli_s2s_client_tags(cptr)[0])
+      DupString(entry->kept_ctags, cli_s2s_client_tags(cptr));
+  }
 
   pending_bx[oldest_i] = entry;
   Debug((DEBUG_INFO,
@@ -16027,7 +16091,13 @@ drain_pending_bx_for_alias(const char *alias_numeric)
              "BX: replaying deferred subcmd %c for alias %s (buffered_at %lu)",
              entry->subcmd_char, alias_numeric,
              (unsigned long)entry->buffered_at));
+      bx_replay_region.armed = (entry->kept_msgid[0] != '\0');
+      ircd_strncpy(bx_replay_region.msgid, entry->kept_msgid,
+                   sizeof(bx_replay_region.msgid));
+      bx_replay_region.time_ms = entry->kept_time_ms;
+      bx_replay_region.client_tags = entry->kept_ctags;
       bounce_handle_bt(cptr, sptr, entry->parc, entry->parv);
+      memset(&bx_replay_region, 0, sizeof(bx_replay_region));
     } else {
       Debug((DEBUG_INFO,
              "BX: dropping deferred subcmd %c for alias %s "
@@ -16088,7 +16158,12 @@ struct S2SBxmBatch {
   char from_numeric[6];         /**< sender_primary, source for wire :from */
   char target_nick[NICKLEN + 1];/**< original PM target — wire %C */
   char msgid[64];               /**< base msgid, "" if absent */
-  char client_tags[512];        /**< @-prefixed ctags from start opener */
+  char *client_tags;            /**< the sender's client-only tags (heap,
+                                 *   whole: the region's ,C up to 4094
+                                 *   bytes, else the start line's body
+                                 *   parameter), or NULL */
+  uint64_t time_ms;             /**< the batch's time (the region's, else
+                                 *   the msgid's); 0 = unknown */
   int  is_notice;               /**< 1 if NOTICE batch, 0 if PRIVMSG */
   char paste_url[256];          /**< from -end token */
   struct SLink *messages;       /**< SLink<concat-flag-byte + text> */
@@ -16125,7 +16200,8 @@ static struct S2SBxmBatch *
 create_s2s_bxm_batch(struct Client *link, const char *batch_id,
                      const char *alias_num, const char *from_num,
                      const char *target_nick, const char *msgid,
-                     const char *client_tags, int is_notice)
+                     const char *client_tags, uint64_t time_ms,
+                     int is_notice)
 {
   int i;
   struct S2SBxmBatch *b;
@@ -16158,7 +16234,8 @@ create_s2s_bxm_batch(struct Client *link, const char *batch_id,
   if (msgid && strcmp(msgid, "*") != 0)
     ircd_strncpy(b->msgid, msgid, sizeof(b->msgid));
   if (client_tags && *client_tags)
-    ircd_strncpy(b->client_tags, client_tags, sizeof(b->client_tags));
+    DupString(b->client_tags, client_tags);   /* whole, never cut mid-tag */
+  b->time_ms = time_ms;
   b->is_notice = is_notice;
   b->start_time = CurrentTime;
   s2s_bxm_batches[i] = b;
@@ -16215,6 +16292,8 @@ free_s2s_bxm_batch(struct S2SBxmBatch *b)
       MyFree(lp->value.cp);
     free_link(lp);
   }
+  if (b->client_tags)
+    MyFree(b->client_tags);
 
   for (i = 0; i < MAXCONNECTIONS; i++)
     if (s2s_bxm_batches[i] == b) {
@@ -16354,10 +16433,18 @@ deliver_s2s_bxm_batch(struct S2SBxmBatch *b)
     {
       const char *from_host = IsHiddenHost(from) ? cli_user(from)->host
                                                   : cli_user(from)->realhost;
-      if (b->client_tags[0]) {
+      /* The opener carries what the local echo's does (#229): the
+       * batch's one time and msgid, the account and the sender's
+       * client-only tags, each on the device's own caps; not nested in
+       * a batch it has open. */
+      char tagbuf[4608];
+      int taglen = format_batch_open_tags_delivered(tagbuf, sizeof(tagbuf),
+                       alias, from, b->time_ms,
+                       b->msgid[0] ? b->msgid : NULL, b->client_tags);
+      if (taglen) {
         sendrawto_one(alias,
-                      "@%s :%s!%s@%s BATCH +%s draft/multiline %s",
-                      b->client_tags,
+                      "%s:%s!%s@%s BATCH +%s draft/multiline %s",
+                      tagbuf,
                       cli_name(from), cli_user(from)->username, from_host,
                       alias_batchid, b->target_nick);
       } else {
@@ -16391,14 +16478,27 @@ deliver_s2s_bxm_batch(struct S2SBxmBatch *b)
   } else {
     /* Bounded fallback: preview + truncation NOTICE.  route_to=alias,
      * wire_target=resolved target_nick so the truncated lines land in
-     * the alias's correct query window. */
+     * the alias's correct query window.  The lines carry the batch's
+     * time (#229), as the origin's fallback does (its m_batch.c time
+     * override); the clock only when the batch has none. */
+    char timebuf[32] = "";
+    if (b->time_ms) {
+      char unix_ts[32];
+      history_format_ms(unix_ts, sizeof(unix_ts), b->time_ms);
+      if (history_unix_to_iso(unix_ts, timebuf, sizeof(timebuf)) != 0)
+        timebuf[0] = '\0';
+    }
+    if (timebuf[0])
+      sendcmdto_set_client_time(timebuf);
     send_multiline_fallback(from, alias, wire_target,
                             b->msgid[0] ? b->msgid : NULL,
                             b->messages, b->msg_count,
                             0 /* not channel */, NULL /* chptr */,
                             b->paste_url[0] ? b->paste_url : NULL,
-                            b->client_tags[0] ? b->client_tags : NULL,
+                            b->client_tags,
                             b->is_notice);
+    if (timebuf[0])
+      sendcmdto_set_client_time(NULL);
   }
 }
 
@@ -16407,7 +16507,7 @@ deliver_s2s_bxm_batch(struct S2SBxmBatch *b)
  * BX E forward at bounce_alias_echo above. */
 static void
 forward_bxm_line(struct Client *sptr, struct Client *next_hop,
-                 int parc, char *parv[])
+                 const struct bounce_bx_event *ev, int parc, char *parv[])
 {
   /* parv[0] is sender prefix, parv[1] is "M".  Re-emit parv[2..] as
    * the BX M payload.  Length-bounded paste-url end can have an empty
@@ -16425,10 +16525,25 @@ forward_bxm_line(struct Client *sptr, struct Client *next_hop,
                   parv[2], parv[3], parv[4], parv[5], parv[6], parv[7]);
     break;
   case 9:
-    sendcmdto_one(sptr, CMD_BOUNCER_TRANSFER, next_hop,
-                  "M %s %s %s %s %s %s :%s",
-                  parv[2], parv[3], parv[4], parv[5], parv[6], parv[7],
-                  parv[8]);
+    /* The start line (+<bid> ... <msgid> :<line>): it keeps its tag
+     * region toward a link that takes one (#229). */
+    sendcmdto_one_ctags(sptr, CMD_BOUNCER_TRANSFER, next_hop,
+                        ev ? ev->time_ms : 0, parv[7],
+                        ev ? ev->client_tags : NULL,
+                        "M %s %s %s %s %s %s :%s",
+                        parv[2], parv[3], parv[4], parv[5], parv[6], parv[7],
+                        parv[8]);
+    break;
+  case 10:
+    /* The start line with its body "@<ctags>" parameter.  It used to be
+     * dropped here, and with it the whole batch for the device behind
+     * us (its continuation and end lines found no batch). */
+    sendcmdto_one_ctags(sptr, CMD_BOUNCER_TRANSFER, next_hop,
+                        ev ? ev->time_ms : 0, parv[7],
+                        ev ? ev->client_tags : NULL,
+                        "M %s %s %s %s %s %s %s :%s",
+                        parv[2], parv[3], parv[4], parv[5], parv[6], parv[7],
+                        parv[8], parv[9]);
     break;
   default:
     /* Unexpected param count — drop silently rather than emit a
@@ -16467,6 +16582,7 @@ bounce_alias_multiline_echo(struct Client *cptr, struct Client *sptr,
   char prefix;
   struct Client *alias;
   struct S2SBxmBatch *batch;
+  struct bounce_bx_event ev = { 0, NULL };
 
   if (parc < 5)
     return protocol_violation(sptr, "BX M requires at least 4 parameters");
@@ -16490,9 +16606,14 @@ bounce_alias_multiline_echo(struct Client *cptr, struct Client *sptr,
     return 0;
   }
 
+  /* A start line's event: its own tag region, else its msgid's time
+   * (#229). */
+  if (prefix == '+' && parc >= 9)
+    bx_line_event(cptr, parv[7], &ev);
+
   /* Forward through if alias is on another server. */
   if (!MyConnect(alias)) {
-    forward_bxm_line(sptr, alias, parc, parv);
+    forward_bxm_line(sptr, alias, prefix == '+' ? &ev : NULL, parc, parv);
     return 0;
   }
 
@@ -16527,9 +16648,13 @@ bounce_alias_multiline_echo(struct Client *cptr, struct Client *sptr,
     if ((batch = find_s2s_bxm_batch(cptr, bid)))
       free_s2s_bxm_batch(batch);
 
+    /* The region's client tags (whole) ahead of the body parameter,
+     * which an older sender sends and a newer one sends for older
+     * receivers only (bounce_bxm_start_ctags, #229). */
     batch = create_s2s_bxm_batch(cptr, bid, parv[3], from_num,
-                                 target_nick, msgid_str, client_tags,
-                                 is_notice);
+                                 target_nick, msgid_str,
+                                 bounce_bxm_start_ctags(&ev, client_tags),
+                                 ev.time_ms, is_notice);
     if (!batch)
       return 0;  /* no slot available */
 

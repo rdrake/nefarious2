@@ -144,6 +144,7 @@ static struct Message test_msgs[] = {
   { "NICK", "N", 0, MAXPARA, 0, 0, NULL, ALL_HANDLERS(h_nick), NULL },
   { "PRIVMSG", "P", 0, MAXPARA, 0, 0, NULL, ALL_HANDLERS(h_privmsg), NULL },
   { "BATCH", "BT", 0, MAXPARA, 0, 0, NULL, ALL_HANDLERS(h_privmsg), NULL },
+  { "BOUNCER_TRANSFER", "BX", 0, MAXPARA, 0, 0, NULL, ALL_HANDLERS(h_privmsg), NULL },
 };
 
 /* parse_client() compares the handler with these two. */
@@ -773,6 +774,27 @@ static void server_statusmsg_segment(void **state)
   assert_string_equal(cli_s2s_client_tags(&leaf), "+x=a,P");
 }
 
+
+/* A session echo line (BX E, #229) with a tag region: the region fills
+ * the link's stash -- msgid and client tags (the time decode is stubbed
+ * here) -- as for any token, and
+ * the line is handled with its own parameters; the next line clears it. */
+static void server_bx_line_fills_the_stash(void **state)
+{
+  struct outcome o;
+
+  (void)state;
+  o = parse_every_way(parse_server, &leaf,
+      COMPACT ",C+draft/reply=x;+e=a,b AC BX E ABAAB ACAAA P bob AAAAAAAAAAAAAA :hi");
+  expect_handler("BX E with a region", &o, "PRIVMSG", "E");
+  assert_string_equal(cli_s2s_msgid(&leaf), "AAAAAAAAAAAAAA");
+  assert_string_equal(cli_s2s_client_tags(&leaf), "+draft/reply=x;+e=a,b");
+  o = parse_every_way(parse_server, &leaf, "AC BX E ABAAB ACAAA P bob AAAAAAAAAAAAAA :hi");
+  expect_handler("BX E bare", &o, "PRIVMSG", "E");
+  assert_string_equal(cli_s2s_msgid(&leaf), "");
+  assert_string_equal(cli_s2s_client_tags(&leaf), "");
+}
+
 /* A client cannot set the status mark either. */
 static void client_cannot_set_statusmsg_mark(void **state)
 {
@@ -1097,6 +1119,7 @@ int main(void)
     cmocka_unit_test(client_tags_without_space_is_an_unknown_command),
     cmocka_unit_test(client_ordinary_lines),
     cmocka_unit_test(client_cannot_set_fallback_mark),
+    cmocka_unit_test(server_bx_line_fills_the_stash),
   };
 
   return cmocka_run_group_tests(tests, group_setup, NULL);

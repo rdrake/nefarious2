@@ -132,10 +132,10 @@ static const char *generate_paste_url(const char *msgid,
  *
  * Returns: length written, or 0 if no tags (no @ prefix needed)
  */
-static int format_batch_open_tags(char *buf, size_t buflen,
-                                   struct Client *to, struct Client *from,
-                                   const char *timebuf, const char *msgid,
-                                   const char *label, const char *ctags)
+static int batch_open_tags(char *buf, size_t buflen,
+                           struct Client *to, struct Client *from,
+                           const char *timebuf, const char *msgid,
+                           const char *label, const char *ctags, int nest)
 {
   size_t pos = 0;
   int use_tags = CapOwnHas(to, CAP_MSGTAGS);
@@ -147,7 +147,7 @@ static int format_batch_open_tags(char *buf, size_t buflen,
    * the labeled-response batch of the multiline batch's answer) is nested
    * in it: its BATCH + line carries @batch=<that batch> (send.c's
    * nesting model).  Only the sender's own connection has one open here. */
-  const char *parent = (MyConnect(to) && CapOwnHas(to, CAP_BATCH))
+  const char *parent = (nest && MyConnect(to) && CapOwnHas(to, CAP_BATCH))
                        ? cli_batch_id(to) : "";
 
   if (!use_tags && !has_label && !parent[0])
@@ -179,6 +179,35 @@ static int format_batch_open_tags(char *buf, size_t buflen,
   }
   str_appendf(buf, buflen, &pos, " ");
   return (int)pos;
+}
+
+static int format_batch_open_tags(char *buf, size_t buflen,
+                                  struct Client *to, struct Client *from,
+                                  const char *timebuf, const char *msgid,
+                                  const char *label, const char *ctags)
+{
+  return batch_open_tags(buf, buflen, to, from, timebuf, msgid, label, ctags, 1);
+}
+
+/** The BATCH + opener tags of a multiline batch DELIVERED to \a to, a
+ * line that answers none of its commands (a session echo another server
+ * sent as BX M, #229): time, msgid, account and the sender's client-only
+ * tags on \a to's own caps, as the local echo's opener carries them, and
+ * never nested in a batch \a to has open or labeled.
+ * @param[in] time_ms The batch's time (epoch ms); 0 = now.
+ * @return Bytes written ("@... "), or 0 for no tags. */
+int format_batch_open_tags_delivered(char *buf, size_t buflen,
+                                     struct Client *to, struct Client *from,
+                                     uint64_t time_ms, const char *msgid,
+                                     const char *ctags)
+{
+  char timebuf[32];
+
+  if (time_ms)
+    ms_to_time_tag(timebuf, sizeof(timebuf), time_ms);
+  else
+    format_time_tag(timebuf, sizeof(timebuf));
+  return batch_open_tags(buf, buflen, to, from, timebuf, msgid, NULL, ctags, 0);
 }
 
 /* Forward declarations: deliver_multiline_dm_to_one calls helpers

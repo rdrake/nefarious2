@@ -1149,3 +1149,39 @@ nick_request_action(const struct nick_request_facts *f)
     return NICK_REQUEST_DROP;
   return NICK_REQUEST_FORWARD;
 }
+
+/** Pick the event of a session echo line (#229): see bouncer_wire.h.
+ * A line without a msgid ("*") has no event, whatever its region. */
+void bounce_bx_event_pick(int region_current, const char *region_msgid,
+                          uint64_t region_time_ms, const char *region_ctags,
+                          const char *line_msgid, uint64_t line_msgid_ms,
+                          struct bounce_bx_event *ev)
+{
+  ev->time_ms = 0;
+  ev->client_tags = NULL;
+  if (!line_msgid || !*line_msgid || strcmp(line_msgid, "*") == 0)
+    return;
+  ev->time_ms = line_msgid_ms;
+  if (!region_current || !region_msgid || !*region_msgid
+      || strcmp(region_msgid, line_msgid) != 0)
+    return;
+  if (region_time_ms)
+    ev->time_ms = region_time_ms;
+  if (region_ctags && *region_ctags)
+    ev->client_tags = region_ctags;
+}
+
+const char *bounce_bxm_start_ctags(const struct bounce_bx_event *ev,
+                                   const char *body_ctags)
+{
+  if (ev && ev->client_tags && *ev->client_tags)
+    return ev->client_tags;
+  if (body_ctags && *body_ctags)
+    return body_ctags;
+  return NULL;
+}
+
+int bounce_bxm_body_ctags_sendable(size_t ctags_len, int line_fits)
+{
+  return ctags_len > 0 && ctags_len <= BX_M_BODY_CTAGS_MAX && line_fits;
+}

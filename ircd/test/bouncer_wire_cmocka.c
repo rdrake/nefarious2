@@ -3689,9 +3689,169 @@ static void away_role_is_the_holders(void **s)
   assert_int_equal(bounce_away_role(5), BOUNCE_AWAY_DECIDES);
 }
 
+/* bounce_bx_event_pick(): the event a session echo line (BX E, BX M
+ * start) delivers -- the region only when it is this line's (#229). */
+
+#define ID_A   "AzAAEG7Hq2LmAF"   /* the line's msgid */
+#define ID_B   "AzAAFG7Hq2LmAG"   /* another line's */
+#define T_A    1763000000123ULL  /* what ID_A decodes to (the caller's) */
+
+static void bx_event_region_of_this_line(void **s)
+{
+  struct bounce_bx_event ev;
+  (void)s;
+  bounce_bx_event_pick(1, ID_A, T_A, "+draft/reply=x;+e=y", ID_A, T_A, &ev);
+  assert_int_equal(ev.time_ms, T_A);
+  assert_non_null(ev.client_tags);
+  assert_string_equal(ev.client_tags, "+draft/reply=x;+e=y");
+}
+
+static void bx_event_region_time_wins_over_the_decode(void **s)
+{
+  struct bounce_bx_event ev;
+  (void)s;
+  /* The two are the same instant from a sender that mints both; the
+   * region is the line's own statement. */
+  bounce_bx_event_pick(1, ID_A, T_A + 5, "+x", ID_A, T_A, &ev);
+  assert_int_equal(ev.time_ms, T_A + 5);
+}
+
+static void bx_event_region_without_time_takes_the_decode(void **s)
+{
+  struct bounce_bx_event ev;
+  (void)s;
+  bounce_bx_event_pick(1, ID_A, 0, "+x", ID_A, T_A, &ev);
+  assert_int_equal(ev.time_ms, T_A);
+  assert_string_equal(ev.client_tags, "+x");
+}
+
+static void bx_event_region_without_tags_gives_none(void **s)
+{
+  struct bounce_bx_event ev;
+  (void)s;
+  bounce_bx_event_pick(1, ID_A, T_A, "", ID_A, T_A, &ev);
+  assert_null(ev.client_tags);
+  bounce_bx_event_pick(1, ID_A, T_A, NULL, ID_A, T_A, &ev);
+  assert_null(ev.client_tags);
+  assert_int_equal(ev.time_ms, T_A);
+}
+
+static void bx_event_other_lines_region_is_not_used(void **s)
+{
+  struct bounce_bx_event ev;
+  (void)s;
+  /* A deferred BX E replayed while the BX C is handled: the stash is
+   * current, but it is the BX C's. */
+  bounce_bx_event_pick(1, ID_B, T_A + 999, "+other=1", ID_A, T_A, &ev);
+  assert_int_equal(ev.time_ms, T_A);
+  assert_null(ev.client_tags);
+}
+
+static void bx_event_stale_stash_is_not_used(void **s)
+{
+  struct bounce_bx_event ev;
+  (void)s;
+  /* Even with the same msgid: a stash that is not the current line's. */
+  bounce_bx_event_pick(0, ID_A, T_A + 7, "+x", ID_A, T_A, &ev);
+  assert_int_equal(ev.time_ms, T_A);
+  assert_null(ev.client_tags);
+}
+
+static void bx_event_no_region_from_an_older_sender(void **s)
+{
+  struct bounce_bx_event ev;
+  (void)s;
+  bounce_bx_event_pick(1, "", 0, "", ID_A, T_A, &ev);
+  assert_int_equal(ev.time_ms, T_A);
+  assert_null(ev.client_tags);
+  bounce_bx_event_pick(1, NULL, 0, NULL, ID_A, T_A, &ev);
+  assert_int_equal(ev.time_ms, T_A);
+  assert_null(ev.client_tags);
+}
+
+static void bx_event_star_line_has_no_event(void **s)
+{
+  struct bounce_bx_event ev;
+  (void)s;
+  /* A per-line fallback line after the first: no msgid, no time. */
+  bounce_bx_event_pick(1, ID_A, T_A, "+x", "*", 0, &ev);
+  assert_int_equal(ev.time_ms, 0);
+  assert_null(ev.client_tags);
+  bounce_bx_event_pick(1, "*", T_A, "+x", "*", 0, &ev);
+  assert_int_equal(ev.time_ms, 0);
+  assert_null(ev.client_tags);
+  bounce_bx_event_pick(1, ID_A, T_A, "+x", NULL, 0, &ev);
+  assert_int_equal(ev.time_ms, 0);
+  assert_null(ev.client_tags);
+}
+
+static void bx_event_pre_repack_id_has_no_time(void **s)
+{
+  struct bounce_bx_event ev;
+  (void)s;
+  /* An id that decodes to no time (the caller passes 0), no region. */
+  bounce_bx_event_pick(0, "", 0, "", "AzAAAAAAAAAAAA", 0, &ev);
+  assert_int_equal(ev.time_ms, 0);
+  assert_null(ev.client_tags);
+  /* ...with its own region, the region's time. */
+  bounce_bx_event_pick(1, "AzAAAAAAAAAAAA", T_A, "+x", "AzAAAAAAAAAAAA", 0, &ev);
+  assert_int_equal(ev.time_ms, T_A);
+  assert_string_equal(ev.client_tags, "+x");
+}
+
+static void bx_event_replay_uses_the_kept_copy(void **s)
+{
+  struct bounce_bx_event ev;
+  (void)s;
+  /* A deferred line's own kept copy is passed as current: same rule. */
+  bounce_bx_event_pick(1, ID_A, T_A, "+kept=1", ID_A, T_A, &ev);
+  assert_int_equal(ev.time_ms, T_A);
+  assert_string_equal(ev.client_tags, "+kept=1");
+  /* Nothing kept (deferred with no region): the decode. */
+  bounce_bx_event_pick(0, NULL, 0, NULL, ID_A, T_A, &ev);
+  assert_int_equal(ev.time_ms, T_A);
+  assert_null(ev.client_tags);
+}
+
+static void bxm_start_ctags_prefers_the_region(void **s)
+{
+  struct bounce_bx_event ev = { T_A, "+region=1" };
+  (void)s;
+  assert_string_equal(bounce_bxm_start_ctags(&ev, "+body=1"), "+region=1");
+  ev.client_tags = NULL;
+  assert_string_equal(bounce_bxm_start_ctags(&ev, "+body=1"), "+body=1");
+  assert_null(bounce_bxm_start_ctags(&ev, ""));
+  assert_null(bounce_bxm_start_ctags(&ev, NULL));
+  ev.client_tags = "";
+  assert_null(bounce_bxm_start_ctags(&ev, NULL));
+}
+
+static void bxm_body_ctags_only_whole(void **s)
+{
+  (void)s;
+  assert_false(bounce_bxm_body_ctags_sendable(0, 1));
+  assert_true(bounce_bxm_body_ctags_sendable(1, 1));
+  assert_true(bounce_bxm_body_ctags_sendable(BX_M_BODY_CTAGS_MAX, 1));
+  assert_false(bounce_bxm_body_ctags_sendable(BX_M_BODY_CTAGS_MAX + 1, 1));
+  assert_false(bounce_bxm_body_ctags_sendable(4094, 1));
+  assert_false(bounce_bxm_body_ctags_sendable(10, 0));
+}
+
 int main(void)
 {
   const struct CMUnitTest tests[] = {
+    cmocka_unit_test(bx_event_region_of_this_line),
+    cmocka_unit_test(bx_event_region_time_wins_over_the_decode),
+    cmocka_unit_test(bx_event_region_without_time_takes_the_decode),
+    cmocka_unit_test(bx_event_region_without_tags_gives_none),
+    cmocka_unit_test(bx_event_other_lines_region_is_not_used),
+    cmocka_unit_test(bx_event_stale_stash_is_not_used),
+    cmocka_unit_test(bx_event_no_region_from_an_older_sender),
+    cmocka_unit_test(bx_event_star_line_has_no_event),
+    cmocka_unit_test(bx_event_pre_repack_id_has_no_time),
+    cmocka_unit_test(bx_event_replay_uses_the_kept_copy),
+    cmocka_unit_test(bxm_start_ctags_prefers_the_region),
+    cmocka_unit_test(bxm_body_ctags_only_whole),
     cmocka_unit_test(away_remote_primary_present_hides_a_star),
     cmocka_unit_test(away_remote_primary_away_with_a_star_is_its_text),
     cmocka_unit_test(away_all_star_is_star),

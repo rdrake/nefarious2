@@ -399,9 +399,103 @@ static void test_ordinary_channel_send_with_ctags_drops_statusmsg_mark(void **st
   assert_null(strstr(all_tags, ",P"));
 }
 
+/* --- A session echo line toward a server (#229) -------------------- */
+
+#define BXE_ID "AzAAEG7Hq2LmAF"
+
+/* sendcmdto_one_ctags() with token BX toward an IRCv3-aware link: the
+ * line is led by @A<time><msgid>,C<client tags>, the time and msgid the
+ * caller gave -- not a fresh mint, not a stash. */
+static void test_bx_ctags_toward_v3_link(void **state)
+{
+  char want[128], tb[8];
+  (void)state;
+  sendcmdto_one_ctags(&me, "BOUNCER_TRANSFER", "BX", &link_v3,
+                      1763000000123ULL, BXE_ID, "+draft/reply=x;+e=a,b",
+                      "E %s %s %s %s %s :%s", "BzAAC", "AzAAAP", "bob",
+                      BXE_ID, "fixed typo", "");
+  inttobase64_64(tb, 1763000000123ULL, 7);
+  snprintf(want, sizeof(want), "@A%s%s,C+draft/reply=x;+e=a,b ", tb, BXE_ID);
+  assert_string_equal(last_tags, want);
+}
+
+/* Toward a legacy link, or with P10_MESSAGE_TAGS off: the bare line. */
+static void test_bx_ctags_toward_legacy_link_is_bare(void **state)
+{
+  char buf[512];
+  (void)state;
+  sendcmdto_one_ctags(&me, "BOUNCER_TRANSFER", "BX", &link_legacy,
+                      1763000000123ULL, BXE_ID, "+draft/reply=x",
+                      "E %s :%s", "BzAAC", "hi");
+  assert_string_equal(last_tags, "");
+  tags_on = 0;
+  sendcmdto_one_ctags(&me, "BOUNCER_TRANSFER", "BX", &link_v3,
+                      1763000000123ULL, BXE_ID, "+draft/reply=x",
+                      "E %s :%s", "BzAAC", "hi");
+  assert_string_equal(last_tags, "");
+  tags_on = 1;
+  /* and nothing is left armed for the next line */
+  format_s2s_tags_with_client(buf, sizeof(buf), NULL, NULL, NULL, 0);
+  assert_null(strstr(buf, BXE_ID));
+}
+
+/* No client tags, or a msgid of another shape ("*"): the bare line,
+ * as before -- the receiver reads the time from the msgid. */
+static void test_bx_ctags_without_tags_is_bare(void **state)
+{
+  (void)state;
+  sendcmdto_one_ctags(&me, "BOUNCER_TRANSFER", "BX", &link_v3,
+                      1763000000123ULL, BXE_ID, NULL, "E %s :%s", "BzAAC", "hi");
+  assert_string_equal(last_tags, "");
+  sendcmdto_one_ctags(&me, "BOUNCER_TRANSFER", "BX", &link_v3,
+                      1763000000123ULL, BXE_ID, "", "E %s :%s", "BzAAC", "hi");
+  assert_string_equal(last_tags, "");
+  sendcmdto_one_ctags(&me, "BOUNCER_TRANSFER", "BX", &link_v3,
+                      1763000000123ULL, "*", "+x", "E %s :%s", "BzAAC", "hi");
+  assert_string_equal(last_tags, "");
+}
+
+/* The session echo's sends sit inside an armed client event (the local
+ * members' copies, the sender's own echo): a BX line between them must
+ * leave it armed. */
+static void test_bx_ctags_keeps_the_client_event(void **state)
+{
+  (void)state;
+  sendcmdto_set_client_event(BXE_ID, 1763000000123ULL);
+  sendcmdto_one_ctags(&me, "BOUNCER_TRANSFER", "BX", &link_v3,
+                      1763000000123ULL, BXE_ID, "+x", "E %s :%s", "BzAAC", "hi");
+  assert_string_equal(client_msgid_override, BXE_ID);
+  assert_true(client_event_ms == 1763000000123ULL);
+  sendcmdto_one_ctags(&me, "BOUNCER_TRANSFER", "BX", &link_v3,
+                      1763000000123ULL, BXE_ID, NULL, "E %s :%s", "BzAAC", "hi");
+  assert_string_equal(client_msgid_override, BXE_ID);
+  sendcmdto_set_client_msgid(NULL);
+}
+
+/* 4094 bytes of client tags: the whole region, never cut. */
+static void test_bx_ctags_full_size_is_whole(void **state)
+{
+  static char big[4095];
+  (void)state;
+  memset(big, 'a', sizeof(big) - 1);
+  big[0] = '+';
+  big[1] = 'k';
+  big[2] = '=';
+  big[sizeof(big) - 1] = '\0';
+  sendcmdto_one_ctags(&me, "BOUNCER_TRANSFER", "BX", &link_v3,
+                      1763000000123ULL, BXE_ID, big, "E %s :%s", "BzAAC", "hi");
+  assert_int_equal(strlen(last_tags), 2 + 7 + 14 + 2 + 4094 + 1);
+  assert_string_equal(last_tags + 2 + 7 + 14 + 2 + 4094, " ");
+}
+
 int main(void)
 {
   const struct CMUnitTest tests[] = {
+    cmocka_unit_test_setup(test_bx_ctags_toward_v3_link, setup),
+    cmocka_unit_test_setup(test_bx_ctags_toward_legacy_link_is_bare, setup),
+    cmocka_unit_test_setup(test_bx_ctags_without_tags_is_bare, setup),
+    cmocka_unit_test_setup(test_bx_ctags_keeps_the_client_event, setup),
+    cmocka_unit_test_setup(test_bx_ctags_full_size_is_whole, setup),
     cmocka_unit_test_setup(test_ordinary_channel_send_drops_statusmsg_mark, setup),
     cmocka_unit_test_setup(test_ordinary_channel_send_with_ctags_drops_statusmsg_mark, setup),
     cmocka_unit_test_setup(test_statusmsg_mark_placed_and_consumed, setup),
