@@ -589,6 +589,8 @@ struct Connection
   char                con_s2s_sessid[S2S_SESSID_BUFSIZE]; /**< S2S compact-tag ,S<sessid> segment from incoming message — bouncer session identity hint per redesign A.2 */
 #define S2S_ML_BUFSIZE 32  /**< ML framing: one flag byte + a multiline batch reference (senders use <=15) + NUL */
   char                con_s2s_ml[S2S_ML_BUFSIZE]; /**< S2S compact-tag ,M<flag><batchref> segment (multiline framing, audit 0.1); empty when absent */
+#define S2S_REVEAL_BUFSIZE (5 + 14 + 1) /**< ,J segment: user numeric (5) + msgid (14) + NUL */
+  char                con_s2s_reveal[S2S_REVEAL_BUFSIZE]; /**< S2S compact-tag ,J<numeric><msgid> segment: the delayed-join reveal of user <numeric> that this line causes has msgid <msgid> (N067); empty when absent */
   char                con_s2s_fallback[S2S_MSGID_BUFSIZE]; /**< S2S compact-tag ,F<msgid> segment: the line is a multiline fallback line rendering message <msgid> (only its target's server stores it); empty when absent */
   char                con_s2s_held;  /**< S2S compact-tag ,H<x> segment: the bouncer hold mark of the N's client (BOUNCE_HOLD_MARK_*), 0 when absent or invalid */
   char                con_s2s_statusmsg; /**< S2S compact-tag ,P segment (#226): 1 when the line (a WALLCHOPS/WALLHOPS/WALLVOICES) is a PRIVMSG to a status target, delivered here in the PRIVMSG form; 0 when absent */
@@ -861,6 +863,7 @@ struct Client {
 #define cli_s2s_held(cli)        con_s2s_held(cli_connect(cli))
 /** Get the multiline-fallback mark (,F<msgid>) of the incoming S2S message ("" = none) */
 #define cli_s2s_fallback(cli)    con_s2s_fallback(cli_connect(cli))
+#define cli_s2s_reveal(cli)      con_s2s_reveal(cli_connect(cli))
 #define cli_s2s_statusmsg(cli)   con_s2s_statusmsg(cli_connect(cli))
 /** Get the link our last burst N for a local client carried a hold mark to */
 #define cli_burst_stamp_link(cli) con_burst_stamp_link(cli_connect(cli))
@@ -1254,6 +1257,7 @@ struct Client {
 #define con_s2s_held(con)        ((con)->con_s2s_held)
 /** Get the multiline-fallback mark from compact-tag ,F segment of incoming S2S message. */
 #define con_s2s_fallback(con)    ((con)->con_s2s_fallback)
+#define con_s2s_reveal(con)      ((con)->con_s2s_reveal)
 #define con_s2s_statusmsg(con)   ((con)->con_s2s_statusmsg)
 /** Get the link our last burst N for this local client carried a hold mark to. */
 #define con_burst_stamp_link(con) ((con)->con_burst_stamp_link)

@@ -203,6 +203,15 @@ static char s2s_ml_override[S2S_ML_BUFSIZE] = "";
  * sendcmdto_one_tags_with_client whether or not it was used. */
 static char s2s_fallback_override[S2S_MSGID_BUFSIZE] = "";
 
+/** Delayed-join reveal (compact-tag ,J<numeric_5><msgid_14> segment,
+ * N067) for the next S2S emit that builds the tag region: the hidden
+ * member this event reveals, and the msgid its JOIN was shown and stored
+ * under here.  Armed by RevealDelayedJoin(), consumed by
+ * format_s2s_tags_with_client(), and cleared at the end of the line.
+ * Unlike the other overrides it is not cleared by a send to one client:
+ * the reveal comes before the event's own deliveries. */
+static char s2s_reveal_override[S2S_REVEAL_BUFSIZE] = "";
+
 /** Status-message PRIVMSG (#226), armed by sendcmdto_set_statusmsg_privmsg()
  * for the next channel send through
  * sendcmdto_channel_butone_with_client_tags() of a WALLCHOPS / WALLHOPS /
@@ -359,6 +368,37 @@ void sendcmdto_set_s2s_ml(char flag, const char *batch_ref)
     s2s_ml_override[0] = '\0';
 }
 
+/** See send.h. */
+void sendcmdto_set_s2s_reveal(struct Client *who, const char *msgid)
+{
+  if (!who || !msgid || !msgid[0]) {
+    s2s_reveal_override[0] = '\0';
+    return;
+  }
+  if (s2s_reveal_override[0] || strlen(msgid) != 14 || !cli_user(who)
+      || !cli_user(who)->server)
+    return;   /* one per line; only a compact msgid fits the segment */
+  snprintf(s2s_reveal_override, sizeof(s2s_reveal_override), "%s%s%s",
+           cli_yxx(cli_user(who)->server), cli_yxx(who), msgid);
+  if (strlen(s2s_reveal_override) != S2S_REVEAL_BUFSIZE - 1)
+    s2s_reveal_override[0] = '\0';
+}
+
+/** See send.h. */
+void sendcmdto_save_s2s_reveal(char *out, size_t outlen)
+{
+  ircd_strncpy(out, s2s_reveal_override, outlen);
+}
+
+/** See send.h. */
+void sendcmdto_restore_s2s_reveal(const char *saved)
+{
+  if (saved && strlen(saved) == S2S_REVEAL_BUFSIZE - 1)
+    ircd_strncpy(s2s_reveal_override, saved, sizeof(s2s_reveal_override));
+  else
+    s2s_reveal_override[0] = '\0';
+}
+
 /** Arm the multiline fallback mark ,F<msgid> for the next S2S emit
  * (see s2s_fallback_override).  NULL or empty disarms. */
 void sendcmdto_set_s2s_fallback(const char *msgid)
@@ -500,6 +540,7 @@ void sendcmdto_reset_s2s_overrides(void)
   s2s_held_override = '\0';
   s2s_ml_override[0] = '\0';
   s2s_fallback_override[0] = '\0';
+  s2s_reveal_override[0] = '\0';
   s2s_statusmsg_override = 0;
   statusmsg_user_text = NULL;
   s2s_client_tags_override = NULL;
@@ -836,6 +877,7 @@ char *format_s2s_tags_with_client(char *buf, size_t buflen,
   char sessidbuf[S2S_SESSID_BUFSIZE];
   char mlbuf[S2S_ML_BUFSIZE];
   char fbbuf[S2S_MSGID_BUFSIZE];
+  char rvbuf[S2S_REVEAL_BUFSIZE];
   char heldbuf[2] = "";
   char held = '\0';
   uint64_t epoch_ms;
@@ -846,7 +888,9 @@ char *format_s2s_tags_with_client(char *buf, size_t buflen,
   int has_ml;
   int has_fb;
   int has_sm;
+  int has_rv;
   int stash;
+  int n;
 
   /* Check if P10 message tags are enabled */
   if (!feature_bool(FEAT_P10_MESSAGE_TAGS))
@@ -866,6 +910,14 @@ char *format_s2s_tags_with_client(char *buf, size_t buflen,
   if (has_fb) {
     ircd_strncpy(fbbuf, s2s_fallback_override, sizeof(fbbuf));
     s2s_fallback_override[0] = '\0';  /* auto-clear after consumption */
+  }
+
+  /* Delayed-join reveal: only the explicit override (each server that
+   * reveals re-arms it, RevealDelayedJoin). */
+  has_rv = (s2s_reveal_override[0] != '\0');
+  if (has_rv) {
+    ircd_strncpy(rvbuf, s2s_reveal_override, sizeof(rvbuf));
+    s2s_reveal_override[0] = '\0';  /* auto-clear after consumption */
   }
 
   /* Status-message PRIVMSG mark (#226): only the explicit override (a
@@ -943,13 +995,22 @@ char *format_s2s_tags_with_client(char *buf, size_t buflen,
   heldbuf[0] = held;
   heldbuf[1] = '\0';
   inttobase64_64(time_b64, epoch_ms, 7);
-  snprintf(buf, buflen, "@A%s%s%s%s%s%s%s%s%s%s%s%s%s ", time_b64, msgid_tag,
-           has_sessid ? ",S" : "", has_sessid ? sessid_tag : "",
-           held ? ",H" : "", heldbuf,
-           has_ml ? ",M" : "", has_ml ? mlbuf : "",
-           has_fb ? ",F" : "", has_fb ? fbbuf : "",
-           has_sm ? ",P" : "",
-           has_ctags ? ",C" : "", has_ctags ? client_tags : "");
+  /* ,J goes before ,C, and only when the whole region fits: a reveal
+   * that does not fit is left out (the receivers mint their own, as
+   * before), never cut into the rest. */
+  for (;;) {
+    n = snprintf(buf, buflen, "@A%s%s%s%s%s%s%s%s%s%s%s%s%s%s%s ", time_b64, msgid_tag,
+                 has_sessid ? ",S" : "", has_sessid ? sessid_tag : "",
+                 held ? ",H" : "", heldbuf,
+                 has_ml ? ",M" : "", has_ml ? mlbuf : "",
+                 has_fb ? ",F" : "", has_fb ? fbbuf : "",
+                 has_sm ? ",P" : "",
+                 has_rv ? ",J" : "", has_rv ? rvbuf : "",
+                 has_ctags ? ",C" : "", has_ctags ? client_tags : "");
+    if (!has_rv || (n >= 0 && (size_t)n < buflen))
+      break;
+    has_rv = 0;
+  }
   return buf;
 }
 
@@ -2514,9 +2575,11 @@ void sendcmdto_flag_serv_butone(struct Client *from, const char *cmd,
      * generate the tagged variant so the ,S segment ships to
      * IRCv3-aware peers. */
     int has_sessid = (s2s_sessid_override[0] != '\0');
+    /* An armed reveal (,J) needs the tagged variant too. */
+    int has_reveal = (s2s_reveal_override[0] != '\0');
     s2s_want_tags = 0;
 
-    if ((want_tags || has_sessid) && feature_bool(FEAT_P10_MESSAGE_TAGS)) {
+    if ((want_tags || has_sessid || has_reveal) && feature_bool(FEAT_P10_MESSAGE_TAGS)) {
       /* Check for pre-built raw tag string first */
       if (s2s_raw_tags[0]) {
         va_start(vd.vd_args, pattern);
@@ -2695,9 +2758,11 @@ void sendcmdto_serv_butone(struct Client *from, const char *cmd,
      * generate the tagged variant so the ,S segment ships to
      * IRCv3-aware peers. */
     int has_sessid = (s2s_sessid_override[0] != '\0');
+    /* An armed reveal (,J) needs the tagged variant too. */
+    int has_reveal = (s2s_reveal_override[0] != '\0');
     s2s_want_tags = 0;
 
-    if ((want_tags || has_sessid) && feature_bool(FEAT_P10_MESSAGE_TAGS)) {
+    if ((want_tags || has_sessid || has_reveal) && feature_bool(FEAT_P10_MESSAGE_TAGS)) {
       /* Check for pre-built raw tag string (multi-msgid CREATE/PART) */
       if (s2s_raw_tags[0]) {
         va_start(vd.vd_args, pattern);
@@ -2877,7 +2942,7 @@ void sendcmdto_serv_butone_v3(struct Client *from, const char *cmd,
   vd.vd_format = pattern;
 
   {
-    int want_tags = s2s_want_tags;
+    int want_tags = s2s_want_tags || s2s_reveal_override[0] != '\0';
     s2s_want_tags = 0;
 
     if (want_tags && feature_bool(FEAT_P10_MESSAGE_TAGS)) {
@@ -3898,7 +3963,7 @@ void sendcmdto_channel_serv_butone_v3(struct Client *from, const char *cmd,
   vd.vd_format = pattern;
 
   {
-    int want_tags = s2s_want_tags;
+    int want_tags = s2s_want_tags || s2s_reveal_override[0] != '\0';
     s2s_want_tags = 0;
 
     if (want_tags && feature_bool(FEAT_P10_MESSAGE_TAGS)) {

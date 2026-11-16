@@ -571,6 +571,67 @@ static void test_bx_ctags_keeps_the_client_event(void **state)
   sendcmdto_set_client_msgid(NULL);
 }
 
+/* N067: the delayed-join reveal ,J<numeric><msgid> rides the next tag
+ * region, before ,C; one per line; consumed by the format. */
+static void test_reveal_segment_placed_and_consumed(void **state)
+{
+  char buf[512];
+  (void)state;
+  user_user.server = &me;
+  strcpy(cli_yxx(&user), "AAC");
+  sendcmdto_set_s2s_reveal(&user, "ABAAAaHmLwi2FU");
+  sendcmdto_set_s2s_reveal(&user, "ABAAAaHmLwi2FV");   /* kept: one per line */
+  sendcmdto_set_s2s_tags(1763000000123ULL, BXE_ID);
+  assert_non_null(format_s2s_tags_with_client(buf, sizeof(buf), NULL, "+x=1",
+                                              NULL, 0));
+  assert_non_null(strstr(buf, ",JABAACABAAAaHmLwi2FU,C+x=1 "));
+  sendcmdto_set_s2s_tags(1763000000123ULL, BXE_ID);
+  format_s2s_tags_with_client(buf, sizeof(buf), NULL, NULL, NULL, 0);
+  assert_null(strstr(buf, ",J"));                      /* consumed */
+  user_user.server = NULL;
+}
+
+/* A region the reveal would overflow goes without it, whole. */
+static void test_reveal_left_out_when_it_does_not_fit(void **state)
+{
+  char buf[2 + 7 + 14 + 2 + 5 + 1];   /* the region and its space, no room for ,J */
+  char saved[S2S_REVEAL_BUFSIZE];
+  (void)state;
+  user_user.server = &me;
+  strcpy(cli_yxx(&user), "AAC");
+  sendcmdto_set_s2s_reveal(&user, "ABAAAaHmLwi2FU");
+  sendcmdto_save_s2s_reveal(saved, sizeof(saved));
+  assert_string_equal(saved, "ABAACABAAAaHmLwi2FU");
+  sendcmdto_set_s2s_tags(1763000000123ULL, BXE_ID);
+  assert_non_null(format_s2s_tags_with_client(buf, sizeof(buf), NULL, "+x=1",
+                                              NULL, 0));
+  assert_null(strstr(buf, ",J"));
+  assert_non_null(strstr(buf, ",C+x=1 "));
+  /* A second peer class's send gets it back. */
+  sendcmdto_restore_s2s_reveal(saved);
+  sendcmdto_set_s2s_tags(1763000000123ULL, BXE_ID);
+  {
+    char big[128];
+    format_s2s_tags_with_client(big, sizeof(big), NULL, NULL, NULL, 0);
+    assert_non_null(strstr(big, ",JABAACABAAAaHmLwi2FU "));
+  }
+  user_user.server = NULL;
+}
+
+/* The end of the line clears an unconsumed reveal. */
+static void test_reset_clears_reveal(void **state)
+{
+  char buf[128];
+  (void)state;
+  user_user.server = &me;
+  strcpy(cli_yxx(&user), "AAC");
+  sendcmdto_set_s2s_reveal(&user, "ABAAAaHmLwi2FU");
+  sendcmdto_reset_s2s_overrides();
+  format_s2s_tags_with_client(buf, sizeof(buf), NULL, NULL, NULL, 0);
+  assert_null(strstr(buf, ",J"));
+  user_user.server = NULL;
+}
+
 /* 4094 bytes of client tags: the whole region, never cut. */
 static void test_bx_ctags_full_size_is_whole(void **state)
 {
@@ -623,6 +684,9 @@ int main(void)
     cmocka_unit_test_setup(test_bx_region_bare_cases, setup),
     cmocka_unit_test_setup(test_ch_r_without_tags_stays_bare, setup),
     cmocka_unit_test_setup(test_bx_ctags_full_size_is_whole, setup),
+    cmocka_unit_test_setup(test_reveal_segment_placed_and_consumed, setup),
+    cmocka_unit_test_setup(test_reveal_left_out_when_it_does_not_fit, setup),
+    cmocka_unit_test_setup(test_reset_clears_reveal, setup),
     cmocka_unit_test_setup(test_ordinary_channel_send_drops_statusmsg_mark, setup),
     cmocka_unit_test_setup(test_ordinary_channel_send_with_ctags_drops_statusmsg_mark, setup),
     cmocka_unit_test_setup(test_statusmsg_mark_placed_and_consumed, setup),

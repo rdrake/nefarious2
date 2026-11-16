@@ -1880,6 +1880,7 @@ int parse_server(struct Client *cptr, char *buffer, char *bufend)
   cli_s2s_sessid(cptr)[0] = '\0';
   cli_s2s_ml(cptr)[0] = '\0';
   cli_s2s_fallback(cptr)[0] = '\0';
+  cli_s2s_reveal(cptr)[0] = '\0';
   cli_s2s_held(cptr) = '\0';
   cli_s2s_statusmsg(cptr) = 0;
 
@@ -1938,6 +1939,7 @@ int parse_server(struct Client *cptr, char *buffer, char *bufend)
            *   M — multiline framing, <flag><batchref> (ML lines only)
            *   F — multiline fallback mark, <msgid> (P/O lines)
            *   P — status-message PRIVMSG mark, no data (WC/WH/WV lines)
+           *   J — delayed-join reveal, <numeric_5><msgid_14> (N067)
            *   C — client-only tags (literal IRCv3 client-tag string)
            * Unknown markers are silently skipped (forward-compatible
            * for future segments).
@@ -2063,6 +2065,19 @@ int parse_server(struct Client *cptr, char *buffer, char *bufend)
                * and is skipped like any unknown segment. */
               if (seg_end == seg_data)
                 cli_s2s_statusmsg(cptr) = 1;
+              break;
+            }
+            case 'J': {
+              /* Delayed-join reveal (N067): the line reveals the hidden
+               * member <numeric>, and that JOIN's msgid is <msgid>, the
+               * one the line's origin minted.  RevealDelayedJoin() takes
+               * it for that member only.  Any other length is not this
+               * segment and is skipped. */
+              size_t data_len = seg_end - seg_data;
+              if (data_len == S2S_REVEAL_BUFSIZE - 1) {
+                memcpy(cli_s2s_reveal(cptr), seg_data, data_len);
+                cli_s2s_reveal(cptr)[data_len] = '\0';
+              }
               break;
             }
             default:

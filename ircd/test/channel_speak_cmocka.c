@@ -76,6 +76,10 @@ void sendcmdto_channel_butserv_butone(struct Client *from, const char *cmd,
   reveals++;
 }
 void sendcmdto_set_client_event(const char *msgid, uint64_t event_ms) {}
+struct Client *sendcmdto_inbound_link(void) { return NULL; }
+void sendcmdto_set_s2s_reveal(struct Client *who, const char *msgid) {}
+void sendcmdto_save_s2s_reveal(char *out, size_t outlen) { if (outlen) out[0] = 0; }
+void sendcmdto_restore_s2s_reveal(const char *saved) {}
 void sendcmdto_set_client_msgid(const char *msgid) {}
 char *generate_msgid(char *buf, size_t buflen)
 {
