@@ -191,6 +191,35 @@ static void opener_join(void)
 }
 
 /* ------------------------------------------------------------------ */
+/* A spurious wakeup, on demand                                        */
+/* ------------------------------------------------------------------ */
+
+/* pthread_cond_timedwait() is wrapped (-Wl,--wrap=pthread_cond_timedwait):
+ * while spurious_waits is set, a wait on the thread that set it returns 0
+ * at once with nothing changed, as POSIX allows any wait to. */
+static int spurious_waits;
+static pthread_t spurious_thread;
+
+int __real_pthread_cond_timedwait(pthread_cond_t *cond, pthread_mutex_t *mu,
+                                  const struct timespec *until);
+
+int __wrap_pthread_cond_timedwait(pthread_cond_t *cond, pthread_mutex_t *mu,
+                                  const struct timespec *until)
+{
+  if (spurious_waits > 0 && pthread_equal(pthread_self(), spurious_thread)) {
+    spurious_waits--;
+    return 0;
+  }
+  return __real_pthread_cond_timedwait(cond, mu, until);
+}
+
+static void spurious_wakeups(int n)
+{
+  spurious_thread = pthread_self();
+  spurious_waits = n;
+}
+
+/* ------------------------------------------------------------------ */
 /* Files                                                               */
 /* ------------------------------------------------------------------ */
 
@@ -391,10 +420,33 @@ static void no_log_reopens_after_shutdown(void **state)
   assert_true(path_size(log_path) > size);
 }
 
+/** A full ring: a wakeup that leaves it full is not room.  The line goes
+ * the direct way, and the queued lines are all still written -- before,
+ * the line overwrote the oldest queued one and left the ring looking
+ * empty, so the writer wrote none of them. */
+static void full_ring_spurious_wakeup_is_not_room(void **state)
+{
+  int fd, i;
+
+  (void)state;
+  fd = line_in_flight();               /* the writer holds one, ring empty */
+  for (i = 0; i < 7; i++)              /* 8 slots: 7 fill it */
+    assert_int_equal(log_async_write(fd, 0, "queued\n", -1), 0);
+
+  spurious_wakeups(1);
+  assert_int_equal(log_async_write(-1, 0, "overflow", -1), 1);
+  assert_int_equal(spurious_waits, 0);
+
+  gate_open();
+  wait_completed(8);
+}
+
 int main(void)
 {
   const struct CMUnitTest tests[] = {
     cmocka_unit_test_setup_teardown(flush_waits_for_the_write_in_flight,
+                                    case_setup, case_teardown),
+    cmocka_unit_test_setup_teardown(full_ring_spurious_wakeup_is_not_room,
                                     case_setup, case_teardown),
     cmocka_unit_test_setup_teardown(log_close_drains_before_it_closes,
                                     case_setup, case_teardown),

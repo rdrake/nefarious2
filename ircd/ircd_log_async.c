@@ -289,30 +289,35 @@ int log_async_write(int fd, int syslog_priority, const char *message, int len)
 
   pthread_mutex_lock(&log_async.mutex);
 
-  /* Check if buffer is full */
+  /* Wait briefly for space.  A wakeup (spurious, or one whose freed slot
+   * another producer took first) does not mean there is room: check again,
+   * until the deadline, and fall back to a direct write if the ring is
+   * still full -- writing at head of a full ring would overwrite the oldest
+   * unwritten entry and make the ring look empty to the writer. */
   if (buffer_full()) {
-    /* Try waiting briefly for space */
     struct timespec timeout;
     clock_gettime(CLOCK_REALTIME, &timeout);
-    timeout.tv_nsec += 1000000;  /* 1ms wait */
+    timeout.tv_nsec += 1000000;  /* 1ms wait in all */
     if (timeout.tv_nsec >= 1000000000) {
       timeout.tv_sec++;
       timeout.tv_nsec -= 1000000000;
     }
 
-    if (pthread_cond_timedwait(&log_async.not_full, &log_async.mutex,
-                               &timeout) != 0) {
-      /* Still full after wait - fall back to sync write */
-      log_async.dropped++;
-      pthread_mutex_unlock(&log_async.mutex);
+    while (buffer_full()) {
+      if (pthread_cond_timedwait(&log_async.not_full, &log_async.mutex,
+                                 &timeout) != 0 && buffer_full()) {
+        /* Still full at the deadline - fall back to sync write */
+        log_async.dropped++;
+        pthread_mutex_unlock(&log_async.mutex);
 
-      /* Sync fallback: write directly */
-      if (fd >= 0 && len > 0)
-        (void)!write(fd, message, len);
-      if (syslog_priority > 0)
-        syslog(syslog_priority, "%.*s", len, message);
+        /* Sync fallback: write directly */
+        if (fd >= 0 && len > 0)
+          (void)!write(fd, message, len);
+        if (syslog_priority > 0)
+          syslog(syslog_priority, "%.*s", len, message);
 
-      return 1;  /* Indicate sync fallback */
+        return 1;  /* Indicate sync fallback */
+      }
     }
   }
 
