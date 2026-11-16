@@ -2092,6 +2092,7 @@ process_multiline_batch(struct Client *sptr)
   if (is_channel && chptr) {
     char s2s_batch_id[16];
     int fb_shown, fb_left;   /* the fallback's preview (ml_fallback.h) */
+    char reveal_saved[S2S_REVEAL_BUFSIZE];
     int max_links = ml_down_count();
     struct Client **links = max_links
         ? (struct Client **)MyMalloc(sizeof(*links) * max_links) : NULL;
@@ -2105,10 +2106,16 @@ process_multiline_batch(struct Client *sptr)
     ircd_snprintf(0, s2s_batch_id, sizeof(s2s_batch_id), "%s%lu",
                   cli_yxx(sptr), (unsigned long)CurrentTime);
 
+    /* The sender's reveal (N067), if this batch revealed it: each link's
+     * first line carries it, not the first link's alone. */
+    sendcmdto_save_s2s_reveal(reveal_saved, sizeof(reveal_saved));
+
     /* Each server link with a member of the channel behind it, once
      * (ml_channel_links: local members were handled above). */
     for (li = 0; li < nlinks; li++) {
       struct Client *server = links[li];
+
+      sendcmdto_restore_s2s_reveal(reveal_saved);
 
       /* Split delivery: alias numeric toward primary's server direction
        * to avoid fake direction (primary's server would drop messages
@@ -2179,6 +2186,7 @@ process_multiline_batch(struct Client *sptr)
       }
       } /* end split delivery block */
     }
+    sendcmdto_set_s2s_reveal(NULL, NULL);   /* re-armed per link above */
     if (links)
       MyFree(links);
   }
@@ -3548,6 +3556,12 @@ int ms_multiline(struct Client* cptr, struct Client* sptr, int parc, char* parv[
     const char *fwd_msgid = NULL;
     uint64_t fwd_time_ms = 0;
     char flag = is_start ? '+' : (is_end ? '-' : (is_concat ? 'c' : '.'));
+    /* A start line's reveal (N067), taken and re-armed here: every
+     * link's start line carries it. */
+    char reveal_saved[S2S_REVEAL_BUFSIZE] = "";
+
+    if (is_start)
+      sendcmdto_save_s2s_reveal(reveal_saved, sizeof(reveal_saved));
 
     if (cli_s2s_msgid(cptr)[0]) {
       fwd_msgid = cli_s2s_msgid(cptr);
@@ -3571,6 +3585,7 @@ int ms_multiline(struct Client* cptr, struct Client* sptr, int parc, char* parv[
           continue;
         if (srv == cli_from(cptr) || !IsMultiline(srv))
           continue;  /* never in a route; a new link at a freed address */
+        sendcmdto_restore_s2s_reveal(reveal_saved);
         ml_send_line(sptr, srv, flag, batch_ref, target, client_tags, text,
                      fwd_time_ms, fwd_msgid);
       }
@@ -3586,6 +3601,7 @@ int ms_multiline(struct Client* cptr, struct Client* sptr, int parc, char* parv[
       for (i = 0; i < nlinks; i++) {
         if (!IsMultiline(links[i]))
           continue;  /* Legacy server — handled by fallback at batch end */
+        sendcmdto_restore_s2s_reveal(reveal_saved);
         ml_send_line(sptr, links[i], flag, batch_ref, target, client_tags,
                      text, fwd_time_ms, fwd_msgid);
       }
@@ -3598,6 +3614,7 @@ int ms_multiline(struct Client* cptr, struct Client* sptr, int parc, char* parv[
           continue;  /* Don't send back to source */
         if (!IsMultiline(srv))
           continue;  /* Legacy server — handled by fallback at batch end */
+        sendcmdto_restore_s2s_reveal(reveal_saved);
         ml_send_line(sptr, srv, flag, batch_ref, target, client_tags, text,
                      fwd_time_ms, fwd_msgid);
       }
@@ -3607,6 +3624,7 @@ int ms_multiline(struct Client* cptr, struct Client* sptr, int parc, char* parv[
      * armed, it stamped the next client line anything here sent with
      * only a client msgid armed (an AWAY change, much later). */
     sendcmdto_set_client_event(NULL, 0);
+    sendcmdto_set_s2s_reveal(NULL, NULL);   /* re-armed per link above */
   }
 
   /* A tag-framed continuation or end line restates the batch's msgid

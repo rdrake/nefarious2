@@ -185,6 +185,16 @@ static void do_settopic(struct Client *sptr, struct Client *cptr,
          generate_msgid(topic_msgid, sizeof(topic_msgid));
      }
 
+   /* A hidden setter is shown before the TOPIC goes on (N067): the
+    * reveal arms the ,J this server's relay must carry -- the one it
+    * received, or one minted here. */
+   if (newtopic)
+   {
+     struct Membership *member = find_channel_member(sptr, chptr);
+     if (member && IsDelayedJoin(member))
+       RevealDelayedJoin(member);
+   }
+
    /* Fixed in 2.10.11: Don't propagate local topics */
    if (!IsLocalChannel(chptr->chname))
    {
@@ -205,13 +215,6 @@ static void do_settopic(struct Client *sptr, struct Client *cptr,
    }
    if (newtopic)
    {
-     struct Membership *member;
-
-     /* If the member is delayed-join, show them. */
-     member = find_channel_member(sptr, chptr);
-     if (member && IsDelayedJoin(member))
-       RevealDelayedJoin(member);
-
      /* Use the same msgid for broadcast and chathistory storage */
      {
        if (topic_msgid[0])
@@ -297,6 +300,9 @@ int m_topic(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
   for (; (name = ircd_strtok(&p, parv[1], ",")); parv[1] = 0)
   {
     chptr = 0;
+    /* A reveal armed for a previous target whose TOPIC went nowhere
+     * (refused, or a local channel) must not ride this one's. */
+    sendcmdto_set_s2s_reveal(NULL, NULL);
     /* Does the channel exist */
     if (!IsChannelName(name) || !(chptr = FindChannel(name)))
     {
@@ -386,6 +392,9 @@ int ms_topic(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
   for (; (name = ircd_strtok(&p, parv[1], ",")); parv[1] = 0)
   {
     chptr = 0;
+    /* A reveal armed for a previous target whose TOPIC went nowhere
+     * (refused, or a local channel) must not ride this one's. */
+    sendcmdto_set_s2s_reveal(NULL, NULL);
     /* Does the channel exist */
     if (!IsChannelName(name) || !(chptr = FindChannel(name)))
     {

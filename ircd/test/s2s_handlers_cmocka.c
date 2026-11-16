@@ -638,6 +638,11 @@ void sendcmdto_set_s2s_tags(uint64_t time_ms, const char *msgid)
   (void)time_ms; (void)msgid;
 }
 
+void sendcmdto_set_s2s_reveal(struct Client *who, const char *msgid)
+{
+  (void)who; (void)msgid;
+}
+
 void sendcmdto_want_s2s_tags(int want)
 {
   (void)want;

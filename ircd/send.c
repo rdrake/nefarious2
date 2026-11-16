@@ -1873,9 +1873,11 @@ void sendcmdto_one(struct Client *from, const char *cmd, const char *tok,
       (s2s_msgid_override[0] || s2s_sessid_override[0] ||
        strcmp(tok, TOK_PRIVATE) == 0 || strcmp(tok, TOK_NOTICE) == 0 ||
        strcmp(tok, TOK_QUIT) == 0)) {
-    if (s2s_msgid_override[0] && !s2s_sessid_override[0]) {
+    if (s2s_msgid_override[0] && !s2s_sessid_override[0]
+        && !s2s_reveal_override[0]) {
       /* Explicit tag override for forwarded commands / numeric relay
-       * with no sessid component — fast path, builds tagbuf inline. */
+       * with no sessid component (nor reveal) — fast path, builds tagbuf
+       * inline. */
       char time_b64[8];
       inttobase64_64(time_b64, s2s_time_override, 7);
       snprintf(s2s_tagbuf, sizeof(s2s_tagbuf), "@A%s%s ", time_b64, s2s_msgid_override);
