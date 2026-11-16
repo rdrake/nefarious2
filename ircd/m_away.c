@@ -405,7 +405,7 @@ int away_apply(struct Client *cptr, struct Client *sptr, char *away_message,
   is_away = user_set_away(cli_user(sptr), away_message);
   {
     if (away_msgid[0])
-      sendcmdto_set_client_msgid(away_msgid);
+      sendcmdto_set_client_event(away_msgid, away_time_ms);
 
     if (is_away)
     {
@@ -596,7 +596,7 @@ int ms_away(struct Client* cptr, struct Client* sptr, int parc, char* parv[])
 
     /* Notify local channel members with away-notify (was missing for S2S) */
     if (away_msgid[0])
-      sendcmdto_set_client_msgid(away_msgid);
+      sendcmdto_set_client_event(away_msgid, away_time_ms);
 
     /* butone=NULL: notify every local channel member of sptr.
      * Excluding sptr makes sense for the user's own /away echo on the
