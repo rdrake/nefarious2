@@ -33,6 +33,7 @@
 #include "ircd.h"
 #include "ircd_features.h"
 #include "ircd_snprintf.h"
+#include "ircd_string.h"
 #include "numeric.h"
 #include "numnicks.h"
 #include "send.h"
@@ -104,10 +105,14 @@ int do_numeric(int numeric, int nnn, struct Client *cptr, struct Client *sptr,
 
       /* The primary's server refused a bouncer device's nick request
        * (BX W): that request is answered, and a return of it can no
-       * longer be applied. */
+       * longer be applied.  Only a refusal of the nick the device asked
+       * for last answers it: a refusal of an earlier request must not
+       * cancel a later one still in flight.  437 names a channel, not
+       * the nick, so its request lapses at NICK_ASK_RETURN_WINDOW. */
       if ((numeric == ERR_ERRONEUSNICKNAME || numeric == ERR_NICKNAMEINUSE
-           || numeric == ERR_BANNICKCHANGE || numeric == ERR_NICKTOOFAST)
-          && IsBouncerAlias(acptr))
+           || numeric == ERR_NICKTOOFAST)
+          && IsBouncerAlias(acptr) && parc > 2 && cli_nickask_ts(acptr)
+          && 0 == ircd_strcmp(cli_nickask(acptr), parv[2]))
         cli_nickask_ts(acptr) = 0;
 
       /* Check for forwarded label batch wrapping.  The command may be a
