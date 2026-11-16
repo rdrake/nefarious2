@@ -1898,6 +1898,12 @@ void sendcmdto_one(struct Client *from, const char *cmd, const char *tok,
       } else {
         mb = msgq_make(to, "%:#C %s %v", from, tok, &vd);
       }
+      /* The msgid and time this line took are its own: consumed here as
+       * on the fast path, so the next line to this link (a multiline
+       * fallback's second line, after a first that carried a reveal)
+       * does not go out under them too. */
+      s2s_msgid_override[0] = '\0';
+      s2s_time_override = 0;
     }
   } else {
     s2s_cptr_override = NULL;  /* Clear even if not used */
