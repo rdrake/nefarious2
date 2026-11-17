@@ -59,9 +59,12 @@ void debug(int level, const char *form, ...)
   (void)level; (void)form;
 }
 
+/** ASYNC_LOGGING's value; the cases that turn it off set it back. */
+static int async_logging = 1;
+
 int feature_bool(enum Feature feat)
 {
-  return feat == FEAT_ASYNC_LOGGING;
+  return feat == FEAT_ASYNC_LOGGING && async_logging;
 }
 
 int feature_int(enum Feature feat) { (void)feat; return 0; }
@@ -225,15 +228,31 @@ static int case_setup(void **state)
   completed = 0;
   at_gate = 0;
   gate_closed = 0;
+  async_logging = 1;
   temp_path(log_path, sizeof(log_path), "file");
-  return log_async_init(8);
+  if (log_async_init(8) < 0)
+    return -1;
+  log_async_start();            /* startup is over */
+  return 0;
+}
+
+/** A case that starts the writer itself. */
+static int case_setup_stopped(void **state)
+{
+  (void)state;
+  completed = 0;
+  at_gate = 0;
+  gate_closed = 0;
+  async_logging = 1;
+  temp_path(log_path, sizeof(log_path), "file");
+  return log_async_available() ? -1 : 0;
 }
 
 static int case_teardown(void **state)
 {
   (void)state;
   gate_open();
-  log_async_shutdown();
+  log_async_stop();             /* back to before startup */
   log_resume();                 /* a case that failed while shut */
   log_close();                  /* and the syslog socket log_resume()
                                  * opened: each case starts with the same
@@ -391,9 +410,299 @@ static void no_log_reopens_after_shutdown(void **state)
   assert_true(path_size(log_path) > size);
 }
 
+/** Before log_async_start() (startup: ircd.conf is still being read, or
+ * this is a configuration check), the feature turned on starts nothing;
+ * log_async_start() starts the writer. */
+static void writer_waits_for_startup(void **state)
+{
+  (void)state;
+  log_feature_async_logging();
+  assert_false(log_async_available());
+
+  log_async_start();
+  assert_true(log_async_available());
+}
+
+/** After startup, a REHASH that turns ASYNC_LOGGING on starts the
+ * writer, and log lines go through it.  Starts up and stops the writer
+ * first, so it holds whichever case runs before it. */
+static void turning_it_on_starts_the_writer(void **state)
+{
+  (void)state;
+  assert_int_equal(log_set_file("SYSTEM", log_path), 0);
+  log_async_start();
+  log_async_shutdown();
+  assert_false(log_async_available());
+
+  log_feature_async_logging();
+  assert_true(log_async_available());
+
+  gate_close();
+  log_write(LS_SYSTEM, L_CRIT, LOG_NOSYSLOG | LOG_NOSNOTICE, "queued");
+  wait_at_gate();               /* the writer, not this thread */
+  gate_open();
+  wait_completed(1);
+}
+
+/** Turning ASYNC_LOGGING off writes what the writer still holds before
+ * the next line goes out synchronously: the queue never lands after
+ * newer lines. */
+static void turning_it_off_writes_the_queue_first(void **state)
+{
+  off_t size;
+  int i;
+
+  (void)state;
+  assert_int_equal(log_set_file("SYSTEM", log_path), 0);
+  gate_close();
+  for (i = 0; i < 3; i++)
+    log_write(LS_SYSTEM, L_CRIT, LOG_NOSYSLOG | LOG_NOSNOTICE, "line %d", i);
+  wait_at_gate();
+  assert_int_equal(writes_completed(), 0);
+
+  async_logging = 0;
+  open_gate_soon();
+  log_feature_async_logging();
+  assert_int_equal(writes_completed(), 3);
+  opener_join();
+
+  /* A synchronous line is written here and now, by writev(). */
+  size = path_size(log_path);
+  log_write(LS_SYSTEM, L_CRIT, LOG_NOSYSLOG | LOG_NOSNOTICE, "synchronous");
+  assert_true(path_size(log_path) > size);
+  assert_int_equal(writes_completed(), 3);
+}
+
+/** How many times @a needle occurs in the file at @a path. */
+static int occurrences(const char *path, const char *needle)
+{
+  char buf[8192], *p;
+  ssize_t n;
+  int fd, count = 0;
+
+  fd = open(path, O_RDONLY);
+  assert_true(fd >= 0);
+  n = read(fd, buf, sizeof(buf) - 1);
+  close(fd);
+  assert_true(n >= 0);
+  buf[n] = '\0';
+  for (p = buf; (p = strstr(p, needle)); p += strlen(needle))
+    count++;
+  return count;
+}
+
+/** With the queue full, log_async_write() writes the line itself (it
+ * returns 1); log_vwrite() must not write it a second time. */
+static void a_line_the_full_queue_writes_is_written_once(void **state)
+{
+  int i;
+
+  (void)state;
+  assert_int_equal(log_set_file("SYSTEM", log_path), 0);
+  gate_close();
+  log_write(LS_SYSTEM, L_CRIT, LOG_NOSYSLOG | LOG_NOSNOTICE, "first");
+  wait_at_gate();               /* the writer holds it; the ring is empty */
+  for (i = 0; i < 7; i++)       /* a ring of 8 holds 7 */
+    log_write(LS_SYSTEM, L_CRIT, LOG_NOSYSLOG | LOG_NOSNOTICE, "fill %d", i);
+
+  open_gate_soon();             /* the fallback's own write() waits too */
+  log_write(LS_SYSTEM, L_CRIT, LOG_NOSYSLOG | LOG_NOSNOTICE, "overflow");
+  opener_join();
+  log_async_flush();
+
+  assert_int_equal(occurrences(log_path, "overflow"), 1);
+  assert_int_equal(occurrences(log_path, "fill"), 7);
+}
+
+/** A line longer than a queue entry is cut short, but still ends its
+ * line: the next one starts on a line of its own. */
+static void a_cut_line_still_ends_its_line(void **state)
+{
+  char big[LOG_ASYNC_MAX_ENTRY + 100], buf[3 * LOG_ASYNC_MAX_ENTRY];
+  ssize_t n;
+  int fd;
+
+  (void)state;
+  assert_int_equal(log_set_file("SYSTEM", log_path), 0);
+  memset(big, 'x', sizeof(big) - 1);
+  big[sizeof(big) - 1] = '\0';
+  log_write(LS_SYSTEM, L_CRIT, LOG_NOSYSLOG | LOG_NOSNOTICE, "%s", big);
+  log_write(LS_SYSTEM, L_CRIT, LOG_NOSYSLOG | LOG_NOSNOTICE, "after");
+  log_async_flush();
+
+  fd = open(log_path, O_RDONLY);
+  assert_true(fd >= 0);
+  n = read(fd, buf, sizeof(buf) - 1);
+  close(fd);
+  assert_true(n > 0);
+  buf[n] = '\0';
+  assert_int_equal(buf[n - 1], '\n');
+  assert_non_null(strstr(buf, "x\n["));   /* "after" has its own line */
+}
+
+/** The same, when the queue is full and the caller writes the line
+ * itself: the cut line still ends its line. */
+static void a_cut_line_the_full_queue_writes_still_ends_its_line(void **state)
+{
+  char big[LOG_ASYNC_MAX_ENTRY + 100], buf[8 * LOG_ASYNC_MAX_ENTRY];
+  ssize_t n;
+  int fd, i;
+  unsigned long dropped, dropped_after;
+
+  (void)state;
+  assert_int_equal(log_set_file("SYSTEM", log_path), 0);
+  gate_close();
+  log_write(LS_SYSTEM, L_CRIT, LOG_NOSYSLOG | LOG_NOSNOTICE, "first");
+  wait_at_gate();
+  for (i = 0; i < 7; i++)               /* fill the ring */
+    log_write(LS_SYSTEM, L_CRIT, LOG_NOSYSLOG | LOG_NOSNOTICE, "fill %d", i);
+  memset(big, 'x', sizeof(big) - 1);
+  big[sizeof(big) - 1] = '\0';
+  log_async_stats(NULL, NULL, &dropped);
+  open_gate_soon();                     /* long after the 1 ms wait */
+  log_write(LS_SYSTEM, L_CRIT, LOG_NOSYSLOG | LOG_NOSNOTICE, "%s", big);
+  log_async_stats(NULL, NULL, &dropped_after);
+  assert_int_equal(dropped_after, dropped + 1);   /* the caller wrote it */
+  opener_join();
+  log_write(LS_SYSTEM, L_CRIT, LOG_NOSYSLOG | LOG_NOSNOTICE, "after");
+  log_async_flush();
+
+  fd = open(log_path, O_RDONLY);
+  assert_true(fd >= 0);
+  n = read(fd, buf, sizeof(buf) - 1);
+  close(fd);
+  assert_true(n > 0);
+  buf[n] = '\0';
+  assert_non_null(strstr(buf, "xxxx\n"));
+  assert_null(strstr(buf, "x["));       /* nothing runs on from it */
+}
+
+/** After the writers stop (DIE), nothing starts the writer again. */
+static void nothing_restarts_the_writer_after_stop(void **state)
+{
+  (void)state;
+  log_async_stop();
+  assert_false(log_async_available());
+  log_feature_async_logging();
+  assert_false(log_async_available());
+}
+
+/* syslog() is wrapped (-Wl,--wrap=syslog, and --wrap=__syslog_chk for a
+ * fortified build): the text it was given. */
+static pthread_mutex_t syslog_mu = PTHREAD_MUTEX_INITIALIZER;
+static char syslogged[512];
+static int syslog_calls;
+
+void __wrap_syslog(int priority, const char *format, ...)
+{
+  va_list args;
+
+  (void)priority;
+  pthread_mutex_lock(&syslog_mu);
+  va_start(args, format);
+  vsnprintf(syslogged, sizeof(syslogged), format, args);
+  va_end(args);
+  syslog_calls++;
+  pthread_mutex_unlock(&syslog_mu);
+}
+
+/* A fortified build calls __syslog_chk() instead. */
+void __wrap___syslog_chk(int priority, int flag, const char *format, ...)
+{
+  va_list args;
+
+  (void)priority; (void)flag;
+  pthread_mutex_lock(&syslog_mu);
+  va_start(args, format);
+  vsnprintf(syslogged, sizeof(syslogged), format, args);
+  va_end(args);
+  syslog_calls++;
+  pthread_mutex_unlock(&syslog_mu);
+}
+
+/** A queued line goes to syslog as syslog wants it: without the log
+ * file's timestamp (syslog stamps its own) and without the newline. */
+static void syslog_gets_the_line_without_the_file_stamp(void **state)
+{
+  (void)state;
+  assert_int_equal(log_set_file("SYSTEM", log_path), 0);
+  assert_int_equal(log_set_facility("SYSTEM", "LOCAL0"), 0);
+  syslog_calls = 0;
+  log_write(LS_SYSTEM, L_CRIT, LOG_NOSNOTICE, "to syslog");
+  log_async_flush();
+  log_set_facility("SYSTEM", NULL);
+
+  assert_int_equal(syslog_calls, 1);
+  assert_string_equal(syslogged, "SYSTEM [CRIT]: to syslog");
+}
+
+/* pthread_cond_timedwait() is wrapped (-Wl,--wrap=pthread_cond_timedwait):
+ * while spurious_waits is set, a wait on the thread that set it returns 0
+ * at once with nothing changed, as POSIX allows any wait to. */
+static int spurious_waits;
+static pthread_t spurious_thread;
+
+int __real_pthread_cond_timedwait(pthread_cond_t *cond, pthread_mutex_t *mu,
+                                  const struct timespec *until);
+
+int __wrap_pthread_cond_timedwait(pthread_cond_t *cond, pthread_mutex_t *mu,
+                                  const struct timespec *until)
+{
+  if (spurious_waits > 0 && pthread_equal(pthread_self(), spurious_thread)) {
+    spurious_waits--;
+    return 0;
+  }
+  return __real_pthread_cond_timedwait(cond, mu, until);
+}
+
+/** A full ring: a wakeup that leaves it full is not room.  The line goes
+ * the direct way, and every queued line is still written. */
+static void full_ring_spurious_wakeup_is_not_room(void **state)
+{
+  int i;
+
+  (void)state;
+  assert_int_equal(log_set_file("SYSTEM", log_path), 0);
+  gate_close();
+  log_write(LS_SYSTEM, L_CRIT, LOG_NOSYSLOG | LOG_NOSNOTICE, "first");
+  wait_at_gate();               /* the writer holds it; the ring is empty */
+  for (i = 0; i < 7; i++)       /* a ring of 8 holds 7 */
+    log_write(LS_SYSTEM, L_CRIT, LOG_NOSYSLOG | LOG_NOSNOTICE, "fill %d", i);
+
+  spurious_thread = pthread_self();
+  spurious_waits = 1;
+  /* No descriptor and no syslog: the fallback writes nothing (and does
+   * not wait at the gate), and only its return value tells. */
+  assert_int_equal(log_async_write(-1, 0, "overflow\n", -1, 0), 1);
+  assert_int_equal(spurious_waits, 0);
+
+  gate_open();
+  log_async_flush();
+  assert_int_equal(occurrences(log_path, "fill"), 7);
+}
+
 int main(void)
 {
   const struct CMUnitTest tests[] = {
+    cmocka_unit_test_setup_teardown(a_cut_line_still_ends_its_line,
+                                    case_setup, case_teardown),
+    cmocka_unit_test_setup_teardown(syslog_gets_the_line_without_the_file_stamp,
+                                    case_setup, case_teardown),
+    cmocka_unit_test_setup_teardown(full_ring_spurious_wakeup_is_not_room,
+                                    case_setup, case_teardown),
+    cmocka_unit_test_setup_teardown(
+        a_cut_line_the_full_queue_writes_still_ends_its_line,
+        case_setup, case_teardown),
+    cmocka_unit_test_setup_teardown(nothing_restarts_the_writer_after_stop,
+                                    case_setup, case_teardown),
+    cmocka_unit_test_setup_teardown(a_line_the_full_queue_writes_is_written_once,
+                                    case_setup, case_teardown),
+    cmocka_unit_test_setup_teardown(writer_waits_for_startup,
+                                    case_setup_stopped, case_teardown),
+    cmocka_unit_test_setup_teardown(turning_it_on_starts_the_writer,
+                                    case_setup_stopped, case_teardown),
+    cmocka_unit_test_setup_teardown(turning_it_off_writes_the_queue_first,
+                                    case_setup, case_teardown),
     cmocka_unit_test_setup_teardown(flush_waits_for_the_write_in_flight,
                                     case_setup, case_teardown),
     cmocka_unit_test_setup_teardown(log_close_drains_before_it_closes,

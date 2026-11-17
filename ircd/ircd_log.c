@@ -385,6 +385,52 @@ log_resume(void)
   log_reopen();
 }
 
+/** Set by log_async_start(): startup is over and ASYNC_LOGGING applies. */
+static int log_async_started;
+
+/** ASYNC_LOGGING changed (the feature's notify callback), or startup is
+ * over (log_async_start()).  Turned on, it starts the writer thread if
+ * none runs, or lets the running one queue again.  Turned off, the
+ * writer stops queueing and writes what it holds; every line after that
+ * is written synchronously, by whichever thread logs it, and none lands
+ * ahead of a queued one (log_async_set_accepting()).  The writer stays.
+ * Before log_async_start() it does nothing: the feature then holds the
+ * compiled default, or a configuration check (-k) is reading ircd.conf.
+ */
+void
+log_feature_async_logging(void)
+{
+  if (!log_async_started)
+    return;
+  if (!feature_bool(FEAT_ASYNC_LOGGING))
+    log_async_set_accepting(0);
+  else if (log_async_available())
+    log_async_set_accepting(1);
+  else if (log_async_init(0) < 0)
+    log_write(LS_SYSTEM, L_WARNING, 0,
+              "Async logging init failed; logging will be synchronous");
+}
+
+/** Startup is over (main(), after ircd.conf is read and the PID file
+ * locked): from now on ASYNC_LOGGING applies, and if ircd.conf turned it
+ * on, the writer thread starts now. */
+void
+log_async_start(void)
+{
+  log_async_started = 1;
+  log_feature_async_logging();
+}
+
+/** The writers stop (DIE, RESTART, a fatal error after startup): the
+ * writer writes what it holds and exits, and nothing starts it again --
+ * a REHASH in the same event batch included. */
+void
+log_async_stop(void)
+{
+  log_async_started = 0;
+  log_async_shutdown();
+}
+
 /** Write a logging entry.
  * @param[in] subsys Target subsystem.
  * @param[in] severity Severity of message.
@@ -507,8 +553,10 @@ log_vwrite(enum LogSys subsys, enum LogLevel severity, unsigned int flags,
     vector[2].iov_base = (void*) "\n"; /* terminate lines with a \n */
     vector[2].iov_len = 1;
 
-    /* Try async logging if available and enabled */
-    if (log_async_available() && feature_bool(FEAT_ASYNC_LOGGING)) {
+    /* Try async logging while the writer runs.  Whether it queues is the
+     * writer's decision (log_async_set_accepting(), from the ASYNC_LOGGING
+     * callback), taken under its lock, so every thread sees one order. */
+    if (log_async_available()) {
       /* Build combined log entry for async write */
       char async_buf[LOG_BUFSIZE + 64];
       int async_len;
@@ -518,11 +566,13 @@ log_vwrite(enum LogSys subsys, enum LogLevel severity, unsigned int flags,
                                                      "%s%s\n", timebuf, buf),
                                        sizeof(async_buf));
 
-      /* Use async write - if it fails or falls back, that's OK */
+      /* 0: queued; 1: the queue was full and log_async_write() wrote it
+       * itself; -1: not queued, written below. */
       if (log_async_write(desc->file->fd,
                           (flags & LOG_DOSYSLOG) ? (ldata->syslog | desc->facility) : 0,
-                          async_buf, async_len) == 0) {
-        /* Successfully queued async - skip sync write and syslog */
+                          async_buf, async_len,
+                          (int)vector[0].iov_len) >= 0) {
+        /* Written or queued - skip sync write and syslog */
         flags &= ~(LOG_DOFILELOG | LOG_DOSYSLOG);
       }
     }

@@ -379,7 +379,7 @@ static void shutdown_stores(void)
 static void shutdown_writers(void)
 {
   thread_pool_shutdown();
-  log_async_shutdown();
+  log_async_stop();
   log_shutdown();
 }
 
@@ -1084,22 +1084,6 @@ int main(int argc, char **argv) {
   setup_signals();
   feature_init(); /* initialize features... */
 
-  /* Initialize thread pool for async operations (bcrypt, etc.)
-   * Must be after feature_init() to read THREAD_POOL_SIZE config */
-  if (thread_pool_init(feature_int(FEAT_THREAD_POOL_SIZE)) < 0) {
-    log_write(LS_SYSTEM, L_WARNING, 0,
-              "Thread pool init failed; password verification will be synchronous");
-  }
-
-  /* Initialize async logging if enabled
-   * Must be after feature_init() to read ASYNC_LOGGING config */
-  if (feature_bool(FEAT_ASYNC_LOGGING)) {
-    if (log_async_init(0) < 0) {
-      log_write(LS_SYSTEM, L_WARNING, 0,
-                "Async logging init failed; logging will be synchronous");
-    }
-  }
-
   init_isupport(); /* initialize RPL_ISUPPORT... */
   log_init(*argv);
   set_nomem_handler(outofmemory);
@@ -1149,11 +1133,25 @@ int main(int argc, char **argv) {
     exit(2);
   }
 
+  /* The thread pool (async password checks) and async logging start
+   * after init_conf(), so THREAD_POOL_SIZE and ASYNC_LOGGING from
+   * ircd.conf are in force, and only once this process is the server:
+   * a configuration check (-k) or a second copy refused the PID file
+   * starts no thread.  THREAD_POOL_SIZE is read here only; ASYNC_LOGGING
+   * turned on by a later REHASH starts the writer then
+   * (log_feature_async_logging). */
+  if (thread_pool_init(feature_int(FEAT_THREAD_POOL_SIZE)) < 0) {
+    log_write(LS_SYSTEM, L_WARNING, 0,
+              "Thread pool init failed; password verification will be synchronous");
+  }
+  log_async_start();
+
   init_server_identity();
 
 #ifdef USE_SSL
   if (ssl_init()) {
     Debug((DEBUG_FATAL, "Failed to initialize SSL contexts"));
+    shutdown_writers();         /* what ssl_init() logged is written */
     exit(1);
   }
 #endif

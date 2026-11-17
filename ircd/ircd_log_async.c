@@ -41,6 +41,7 @@
 #include <pthread.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/uio.h>
 #include <syslog.h>
 #include <errno.h>
 
@@ -57,7 +58,12 @@ static struct {
   pthread_cond_t not_full;          /**< Signals space available */
   pthread_cond_t flushed;           /**< Signals flush complete */
 
-  int running;                      /**< 1 if writer thread active */
+  int running;                      /**< 1 if writer thread active; read
+                                     *   and written only through
+                                     *   RUNNING() / SET_RUNNING() */
+  int accepting;                    /**< 1 while new entries are queued;
+                                     *   0 after log_async_set_accepting(0)
+                                     *   (mutex held) */
   int busy;                         /**< 1 while the writer is writing an
                                      *   entry it took off the buffer */
 
@@ -65,6 +71,13 @@ static struct {
   unsigned long written;            /**< Total entries written */
   unsigned long dropped;            /**< Entries dropped due to full buffer */
 } log_async;
+
+/* running is read without the mutex (log_async_write(), the
+ * availability check), by thread-pool workers as well as the main
+ * thread: an atomic acquire load sees everything log_async_init() set up
+ * before its release store. */
+#define RUNNING()        __atomic_load_n(&log_async.running, __ATOMIC_ACQUIRE)
+#define SET_RUNNING(v)   __atomic_store_n(&log_async.running, (v), __ATOMIC_RELEASE)
 
 /**
  * Calculate number of entries in the buffer.
@@ -75,6 +88,20 @@ static inline unsigned int buffer_count(void)
   if (log_async.head >= log_async.tail)
     return log_async.head - log_async.tail;
   return log_async.size - log_async.tail + log_async.head;
+}
+
+/** Syslog @a message (a log file's line) as syslog wants it: from
+ * @a off, without the file's timestamp, and without the line's newline.
+ */
+static void syslog_line(int priority, const char *message, int len, int off)
+{
+  if (off < 0 || off > len)
+    off = 0;
+  message += off;
+  len -= off;
+  if (len > 0 && message[len - 1] == '\n')
+    len--;
+  syslog(priority, "%.*s", len, message);
 }
 
 /**
@@ -114,13 +141,13 @@ static void *log_writer_thread(void *arg)
 
   pthread_mutex_lock(&log_async.mutex);
 
-  while (log_async.running || !buffer_empty()) {
+  while (RUNNING() || !buffer_empty()) {
     /* Wait for data */
-    while (buffer_empty() && log_async.running)
+    while (buffer_empty() && RUNNING())
       pthread_cond_wait(&log_async.not_empty, &log_async.mutex);
 
     /* Check if we should exit */
-    if (buffer_empty() && !log_async.running)
+    if (buffer_empty() && !RUNNING())
       break;
 
     /* Get entry from buffer */
@@ -140,11 +167,10 @@ static void *log_writer_thread(void *arg)
       (void)!write(entry->fd, entry->message, entry->len);
     }
 
-    if (entry->syslog_priority > 0) {
-      syslog(entry->syslog_priority, "%.*s",
-             entry->len > 0 ? entry->len : (int)strlen(entry->message),
-             entry->message);
-    }
+    if (entry->syslog_priority > 0)
+      syslog_line(entry->syslog_priority, entry->message,
+                  entry->len > 0 ? entry->len : (int)strlen(entry->message),
+                  entry->syslog_off);
 
     pthread_mutex_lock(&log_async.mutex);
     log_async.written++;
@@ -167,8 +193,9 @@ static void *log_writer_thread(void *arg)
 int log_async_init(int buffer_size)
 {
   pthread_attr_t attr;
+  int err;
 
-  if (log_async.running)
+  if (RUNNING())
     return 0;  /* Already initialized */
 
   /* Use default if not specified */
@@ -189,6 +216,7 @@ int log_async_init(int buffer_size)
   log_async.written = 0;
   log_async.dropped = 0;
   log_async.busy = 0;
+  log_async.accepting = 1;
 
   /* Initialize synchronization primitives */
   if (pthread_mutex_init(&log_async.mutex, NULL) != 0) {
@@ -208,17 +236,20 @@ int log_async_init(int buffer_size)
     return -1;
   }
 
-  /* Create writer thread */
-  log_async.running = 1;
-
+  /* Create the writer thread, and publish running only once it exists.
+   * Other threads may be logging already (a REHASH turns ASYNC_LOGGING
+   * on while thread-pool workers run): one that saw running set would
+   * queue into this buffer, which a failed create frees.  The writer
+   * starts by taking the mutex, so it sees running set. */
   pthread_attr_init(&attr);
   pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_JOINABLE);
 
-  if (pthread_create(&log_async.writer_thread, &attr,
-                     log_writer_thread, NULL) != 0) {
+  pthread_mutex_lock(&log_async.mutex);
+  if ((err = pthread_create(&log_async.writer_thread, &attr,
+                            log_writer_thread, NULL)) != 0) {
+    pthread_mutex_unlock(&log_async.mutex);
     Debug((DEBUG_ERROR, "log_async_init: thread create failed: %s",
-           strerror(errno)));
-    log_async.running = 0;
+           strerror(err)));
     pthread_cond_destroy(&log_async.flushed);
     pthread_cond_destroy(&log_async.not_full);
     pthread_cond_destroy(&log_async.not_empty);
@@ -229,6 +260,8 @@ int log_async_init(int buffer_size)
     return -1;
   }
 
+  SET_RUNNING(1);
+  pthread_mutex_unlock(&log_async.mutex);
   pthread_attr_destroy(&attr);
 
   Debug((DEBUG_DEBUG, "log_async_init: initialized with buffer size %d",
@@ -241,7 +274,7 @@ int log_async_init(int buffer_size)
  */
 void log_async_shutdown(void)
 {
-  if (!log_async.running)
+  if (!RUNNING())
     return;
 
   Debug((DEBUG_DEBUG, "log_async_shutdown: flushing %u pending entries",
@@ -249,8 +282,9 @@ void log_async_shutdown(void)
 
   /* Signal writer thread to exit */
   pthread_mutex_lock(&log_async.mutex);
-  log_async.running = 0;
+  SET_RUNNING(0);
   pthread_cond_signal(&log_async.not_empty);
+  pthread_cond_broadcast(&log_async.flushed);
   pthread_mutex_unlock(&log_async.mutex);
 
   /* Wait for writer thread to finish */
@@ -271,27 +305,48 @@ void log_async_shutdown(void)
 /**
  * Queue a log entry for async write.
  */
-int log_async_write(int fd, int syslog_priority, const char *message, int len)
+int log_async_write(int fd, int syslog_priority, const char *message, int len,
+                    int syslog_off)
 {
   struct log_async_entry *entry;
-  int result = 0;
+  int result = 0, cut = 0;
 
-  if (!log_async.running || !message)
+  if (!RUNNING() || !message)
     return -1;
 
-  /* Clamp length to max entry size */
-  if (len > LOG_ASYNC_MAX_ENTRY - 1)
-    len = LOG_ASYNC_MAX_ENTRY - 1;
+  /* Clamp length to max entry size.  A line cut short still ends with
+   * its newline, or the next one would run on from it. */
   if (len < 0)
     len = strlen(message);
-  if (len > LOG_ASYNC_MAX_ENTRY - 1)
+  if (len > LOG_ASYNC_MAX_ENTRY - 1) {
     len = LOG_ASYNC_MAX_ENTRY - 1;
+    cut = message[len] != '\0' && message[len - 1] != '\n';
+  }
 
   pthread_mutex_lock(&log_async.mutex);
 
-  /* Check if buffer is full */
+again:
+  /* Not accepting (ASYNC_LOGGING turned off): the caller writes this
+   * line itself, but only once every line queued before it is written,
+   * so no thread's synchronous line lands ahead of an older queued one.
+   * Queueing turned back on while it waits: queue the line instead. */
+  if (!log_async.accepting) {
+    while ((!buffer_empty() || log_async.busy) && RUNNING() &&
+           !log_async.accepting) {
+      pthread_cond_signal(&log_async.not_empty);
+      pthread_cond_wait(&log_async.flushed, &log_async.mutex);
+    }
+    if (!log_async.accepting || !RUNNING()) {
+      pthread_mutex_unlock(&log_async.mutex);
+      return -1;
+    }
+  }
+
+  /* Full: wait up to 1 ms for room.  Recheck after every wake -- a wake
+   * may be spurious, or another producer may have taken the slot -- and
+   * never write into a full ring: advancing head onto tail would make it
+   * look empty and overwrite the entry the writer is on. */
   if (buffer_full()) {
-    /* Try waiting briefly for space */
     struct timespec timeout;
     clock_gettime(CLOCK_REALTIME, &timeout);
     timeout.tv_nsec += 1000000;  /* 1ms wait */
@@ -300,19 +355,38 @@ int log_async_write(int fd, int syslog_priority, const char *message, int len)
       timeout.tv_nsec -= 1000000000;
     }
 
-    if (pthread_cond_timedwait(&log_async.not_full, &log_async.mutex,
-                               &timeout) != 0) {
-      /* Still full after wait - fall back to sync write */
-      log_async.dropped++;
-      pthread_mutex_unlock(&log_async.mutex);
+    while (buffer_full()) {
+      int rc = pthread_cond_timedwait(&log_async.not_full, &log_async.mutex,
+                                      &timeout);
 
-      /* Sync fallback: write directly */
-      if (fd >= 0 && len > 0)
-        (void)!write(fd, message, len);
-      if (syslog_priority > 0)
-        syslog(syslog_priority, "%.*s", len, message);
+      /* Turned off while it waited: the line goes after the queued ones,
+       * as any thread's would (the drain wait above). */
+      if (!log_async.accepting)
+        goto again;
+      if (rc != 0 && buffer_full()) {
+        /* Still full after wait - fall back to sync write */
+        log_async.dropped++;
+        pthread_mutex_unlock(&log_async.mutex);
 
-      return 1;  /* Indicate sync fallback */
+        /* Sync fallback: write directly.  The caller must not write it
+         * again: it treats any return but -1 as written. */
+        if (fd >= 0 && len > 0) {
+          if (cut) {
+            struct iovec iov[2];
+            iov[0].iov_base = (void *)message;
+            iov[0].iov_len = len - 1;
+            iov[1].iov_base = (void *)"\n";
+            iov[1].iov_len = 1;
+            (void)!writev(fd, iov, 2);
+          } else
+            (void)!write(fd, message, len);
+        }
+        if (syslog_priority > 0)
+          syslog_line(syslog_priority, message, cut ? len - 1 : len,
+                      syslog_off);
+
+        return 1;  /* Indicate sync fallback */
+      }
     }
   }
 
@@ -320,8 +394,11 @@ int log_async_write(int fd, int syslog_priority, const char *message, int len)
   entry = &log_async.entries[log_async.head];
   entry->fd = fd;
   entry->syslog_priority = syslog_priority;
+  entry->syslog_off = syslog_off;
   entry->len = len;
   memcpy(entry->message, message, len);
+  if (cut)
+    entry->message[len - 1] = '\n';
   entry->message[len] = '\0';
 
   log_async.head = (log_async.head + 1) % log_async.size;
@@ -344,11 +421,11 @@ int log_async_write(int fd, int syslog_priority, const char *message, int len)
  */
 void log_async_flush(void)
 {
-  if (!log_async.running)
+  if (!RUNNING())
     return;
 
   pthread_mutex_lock(&log_async.mutex);
-  while ((!buffer_empty() || log_async.busy) && log_async.running) {
+  while ((!buffer_empty() || log_async.busy) && RUNNING()) {
     pthread_cond_signal(&log_async.not_empty);
     pthread_cond_wait(&log_async.flushed, &log_async.mutex);
   }
@@ -360,7 +437,28 @@ void log_async_flush(void)
  */
 int log_async_available(void)
 {
-  return log_async.running;
+  return RUNNING();
+}
+
+/**
+ * Start or stop queueing new entries (ASYNC_LOGGING turned on or off).
+ * Stopping returns once every entry already queued is written; from
+ * then on log_async_write() refuses, and its callers write themselves.
+ * The writer thread stays.
+ */
+void log_async_set_accepting(int on)
+{
+  if (!RUNNING())
+    return;
+
+  pthread_mutex_lock(&log_async.mutex);
+  log_async.accepting = on ? 1 : 0;
+  /* Wake threads waiting to write past a drain, so they queue instead. */
+  if (on)
+    pthread_cond_broadcast(&log_async.flushed);
+  pthread_mutex_unlock(&log_async.mutex);
+  if (!on)
+    log_async_flush();
 }
 
 /**
