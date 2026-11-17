@@ -268,6 +268,29 @@ static void client_tag_tv(struct timeval *tv)
   gettimeofday(tv, NULL);
 }
 
+/** Append "time=..." for a client tag: the batch's time when one is set
+ * (sendcmdto_set_client_time), else the armed event's, else the clock.
+ * Every client-tag composer goes through here, so the lines of one
+ * multiline batch carry the batch's time whichever composer they take. */
+static int append_client_time(char *buf, size_t buflen, int pos)
+{
+  struct timeval tv;
+  struct tm tm;
+
+  if (pos < 0 || (size_t)pos >= buflen)
+    return pos;
+  if (client_time_override[0])
+    return pos + snprintf(buf + pos, buflen - pos, "time=%s",
+                          client_time_override);
+  client_tag_tv(&tv);
+  gmtime_r(&tv.tv_sec, &tm);
+  return pos + snprintf(buf + pos, buflen - pos,
+                        "time=%04d-%02d-%02dT%02d:%02d:%02d.%03ldZ",
+                        tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
+                        tm.tm_hour, tm.tm_min, tm.tm_sec,
+                        (long)(tv.tv_usec / 1000));
+}
+
 void sendcmdto_set_client_time(const char *timestr)
 {
   if (timestr)
@@ -276,14 +299,24 @@ void sendcmdto_set_client_time(const char *timestr)
     client_time_override[0] = '\0';
 }
 
+const char *sendcmdto_get_client_time(void)
+{
+  return client_time_override;
+}
+
+/** Arm (or with NULL disarm) the client msgid of the lines sent next.
+ * A msgid armed here carries no event time: the lines take the clock
+ * (or a sendcmdto_set_client_time() override).  An event with a time
+ * arms both with sendcmdto_set_client_event() -- never this after
+ * something else armed a time, which would stamp the msgid with that
+ * other event's time. */
 void sendcmdto_set_client_msgid(const char *msgid)
 {
   if (msgid)
     ircd_strncpy(client_msgid_override, msgid, sizeof(client_msgid_override));
-  else {
+  else
     client_msgid_override[0] = '\0';
-    client_event_ms = 0;
-  }
+  client_event_ms = 0;
 }
 
 void sendcmdto_set_client_event(const char *msgid, uint64_t event_ms)
@@ -522,6 +555,10 @@ void sendcmdto_reset_s2s_overrides(void)
   s2s_client_tags_override = NULL;
   s2s_raw_tags[0] = '\0';
   s2s_want_tags = 0;
+  /* sendcmdto_set_s2s_tags() also armed the client-facing time; with no
+   * client msgid armed it would wait for the next event that arms one. */
+  if (!client_msgid_override[0])
+    client_event_ms = 0;
 }
 
 /** Mint a fresh msgid into \a link's S2S stash for an event that
@@ -1173,17 +1210,9 @@ static char *format_message_tags_for_caps(char *buf, size_t buflen,
   }
 
   if (use_time) {
-    struct timeval tv;
-    struct tm tm;
     if (pos > 1 && pos < (int)buflen - 1)
       buf[pos++] = ';';
-    client_tag_tv(&tv);
-    gmtime_r(&tv.tv_sec, &tm);
-    pos += snprintf(buf + pos, buflen - pos,
-                    "time=%04d-%02d-%02dT%02d:%02d:%02d.%03ldZ",
-                    tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
-                    tm.tm_hour, tm.tm_min, tm.tm_sec,
-                    tv.tv_usec / 1000);
+    pos = append_client_time(buf, buflen, pos);
   }
 
   if (use_account && from && cli_user(from) && IsAccount(from)) {
@@ -1267,17 +1296,9 @@ static char *format_message_tags_with_client(char *buf, size_t buflen, struct Cl
   }
 
   if (use_time) {
-    struct timeval tv;
-    struct tm tm;
     if (pos > 1 && pos < (int)buflen - 1)
       buf[pos++] = ';';
-    client_tag_tv(&tv);
-    gmtime_r(&tv.tv_sec, &tm);
-    pos += snprintf(buf + pos, buflen - pos,
-                    "time=%04d-%02d-%02dT%02d:%02d:%02d.%03ldZ",
-                    tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
-                    tm.tm_hour, tm.tm_min, tm.tm_sec,
-                    tv.tv_usec / 1000);
+    pos = append_client_time(buf, buflen, pos);
   }
 
   if (use_account && from && cli_user(from) && IsAccount(from)) {
@@ -1366,17 +1387,9 @@ static char *format_message_tags_with_client_caps(char *buf, size_t buflen,
   }
 
   if (use_time) {
-    struct timeval tv;
-    struct tm tm;
     if (pos > 1 && pos < (int)buflen - 1)
       buf[pos++] = ';';
-    client_tag_tv(&tv);
-    gmtime_r(&tv.tv_sec, &tm);
-    pos += snprintf(buf + pos, buflen - pos,
-                    "time=%04d-%02d-%02dT%02d:%02d:%02d.%03ldZ",
-                    tm.tm_year + 1900, tm.tm_mon + 1, tm.tm_mday,
-                    tm.tm_hour, tm.tm_min, tm.tm_sec,
-                    tv.tv_usec / 1000);
+    pos = append_client_time(buf, buflen, pos);
   }
 
   if (use_account && from && cli_user(from) && IsAccount(from)) {
