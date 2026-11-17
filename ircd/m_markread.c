@@ -103,9 +103,12 @@ static unsigned int sm_hash(const char *session_id, const char *target)
   h *= 16777619u;
   /* Fold with the ircd casemapping: sm_find compares with ircd_strcmp,
    * under which rfc1459's []\~ equal {}|^ -- an ASCII-only fold hashed
-   * such spellings to different buckets (case-fold audit 2026-09-02). */
+   * such spellings to different buckets (case-fold audit 2026-09-02).
+   * ToLower() indexes its table by (c) - CHAR_MIN, so it takes the plain
+   * char: an unsigned char >= 0x80 indexes past the end where char is
+   * signed. */
   for (p = target; *p; p++) {
-    h ^= (unsigned char)ToLower((unsigned char)*p);
+    h ^= (unsigned char)ToLower(*p);
     h *= 16777619u;
   }
   return h & SESSION_MR_HASH_MASK;
@@ -357,6 +360,16 @@ int m_markread(struct Client *cptr, struct Client *sptr, int parc, char *parv[])
 
   target = parv[1];
 
+  /* No target -- channel or nick -- is longer than CHANNELLEN.  The
+   * session store keeps a CHANNELLEN copy and compares the full
+   * parameter against it, so an over-long target would never match its
+   * own entry: every SET would add another and every GET would miss. */
+  if (strlen(target) > CHANNELLEN) {
+    send_fail(sptr, "MARKREAD", "INVALID_PARAMS", target,
+              "Target is too long");
+    return 0;
+  }
+
   /* Check if timestamp parameter is present */
   if (parc >= 3 && parv[2] && ircd_strncmp(parv[2], "timestamp=", 10) == 0) {
     /* Timestamp parameter provided - must be valid format for SET operation */
@@ -509,6 +522,14 @@ int ms_markread(struct Client *cptr, struct Client *sptr, int parc, char *parv[]
   account = parv[1];
   target = parv[2];
   timestamp = parv[3];
+
+  /* No server sends an account or target past these bounds (m_markread
+   * refuses such a target).  One that does is neither stored nor
+   * relayed: the store would refuse the key, and the "storage error"
+   * branch below would carry it to every server and log it on each. */
+  if (strlen(account) > ACCOUNTLEN || strlen(target) > CHANNELLEN)
+    return protocol_violation(cptr, "MARKREAD with an over-long account or "
+                              "target from %C", sptr);
 
   /* metadata_readmarker_set's own return already carries the LWW
    * decision: 0 taken (newer), 1 kept (this timestamp was not newer than
