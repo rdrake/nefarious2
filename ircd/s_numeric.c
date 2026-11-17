@@ -35,7 +35,6 @@
 #include "ircd.h"
 #include "ircd_features.h"
 #include "ircd_snprintf.h"
-#include "ircd_string.h"
 #include "numeric.h"
 #include "numnicks.h"
 #include "send.h"
@@ -112,14 +111,17 @@ int do_numeric(int numeric, int nnn, struct Client *cptr, struct Client *sptr,
        * cancel a later one still in flight.  437 names a channel, not
        * the nick, so its request lapses at NICK_ASK_RETURN_WINDOW.  A
        * numeric's parv[2] is the whole rest of the line ("x2 :Nickname
-       * is already in use."): its first word is the nick refused. */
+       * is already in use."): its first word is the nick refused,
+       * echoed as asked.  The compare is exact: a request for "Bob"
+       * followed by one for "bob" is two requests, and a refusal of the
+       * first must not answer the second. */
       if ((numeric == ERR_ERRONEUSNICKNAME || numeric == ERR_NICKNAMEINUSE
            || numeric == ERR_NICKTOOFAST)
           && IsBouncerAlias(acptr) && parc > 2 && cli_nickask_ts(acptr)) {
         size_t asked = strlen(cli_nickask(acptr));
 
         if (asked && strcspn(parv[2], " ") == asked
-            && 0 == ircd_strncmp(cli_nickask(acptr), parv[2], asked))
+            && 0 == strncmp(cli_nickask(acptr), parv[2], asked))
           cli_nickask_ts(acptr) = 0;
       }
 

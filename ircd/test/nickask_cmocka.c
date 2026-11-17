@@ -109,6 +109,9 @@ static void refusal_of_earlier_nick_leaves_it(void **state)
   assert_int_equal(cli_nickask_ts(&device), 1000);
   refuse(ERR_NICKNAMEINUSE, "x :Nickname is already in use.");
   assert_int_equal(cli_nickask_ts(&device), 1000);
+  /* A case change is a request of its own: "X2" was asked before. */
+  refuse(ERR_NICKNAMEINUSE, "X2 :Nickname is already in use.");
+  assert_int_equal(cli_nickask_ts(&device), 1000);
 }
 
 static void channel_refusal_leaves_it(void **state)
