@@ -48,9 +48,13 @@ CMOCKA_TESTPROGS = \
 	history_trim_codec_cmocka \
 	history_trim_cmocka \
 	chathistory_presence_cmocka \
+	chathistory_presence_store_cmocka \
 	chathistory_merge_cmocka \
 	chathistory_recv_cmocka \
 	pm_pair_index_cmocka \
+	history_rename_cmocka \
+	history_rename_rocksdb_cmocka \
+	history_read_cmocka \
 	recv_classify_cmocka \
 	ml_route_cmocka \
 	nick_route_cmocka \
@@ -154,6 +158,8 @@ DEP_SRC = \
 	chathistory_merge_cmocka.c \
 	chathistory_recv_cmocka.c \
 	pm_pair_index_cmocka.c \
+	history_rename_cmocka.c \
+	history_read_cmocka.c \
 	recv_classify_cmocka.c \
 	ml_route_cmocka.c \
 	nick_route_cmocka.c \
@@ -395,6 +401,17 @@ CHATHISTORY_PRESENCE_CMOCKA_OBJS = chathistory_presence_cmocka.o test_stub.o ../
 chathistory_presence_cmocka: $(CHATHISTORY_PRESENCE_CMOCKA_OBJS)
 	${CC} -o $@ $(LDFLAGS) $(CHATHISTORY_PRESENCE_CMOCKA_OBJS) $(CMOCKA_LIBS)
 
+# The same source compiled -DPRESENCE_STORE: account anchors, whose
+# records live in the metadata store, on the in-memory store (fake_db.o is
+# the whole db_* backend here, with its fault injection) -- what a RENAME
+# does to an account's presence when a read or the write fails.
+chathistory_presence_cmocka_store.o: ${srcdir}/chathistory_presence_cmocka.c
+	${CC} ${CFLAGS} ${CPPFLAGS} -DPRESENCE_STORE -c -o $@ ${srcdir}/chathistory_presence_cmocka.c
+
+CHATHISTORY_PRESENCE_STORE_CMOCKA_OBJS = chathistory_presence_cmocka_store.o fake_db.o test_stub.o ../chathistory_presence.o ../ircd_alloc.o ../ircd_string.o
+chathistory_presence_store_cmocka: $(CHATHISTORY_PRESENCE_STORE_CMOCKA_OBJS)
+	${CC} -o $@ $(LDFLAGS) $(CHATHISTORY_PRESENCE_STORE_CMOCKA_OBJS) $(CMOCKA_LIBS)
+
 # chathistory_merge tests - the federated page merge (hm_merge: dedup,
 # tag adoption, same-ms msgid order, trim direction, the heap-content
 # hand-off to the copy) and its duplicate test (hm_find_dup).  Links the
@@ -422,6 +439,48 @@ PM_PAIR_INDEX_CMOCKA_OBJS = pm_pair_index_cmocka.o test_stub.o ../pm_pair_index.
 	../db_casefold.o ../ircd_string.o fake_db.o
 pm_pair_index_cmocka: $(PM_PAIR_INDEX_CMOCKA_OBJS)
 	${CC} -o $@ $(LDFLAGS) $(PM_PAIR_INDEX_CMOCKA_OBJS) $(CMOCKA_LIBS)
+
+# history_rename tests - chathistory follows a channel RENAME: the renames
+# record (chains flattened, loops, the per-incarnation cap, the retention
+# floor) and the walk over a channel's rows under every name it has had
+# (one time order across the rename, a recreated old name left out, the
+# rename time as the segment's end).  One source, two backends, as the
+# db_api tests: history_rename_cmocka links the REAL ../history_rename.o
+# against the in-memory store (fake_db.o); history_rename_rocksdb_cmocka is
+# the -DHREN_REAL compile against RocksDB (../db_rocksdb.o), where the
+# restart test closes the env and opens it again.  Rows are real:
+# ../history_trim_codec.o builds the keys, ../history_record.o the values.
+HISTORY_RENAME_CMOCKA_DEPS = test_stub.o ../history_rename.o \
+	../history_trim_codec.o ../history_record.o ../db_casefold.o \
+	../ircd_snprintf.o ../ircd_alloc.o ../ircd_compress.o ../ircd_string.o
+HISTORY_RENAME_CMOCKA_OBJS = history_rename_cmocka.o fake_db.o $(HISTORY_RENAME_CMOCKA_DEPS)
+history_rename_cmocka: $(HISTORY_RENAME_CMOCKA_OBJS)
+	${CC} -o $@ $(LDFLAGS) $(HISTORY_RENAME_CMOCKA_OBJS) $(CMOCKA_LIBS) $(ZSTD_LIBS)
+
+history_rename_cmocka_real.o: ${srcdir}/history_rename_cmocka.c
+	${CC} ${CFLAGS} ${CPPFLAGS} -DHREN_REAL -c -o $@ ${srcdir}/history_rename_cmocka.c
+
+HISTORY_RENAME_ROCKSDB_CMOCKA_OBJS = history_rename_cmocka_real.o ../db_rocksdb.o $(HISTORY_RENAME_CMOCKA_DEPS)
+history_rename_rocksdb_cmocka: $(HISTORY_RENAME_ROCKSDB_CMOCKA_OBJS)
+	${CC} -o $@ $(LDFLAGS) $(HISTORY_RENAME_ROCKSDB_CMOCKA_OBJS) $(CMOCKA_LIBS) $(ZSTD_LIBS) $(ROCKSDB_LIBS)
+
+# history_read tests - history.c's read paths for a renamed channel, on
+# the REAL ../history.o: rows stored with history_store_message, the
+# rename recorded with history_channel_renamed, and pages (LATEST, BEFORE,
+# AFTER, AROUND, BETWEEN), msgid and redaction lookups, context, the
+# TARGETS stamp, the burst-loss prune and the trim engine's REDACT cascade
+# read back through history.c -- linked with the trim engine and the
+# store (RocksDB, a mkdtemp()'d env) as the ircd links them.  The
+# channels and the rest of what history.c needs from the ircd are stubs
+# in the test.
+HISTORY_READ_CMOCKA_OBJS = history_read_cmocka.o ../history.o \
+	../chathistory_merge.o \
+	../history_rename.o ../history_trim.o ../history_trim_codec.o \
+	../history_record.o ../redact_index.o ../chathistory_recv.o \
+	../pm_pair_index.o ../db_casefold.o ../db_rocksdb.o ../crdt_hlc.o \
+	../ircd_string.o ../ircd_snprintf.o ../ircd_alloc.o ../ircd_compress.o
+history_read_cmocka: $(HISTORY_READ_CMOCKA_OBJS)
+	${CC} -o $@ $(LDFLAGS) $(HISTORY_READ_CMOCKA_OBJS) $(CMOCKA_LIBS) $(ZSTD_LIBS) $(ROCKSDB_LIBS)
 
 # recv_classify tests - per-class recv-path byte classifier
 RECV_CLASSIFY_CMOCKA_OBJS = recv_classify_cmocka.o test_stub.o ../recv_classify.o

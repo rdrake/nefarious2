@@ -33,6 +33,7 @@
 #include "destruct_event.h"
 #include "gline.h"
 #include "hash.h"
+#include "history.h"
 #include "ircd.h"
 #include "ircd_events.h"
 #include "ircd_features.h"
@@ -2506,6 +2507,14 @@ static int relocate_execute(struct Client *sptr, struct Channel *chptr,
   relocate_copy_bans(&newchan->banlist, chptr->banlist);
   relocate_copy_bans(&newchan->exceptlist, chptr->exceptlist);
 
+  /* Chathistory follows the community too.  A classic rename records it
+   * in rename_channel(); here the old channel stays, so it is recorded
+   * by hand: the rows stored under the old name up to now are the new
+   * channel's history (same creation timestamp, set just above), and
+   * what the tombstone stores from here on stays its own
+   * (history_rename.h). */
+  history_channel_renamed(oldname, newname_buf, newchan->creationtime);
+
   /* Pending invites MOVE rather than fork: an invite is a one-shot grant
    * to enter the community, and the community is now at the new name.
    * The per-client back-pointers have to be re-aimed exactly as
@@ -3084,6 +3093,21 @@ static void relocate_again(struct Client *sptr, struct RelocateTombstone *ts,
         ircd_strncpy(wchan->mode.upass, lchan->mode.upass,
                      sizeof(wchan->mode.upass));
       }
+
+      /* The winner is the community's channel, here as on the servers
+       * that heard the winning relocation first and ran
+       * relocate_execute() for it: the old channel's rows are its
+       * chathistory on both (history_rename.h).  Here
+       * relocate_execute() recorded them for the loser, when this
+       * server's own relocation ran: that record -- the old name with
+       * the time it was left, and the names before it -- is handed over
+       * to the winner, by the loser's name (its channel may be gone, or
+       * a stranger's by now; the record is by name).  Not one more
+       * rename of the old channel: that would leave the earlier names
+       * with the loser and give the winner the tombstone's rows up to
+       * now, and the two orders would not end the same. */
+      history_channel_rename_crossed(oldname, current, incoming,
+                                     wchan->creationtime);
 
       relocate_move_issuer(sptr, oldchan, wchan, reason);
       ircd_strncpy(ts->issued, incoming, sizeof(ts->issued));
