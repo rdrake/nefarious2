@@ -89,6 +89,7 @@ CMOCKA_TESTPROGS = \
 	cap_version_cmocka \
 	rename_proto_cmocka \
 	chathistory_ref_cmocka \
+	conf_precheck_cmocka \
 	rename_handlers_cmocka \
 	sasl_handler_cmocka \
 	auth_recheck_cmocka \
@@ -202,6 +203,7 @@ DEP_SRC = \
 	cap_version_cmocka.c \
 	rename_proto_cmocka.c \
 	chathistory_ref_cmocka.c \
+	conf_precheck_cmocka.c \
 	rename_handlers_cmocka.c \
 	sasl_handler_cmocka.c \
 	auth_recheck_cmocka.c \
@@ -665,6 +667,13 @@ CHATHISTORY_REF_CMOCKA_OBJS = chathistory_ref_cmocka.o test_stub.o \
 	../chathistory_ref.o ../ircd_string.o
 chathistory_ref_cmocka: $(CHATHISTORY_REF_CMOCKA_OBJS)
 	${CC} -o $@ $(LDFLAGS) $(CHATHISTORY_REF_CMOCKA_OBJS) $(CMOCKA_LIBS)
+
+# conf_precheck tests - the REHASH precheck, a fresh "ircd -k" run on the
+# configuration before the running one is discarded; a shell script
+# stands in for the binary.  Standalone.
+CONF_PRECHECK_CMOCKA_OBJS = conf_precheck_cmocka.o ../conf_precheck.o
+conf_precheck_cmocka: $(CONF_PRECHECK_CMOCKA_OBJS)
+	${CC} -o $@ $(LDFLAGS) $(CONF_PRECHECK_CMOCKA_OBJS) $(CMOCKA_LIBS)
 
 # rename_proto tests - the argument-only parts of channel RENAME: the
 # services query cookie codec ("<numeric>.<n>") and the rules a rename's
