@@ -116,6 +116,16 @@ extern void sendcmdto_set_s2s_ml(char flag, const char *batch_ref);
  * sendcmdto_one_tags_with_client() toward a tag-carrying link: the line
  * renders multiline message <msgid>.  Consumed or cleared by that call. */
 extern void sendcmdto_set_s2s_fallback(const char *msgid);
+/* Arm the delayed-join reveal segment ,J<numeric><msgid> for the next S2S
+ * emit (N067): the reveal of @a who this event causes has msgid @a msgid.
+ * A reveal already armed for this line is kept (one per line); NULL
+ * disarms. */
+extern void sendcmdto_set_s2s_reveal(struct Client *who, const char *msgid);
+/* The armed reveal segment's data, saved before a send that consumes it
+ * and restored for a second send of the same event (two peer classes):
+ * @a out gets "" when none is armed. */
+extern void sendcmdto_save_s2s_reveal(char *out, size_t outlen);
+extern void sendcmdto_restore_s2s_reveal(const char *saved);
 /* Arm a status message (#226) for the next
  * sendcmdto_channel_butone_with_client_tags() of a wall command: local
  * members get it as "PRIVMSG|NOTICE <status><chan> :<text>", 'S' links

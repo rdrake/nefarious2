@@ -2813,6 +2813,7 @@ modebuf_flush_int(struct ModeBuf *mbuf, int all)
   unsigned int redirdel = MODE_REDIRECT;
 
   char mode_msgid[64] = "";
+  char reveal_saved[S2S_REVEAL_BUFSIZE] = "";
   uint64_t mode_time_ms = 0;
 
   assert(0 != mbuf);
@@ -3194,6 +3195,7 @@ modebuf_flush_int(struct ModeBuf *mbuf, int all)
 
     if (mbuf->mb_dest & MODEBUF_DEST_OPMODE) {
       /* If OPMODE was set, we're propagating the mode as an OPMODE message */
+      sendcmdto_save_s2s_reveal(reveal_saved, sizeof(reveal_saved));
       if (mode_msgid[0] && mode_time_ms) {
         sendcmdto_set_s2s_tags(mode_time_ms, mode_msgid);
         sendcmdto_want_s2s_tags(1);
@@ -3203,6 +3205,7 @@ modebuf_flush_int(struct ModeBuf *mbuf, int all)
 			    "%H %s%s%s%s%s%s", mbuf->mb_channel,
 			    rembuf_i ? "-" : "", rembuf, addbuf_i ? "+" : "",
 			    addbuf, remstr, addstr);
+      sendcmdto_restore_s2s_reveal(reveal_saved);   /* both peer classes */
       if (mode_msgid[0] && mode_time_ms) {
         sendcmdto_set_s2s_tags(mode_time_ms, mode_msgid);
         sendcmdto_want_s2s_tags(1);
@@ -3229,6 +3232,7 @@ modebuf_flush_int(struct ModeBuf *mbuf, int all)
        * to the rest of the network.  We send the actual channel TS.
        */
       /* Send oplevels to servers with oplevels support. */
+      sendcmdto_save_s2s_reveal(reveal_saved, sizeof(reveal_saved));
       if (mode_msgid[0] && mode_time_ms) {
         sendcmdto_set_s2s_tags(mode_time_ms, mode_msgid);
         sendcmdto_want_s2s_tags(1);
@@ -3240,6 +3244,7 @@ modebuf_flush_int(struct ModeBuf *mbuf, int all)
                                  addbuf, remstr, addstr,
                                  mbuf->mb_channel->creationtime);
       /* Send no oplevels to servers without oplevels support. */
+      sendcmdto_restore_s2s_reveal(reveal_saved);   /* both peer classes */
       if (mode_msgid[0] && mode_time_ms) {
         sendcmdto_set_s2s_tags(mode_time_ms, mode_msgid);
         sendcmdto_want_s2s_tags(1);
@@ -6279,15 +6284,54 @@ int IsInvited(struct Client* cptr, const void* chptr)
 
 /* RevealDelayedJoin: sends a join for a hidden user */
 
+/** The reveal's msgid as the line being handled carries it (,J): only
+ * for @a who, the member that line's origin revealed.  Taken once.
+ * @return 1 with @a out filled, else 0. */
+static int reveal_from_line(struct Client *who, char *out, size_t outlen)
+{
+  struct Client *link = sendcmdto_inbound_link();
+  char yxx[6];
+  char *rv;
+
+  if (!link || !cli_user(who) || !cli_user(who)->server)
+    return 0;
+  rv = cli_s2s_reveal(link);
+  if (!rv[0])
+    return 0;
+  ircd_snprintf(0, yxx, sizeof(yxx), "%s%s", cli_yxx(cli_user(who)->server),
+                cli_yxx(who));
+  if (strncmp(rv, yxx, 5) != 0)
+    return 0;
+  ircd_strncpy(out, rv + 5, outlen);
+  rv[0] = '\0';
+  return 1;
+}
+
 void RevealDelayedJoin(struct Membership *member)
 {
   char reveal_msgid[64] = "";
+  uint64_t reveal_ms = 0;
+  int from_line = 0;
 
   ClearDelayedJoin(member);
 
+  /* One JOIN on every server (N067).  Every server reveals the member
+   * itself, on the line that causes it (a message, a TOPIC, a MODE).
+   * The line's origin mints the reveal's msgid and sends it on that line
+   * (,J); a server that receives it takes it, and passes it on with the
+   * line.  Without one (an older peer, a multi-member reveal past the
+   * first, a line with no tags), it mints its own, as before. */
   if (feature_bool(FEAT_MSGID)) {
-    generate_msgid(reveal_msgid, sizeof(reveal_msgid));
-    sendcmdto_set_client_event(reveal_msgid, history_event_time_ms(NULL));
+    if (reveal_from_line(member->user, reveal_msgid, sizeof(reveal_msgid))) {
+      from_line = 1;
+      reveal_ms = msgid_decode_time_ms(reveal_msgid);
+      if (!reveal_ms)
+        reveal_ms = history_event_time_ms(NULL);
+    } else {
+      generate_msgid(reveal_msgid, sizeof(reveal_msgid));
+      reveal_ms = history_event_time_ms(NULL);
+    }
+    sendcmdto_set_client_event(reveal_msgid, reveal_ms);
   }
 
   sendcmdto_channel_capab_butserv_butone(member->user, CMD_JOIN, member->channel,
@@ -6307,8 +6351,17 @@ void RevealDelayedJoin(struct Membership *member)
 
 #ifdef USE_ROCKSDB
   store_channel_event(member->user, member->channel, "", HISTORY_JOIN,
-                      reveal_msgid[0] ? reveal_msgid : NULL, 0);
+                      reveal_msgid[0] ? reveal_msgid : NULL, reveal_ms);
 #endif
+
+  /* The line this event goes out on carries the reveal (,J): the one it
+   * came with in preference to one minted here, so a relay passes on
+   * what its origin sent. */
+  if (reveal_msgid[0]) {
+    if (from_line)
+      sendcmdto_set_s2s_reveal(NULL, NULL);
+    sendcmdto_set_s2s_reveal(member->user, reveal_msgid);
+  }
 
   CheckDelayedJoins(member->channel);
 }

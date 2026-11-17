@@ -677,6 +677,11 @@ void set_nick_name_event(const char *msgid, uint64_t time_ms)
   snprintf(nick_event, sizeof(nick_event), "%s", msgid ? msgid : "");
 }
 
+void sendcmdto_set_s2s_reveal(struct Client *who, const char *msgid)
+{
+  (void)who; (void)msgid;
+}
+
 void sendcmdto_want_s2s_tags(int want)
 {
   (void)want;
