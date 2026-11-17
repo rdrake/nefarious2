@@ -122,9 +122,15 @@ feature_log_set(struct Client* from, const char* const* fields, int count)
 
       if (from) /* send an error */
 	send_reply(from, ERR_BADLOGVALUE, fields[0]);
-      else
+      else {
 	log_write(LS_CONFIG, L_ERROR, 0,
 		  "Bad value \"%s\" for default facility", fields[0]);
+	/* The facility stays as it was.  Reading ircd.conf, every mark was
+	 * cleared, and log_feature_mark() would put an unmarked facility
+	 * back to the default: mark it, so a refused value keeps the
+	 * running one, as for any refused feature value. */
+	return 1;
+      }
     } else
       return count < 1 ? -1 : 1; /* tell feature to set or clear mark */
   } else if (!(subsys = log_canon(fields[0]))) { /* no such subsystem */
