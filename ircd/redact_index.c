@@ -232,7 +232,8 @@ enum redact_auth redact_authorize(const struct redact_auth_in *in, long *window_
   /* 1. spec: the msgid MUST name a PRIVMSG, NOTICE or TAGMSG (a stored
    * multiline is a PRIVMSG batch); a JOIN, MODE or REDACT row is not
    * redactable (audit 2026-09-06 #59). */
-  if (in->msg_type != HISTORY_PRIVMSG && in->msg_type != HISTORY_NOTICE
+  if (history_type_base(in->msg_type) != HISTORY_PRIVMSG
+      && history_type_base(in->msg_type) != HISTORY_NOTICE
       && in->msg_type != HISTORY_TAGMSG && in->msg_type != HISTORY_MULTILINE)
     return REDACT_AUTH_NOT_MESSAGE;
 

@@ -837,7 +837,7 @@ static int replay_next_channel(struct Client *sptr, struct ReplayState *rs)
     /* Set up new batch, with the type mask the leg was just read with */
     rs->messages = messages;
     rs->current = messages;
-    rs->type_mask = chathistory_type_mask(sptr);
+    rs->type_mask = chathistory_type_mask(sptr, channame);
     ircd_strncpy(rs->target, channame, sizeof(rs->target));
     rs->other_nick[0] = '\0';
     rs->is_pm = 0;
@@ -886,7 +886,7 @@ static int replay_next_pm(struct Client *sptr, struct ReplayState *rs)
      * be populated BEFORE this call — replay_set_target_from_storage
      * derives the display nick from the message stream. */
     rs->messages = messages;
-    rs->type_mask = chathistory_type_mask(sptr);   /* read just now */
+    rs->type_mask = chathistory_type_mask(sptr, NULL);   /* read just now */
     rs->current = messages;
     if (!replay_set_target_from_storage(sptr, rs, tgt->target)) {
       /* Nobody to name the page after (the other half is a session id

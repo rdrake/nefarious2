@@ -1721,7 +1721,9 @@ store_retry:
    * conversation sees, and a client that orders its catch-up with
    * TARGETS and skips a target whose stamp it already holds would
    * otherwise keep a deleted message on screen, or miss the topic, in
-   * a channel quiet since.  KICK stays out. */
+   * a channel quiet since.  KICK stays out, and so does a status message
+   * (HISTORY_SM_*): every reader of the channel sees the stamp, and a
+   * message for the channel's ops must not tell the rest when it was sent. */
   if (type == HISTORY_PRIVMSG || type == HISTORY_NOTICE
       || type == HISTORY_TAGMSG || type == HISTORY_MULTILINE
       || type == HISTORY_GAP

@@ -328,7 +328,9 @@ const char *msg_type_cmd[] = {
   "PRIVMSG", "NOTICE", "JOIN", "PART", "QUIT",
   "KICK", "MODE", "TOPIC", "TAGMSG", "PRIVMSG", /* GAP rendered as PRIVMSG */
   "NICK", "REDACT",
-  "PRIVMSG" /* MULTILINE rendered as PRIVMSG */
+  "PRIVMSG", /* MULTILINE rendered as PRIVMSG */
+  "PRIVMSG", "PRIVMSG", "PRIVMSG",  /* HISTORY_SM_PRIVMSG_*: to <status><chan> */
+  "NOTICE", "NOTICE", "NOTICE"      /* HISTORY_SM_NOTICE_* */
 };
 
 /** Validate a timestamp value.
@@ -647,6 +649,12 @@ int should_send_message_type(struct Client *sptr, enum HistoryMessageType type)
       type == HISTORY_GAP || type == HISTORY_MULTILINE)
     return 1;
 
+  /* A status message is never sent on the client's capabilities alone:
+   * it goes to the holders of its status in its channel, which only a
+   * walk of that channel knows (requester_type_mask with the target). */
+  if (history_type_is_statusmsg(type))
+    return 0;
+
   /* TAGMSG is message-like content and does not need event-playback --
    * but message-tags says a server MUST NOT deliver TAGMSG to a client
    * that has not negotiated it (audit 2026-09-06 #17). */
@@ -704,31 +712,82 @@ static int typing_only_veto(const struct HistoryMessage *msg, void *ctx)
   return history_row_is_typing_only(msg);
 }
 
-/** Bit mask of the row types should_send_message_type() lets @a sptr
- * receive, for filtering INSIDE the walk (see HistoryRowFilter.type_mask).
- * Returns 0 (= no filtering) when every type passes. */
-static unsigned int requester_type_mask(struct Client *sptr)
+/** The status-message row types (HISTORY_SM_*) @a sptr may read in
+ * channel @a target: those addressed to a status it holds there NOW, or
+ * one below it -- the members a live status message reaches
+ * (channel_member_skipped's SKIP_NONOPS / NONHOPS / NONVOICES).  A
+ * bouncer device reads as the member it is, else as its primary.  None
+ * for a non-member, a zombie, a PM target or a channel not here. */
+static unsigned int statusmsg_type_bits(struct Client *sptr, const char *target)
 {
-  unsigned int mask = 0, all = 0;
-  int type;
+  struct Channel *chptr;
+  struct Membership *member;
+  unsigned int bits = 0;
+  int notice;
 
-  for (type = 0; type < HISTORY_TYPE_COUNT; type++) {
-    all |= 1u << type;
-    if (should_send_message_type(sptr, (enum HistoryMessageType)type))
-      mask |= 1u << type;
+  if (!sptr || !target || !IsChannelName(target)
+      || !(chptr = FindChannel(target)))
+    return 0;
+  member = find_member_link(chptr, sptr);
+  if (!member && IsBouncerAlias(sptr) && cli_user(sptr)
+      && cli_user(sptr)->alias_primary)
+    member = find_member_link(chptr, cli_user(sptr)->alias_primary);
+  if (!member || IsZombie(member))
+    return 0;
+  for (notice = 0; notice <= 1; notice++) {
+    if (IsChanOp(member))
+      bits |= 1u << history_statusmsg_type(notice, '@');
+    if (IsChanOp(member) || IsHalfOp(member))
+      bits |= 1u << history_statusmsg_type(notice, '%');
+    if (IsChanOp(member) || IsHalfOp(member) || HasVoice(member))
+      bits |= 1u << history_statusmsg_type(notice, '+');
   }
-  return mask == all ? 0 : mask;
+  return bits;
 }
 
-unsigned int chathistory_type_mask(struct Client *sptr)
+/** Bit mask of the row types @a sptr may receive from @a target's
+ * history, for filtering INSIDE the walk (see HistoryRowFilter.type_mask)
+ * and for the federation's CH Q, whose responders filter with it: the
+ * types should_send_message_type() lets it receive, and the status
+ * messages of the statuses it holds in that channel
+ * (statusmsg_type_bits; none for a NULL or PM target).  Never 0. */
+static unsigned int requester_type_mask(struct Client *sptr, const char *target)
 {
-  return requester_type_mask(sptr);
+  unsigned int mask = 0;
+  int type;
+
+  for (type = 0; type < HISTORY_TYPE_COUNT; type++)
+    if (should_send_message_type(sptr, (enum HistoryMessageType)type))
+      mask |= 1u << type;
+  mask |= statusmsg_type_bits(sptr, target);
+  /* Never 0, even when every type passes: 0 on the wire (CH Q) is a
+   * requester that names no status message (statusmsg_free_mask). */
+  return mask;
+}
+
+/** Every row type but the status messages: what a CH Q with no type mask
+ * may read (see ms_chathistory). */
+static unsigned int statusmsg_free_mask(void)
+{
+  unsigned int mask = 0;
+  int type;
+
+  for (type = 0; type < HISTORY_TYPE_COUNT; type++)
+    if (!history_type_is_statusmsg(type))
+      mask |= 1u << type;
+  return mask;
+}
+
+unsigned int chathistory_type_mask(struct Client *sptr, const char *target)
+{
+  return requester_type_mask(sptr, target);
 }
 
 /** The row filter for a local requester's walk: the presence hook when
  * strict presence opened one (@a pf), else the caller's @a bare filter,
  * either way carrying the requester's type mask.  Never NULL. */
 static struct HistoryRowFilter *query_row_filter(struct Client *sptr,
+                                                 const char *target,
                                                  struct PresenceQueryFilter *pf,
                                                  struct HistoryRowFilter *bare)
 {
@@ -738,7 +797,7 @@ static struct HistoryRowFilter *query_row_filter(struct Client *sptr,
     memset(bare, 0, sizeof(*bare));
     hook = bare;
   }
-  hook->type_mask = requester_type_mask(sptr);
+  hook->type_mask = requester_type_mask(sptr, target);
   hook->veto = typing_only_veto;
   hook->veto_ctx = NULL;
   return hook;
@@ -871,6 +930,14 @@ void send_history_message(struct Client *sptr, struct HistoryMessage *msg,
 {
   char *separator;
   char *content = msg->dyn_content ? msg->dyn_content : msg->content;
+  char smtarget[CHANNELLEN + 2];
+
+  /* A status message replays to "<status><chan>", as it was delivered. */
+  if (history_type_is_statusmsg(msg->type) && target) {
+    ircd_snprintf(0, smtarget, sizeof(smtarget), "%c%s",
+                  history_type_status(msg->type), target);
+    target = smtarget;
+  }
 
   /* A context row (a reaction or REDACT hung on its parent) "MUST be
    * tagged with the draft/chathistory-context tag" (chathistory spec), and
@@ -1009,7 +1076,8 @@ void send_history_message(struct Client *sptr, struct HistoryMessage *msg,
     char ctags_str[516] = "";
 
     if (msg->client_tags[0] &&
-        (msg->type == HISTORY_PRIVMSG || msg->type == HISTORY_NOTICE ||
+        (history_type_base(msg->type) == HISTORY_PRIVMSG
+         || history_type_base(msg->type) == HISTORY_NOTICE ||
          msg->type == HISTORY_MULTILINE) &&
         CapRecipientHas(sptr, CAP_MSGTAGS)) {
       char kept[516];
@@ -1405,7 +1473,7 @@ int chathistory_page_since(struct Client *sptr, const char *target, int limit,
    * walk was exhausted. */
   if (open_query_presence(sptr, target, 0, &pf) < 0)
     return 0;   /* fail closed: nothing visible to replay */
-  hook = query_row_filter(sptr, pf, &bare);
+  hook = query_row_filter(sptr, target, pf, &bare);
   count = history_query_latest_after(target, limit, since_timestamp,
                                      since_msgid, &messages, hook);
   *complete = query_page_complete(hook, count, limit);
@@ -2232,7 +2300,7 @@ static int presence_filter_and_replay(struct Client *sptr,
   return presence_filter_and_replay_mask(sptr, target, head, count,
                                          ops_override, label, complete,
                                          requested, extra,
-                                         requester_type_mask(sptr));
+                                         requester_type_mask(sptr, target));
 }
 
 /** A page whose rows were read with @a type_mask (a federated page: the
@@ -2354,7 +2422,7 @@ static int ring_answer(struct Client *sptr, const char *subcmd,
 {
   struct HistoryMessage *rows = NULL, *page, **pp, *m;
   struct hm_pos p1, p2;
-  unsigned int mask = requester_type_mask(sptr);
+  unsigned int mask = requester_type_mask(sptr, target);
   int r1, r2, count = 0, complete = 1;
 
   chathistory_ephemeral_rows(sptr, lookup_target, &rows);
@@ -2441,7 +2509,7 @@ static int chathistory_latest(struct Client *sptr, const char *target,
                                ops_override, cli_label(sptr), 1, target, NULL);
     return 0;
   }
-  hook = query_row_filter(sptr, pf, &bare);
+  hook = query_row_filter(sptr, target, pf, &bare);
   count = history_query_latest(lookup_target, ref_type, ref_value, limit,
                                &messages, hook);
   complete = query_page_complete(hook, count, limit);
@@ -2551,7 +2619,7 @@ static int chathistory_before(struct Client *sptr, const char *target,
                                ops_override, cli_label(sptr), 1, target, NULL);
     return 0;
   }
-  hook = query_row_filter(sptr, pf, &bare);
+  hook = query_row_filter(sptr, target, pf, &bare);
   count = history_query_before(lookup_target, ref_type, ref_value, limit,
                                &messages, hook);
   complete = query_page_complete(hook, count, limit);
@@ -2657,7 +2725,7 @@ static int chathistory_after(struct Client *sptr, const char *target,
                                ops_override, cli_label(sptr), 1, target, NULL);
     return 0;
   }
-  hook = query_row_filter(sptr, pf, &bare);
+  hook = query_row_filter(sptr, target, pf, &bare);
   count = history_query_after(lookup_target, ref_type, ref_value, limit,
                               &messages, hook);
   complete = query_page_complete(hook, count, limit);
@@ -2764,7 +2832,7 @@ static int chathistory_around(struct Client *sptr, const char *target,
                                ops_override, cli_label(sptr), 1, target, NULL);
     return 0;
   }
-  hook = query_row_filter(sptr, pf, &bare);
+  hook = query_row_filter(sptr, target, pf, &bare);
   count = history_query_around(lookup_target, ref_type, ref_value, limit,
                                &messages, hook, &around_exhausted);
   /* The last page only when nothing lies past EITHER end (#214): a short
@@ -2882,7 +2950,7 @@ static int chathistory_between(struct Client *sptr, const char *target,
                                ops_override, cli_label(sptr), 1, target, NULL);
     return 0;
   }
-  hook = query_row_filter(sptr, pf, &bare);
+  hook = query_row_filter(sptr, target, pf, &bare);
   count = history_query_between(lookup_target, ref_type1, ref_value1,
                                  ref_type2, ref_value2, limit, &messages,
                                  hook);
@@ -4072,6 +4140,39 @@ static void append_write_chunk_data(struct WriteChunkEntry *chunk, const char *b
   chunk->b64_len += add_len;
 }
 
+/** The CH W / CH WB type letters, one per enum HistoryMessageType a
+ * write carries.  The status-message letters a-f go only to storage
+ * servers that announced 'S' (forward_history_write). */
+static const struct { int type; char letter; } ch_write_types[] = {
+  { HISTORY_PRIVMSG, 'P' }, { HISTORY_NOTICE, 'N' }, { HISTORY_JOIN, 'J' },
+  { HISTORY_PART, 'L' },    { HISTORY_QUIT, 'Q' },   { HISTORY_KICK, 'I' },
+  { HISTORY_MODE, 'M' },    { HISTORY_TOPIC, 'O' },  { HISTORY_TAGMSG, 'T' },
+  { HISTORY_NICK, 'K' },    { HISTORY_REDACT, 'R' },
+  { HISTORY_SM_PRIVMSG_OP, 'a' },  { HISTORY_SM_PRIVMSG_HOP, 'b' },
+  { HISTORY_SM_PRIVMSG_VOICE, 'c' }, { HISTORY_SM_NOTICE_OP, 'd' },
+  { HISTORY_SM_NOTICE_HOP, 'e' },  { HISTORY_SM_NOTICE_VOICE, 'f' },
+};
+
+/** @return The letter for @a type, or 'P' for a type writes do not carry. */
+static char ch_write_letter(int type)
+{
+  size_t i;
+  for (i = 0; i < sizeof(ch_write_types) / sizeof(ch_write_types[0]); i++)
+    if (ch_write_types[i].type == type)
+      return ch_write_types[i].letter;
+  return 'P';
+}
+
+/** @return The type for @a letter, or -1 for an unknown letter. */
+static int ch_write_type(char letter)
+{
+  size_t i;
+  for (i = 0; i < sizeof(ch_write_types) / sizeof(ch_write_types[0]); i++)
+    if (ch_write_types[i].letter == letter)
+      return ch_write_types[i].type;
+  return -1;
+}
+
 /** Process a completed write forward (store if appropriate).
  * @param[in] target Channel name.
  * @param[in] msgid Message ID.
@@ -4107,22 +4208,10 @@ static void process_write_forward(const char *target, const char *msgid,
     return;
   }
 
-  /* Convert type char to enum */
-  switch (type_char) {
-    case 'P': type = HISTORY_PRIVMSG; break;
-    case 'N': type = HISTORY_NOTICE; break;
-    case 'J': type = HISTORY_JOIN; break;
-    case 'L': type = HISTORY_PART; break;
-    case 'Q': type = HISTORY_QUIT; break;
-    case 'I': type = HISTORY_KICK; break;
-    case 'M': type = HISTORY_MODE; break;
-    case 'O': type = HISTORY_TOPIC; break;
-    case 'T': type = HISTORY_TAGMSG; break;
-    case 'K': type = HISTORY_NICK; break;
-    case 'R': type = HISTORY_REDACT; break;
-    default:
-      Debug((DEBUG_DEBUG, "CH W: Unknown type '%c' for %s", type_char, target));
-      return;
+  type = ch_write_type(type_char);
+  if (type < 0) {
+    Debug((DEBUG_DEBUG, "CH W: Unknown type '%c' for %s", type_char, target));
+    return;
   }
 
   /* Split + unescape the federation payload (history_forward_encode on
@@ -4411,21 +4500,7 @@ void forward_history_write(struct Channel *chptr, struct Client *sptr,
   account = (cli_user(sptr) && cli_user(sptr)->account[0])
             ? cli_user(sptr)->account : "*";
 
-  /* Convert type to char */
-  switch (type) {
-    case HISTORY_PRIVMSG: type_char = 'P'; break;
-    case HISTORY_NOTICE:  type_char = 'N'; break;
-    case HISTORY_JOIN:    type_char = 'J'; break;
-    case HISTORY_PART:    type_char = 'L'; break;
-    case HISTORY_QUIT:    type_char = 'Q'; break;
-    case HISTORY_KICK:    type_char = 'I'; break;
-    case HISTORY_MODE:    type_char = 'M'; break;
-    case HISTORY_TOPIC:   type_char = 'O'; break;
-    case HISTORY_TAGMSG:  type_char = 'T'; break;
-    case HISTORY_NICK:    type_char = 'K'; break;
-    case HISTORY_REDACT:  type_char = 'R'; break;
-    default: type_char = 'P'; break;
-  }
+  type_char = ch_write_letter(type);
 
   /* Find nearest server with storage advertisement */
   for (lp = cli_serv(&me)->down; lp; lp = lp->next) {
@@ -4437,6 +4512,12 @@ void forward_history_write(struct Channel *chptr, struct Client *sptr,
 
     /* Must have storage advertisement */
     if (!has_chathistory_advertisement(server))
+      continue;
+
+    /* A status message only to a store that knows the type: an older one
+     * would keep it as an ordinary channel message (CH WB reads an
+     * unknown type as a PRIVMSG) and replay it to every reader. */
+    if (history_type_is_statusmsg(type) && !IsStatusMsgAware(server))
       continue;
 
     /* For now, just use the first one we find
@@ -6710,7 +6791,7 @@ static struct FedRequest *start_fed_query_ex(struct Client *sptr, const char *ta
                 cli_yxx(cli_user(sptr)->server), cli_yxx(sptr));
   req->local_msgs = local_msgs;
   req->local_count = local_count;
-  req->type_mask = requester_type_mask(sptr);   /* as the local walk read */
+  req->type_mask = requester_type_mask(sptr, target);   /* as the local walk read */
   req->leg.derive = 1;   /* a page: F-3's fallback may apply */
   req->servers_pending = server_count;
   req->start_time = CurrentTime;
@@ -6853,7 +6934,7 @@ static struct FedRequest *start_fed_query_ex(struct Client *sptr, const char *ta
          * keeps its slot; older responders ignore both. */
         /* Trailing type mask (hex): the row types the requester can
          * receive, so the responder skips the rest INSIDE its walk and
-         * its limit+1 probe counts VISIBLE rows.  0 = all types.  Older
+         * its limit+1 probe counts VISIBLE rows; never 0.  Older
          * responders ignore the extra param (audit #8). */
         sendcmdto_one(&me, CMD_CHATHISTORY, server, "Q %s %c %s %d %s %s %s %c%s %x",
                       target, s2s_subcmd, s2s_ref, limit, reqid, dest_yxx,
@@ -7268,8 +7349,13 @@ int start_redact_fed_query(struct Client *sptr, struct Channel *chptr,
     if (!has_chathistory_advertisement(server))
       continue;
 
-    sendcmdto_one(&me, CMD_CHATHISTORY, server, "Q %s X %s 1 %s",
-                  target, s2s_ref, reqid);
+    /* Addressed to that server itself, with the redacter's type mask: a
+     * status message's row is answered only to a requester that may read
+     * it (requester_type_mask; an older responder ignores the rest). */
+    sendcmdto_one(&me, CMD_CHATHISTORY, server, "Q %s X %s 1 %s %s * P%s%s %x",
+                  target, s2s_ref, reqid, cli_yxx(server),
+                  cli_yxx(cli_user(sptr)->server), cli_yxx(sptr),
+                  requester_type_mask(sptr, target));
   }
 
   return 0;
@@ -7293,9 +7379,6 @@ struct AutoReplayContext {
   time_t since_time;               /**< Baseline timestamp (for read marker comparison) */
   char timestamp[HISTORY_TIMESTAMP_LEN]; /**< Formatted baseline ts */
   int incomplete;                  /**< A channel was skipped (no fed slot) */
-  /** The row types this replay reads and sends, decided at its start
-   * (requester_type_mask): every channel's CH Q and every page use it. */
-  unsigned int type_mask;
 };
 
 /** Process the next channel in the auto-replay chain.
@@ -7372,6 +7455,9 @@ static void autoreplay_next_channel(struct AutoReplayContext *ctx)
                   cli_yxx(cli_user(sptr)->server), cli_yxx(sptr));
     req->local_msgs = NULL;
     req->local_count = 0;
+    /* This channel's types: the replay's, with the status messages of the
+     * statuses held in it now (requester_type_mask). */
+    req->type_mask = requester_type_mask(sptr, channame);
     req->leg.derive = 1;   /* a page: F-3's fallback may apply */
     req->servers_pending = server_count;
     req->start_time = CurrentTime;
@@ -7417,7 +7503,7 @@ static void autoreplay_next_channel(struct AutoReplayContext *ctx)
         sendcmdto_one(&me, CMD_CHATHISTORY, server, "Q %s L %s %d %s %s * P%s %x",
                       channame, ctx->timestamp[0] ? ctx->timestamp : "*",
                       ctx->limit, reqid, dest_yxx, ctx->client_yxx,
-                      ctx->type_mask);
+                      req->type_mask);
       }
     }
 
@@ -7565,7 +7651,7 @@ static void complete_autoreplay_channel(struct FedRequest *req)
       send_history_batch(sptr, req->target, merged, total, 0, NULL,
                          total < req->limit && !req->fed_truncated
                          && !req->local_incomplete && !req->cut,
-                         ctx->type_mask);
+                         req->type_mask);
       ctx->total_replayed += total;
       ctx->chan_count++;
     }
@@ -7635,7 +7721,7 @@ int chathistory_replay_channel_leg(struct Client *sptr, const char *channame, in
    * presence hook, type mask and typing veto inside it. */
   if (open_query_presence(sptr, channame, 0, &pf) < 0)
     return 0;   /* fail closed: nothing visible to replay */
-  hook = query_row_filter(sptr, pf, &bare);
+  hook = query_row_filter(sptr, channame, pf, &bare);
   count = history_query_latest_after(channame, limit, since_timestamp,
                                      since_msgid, &messages, hook);
   complete = query_page_complete(hook, count, limit);
@@ -7730,7 +7816,6 @@ int chathistory_auto_replay_fed(struct Client *sptr, time_t since_time, int limi
                 cli_yxx(cli_user(sptr)->server), cli_yxx(sptr));
   ctx->cursor = cli_user(sptr)->channel;
   ctx->limit = limit;
-  ctx->type_mask = requester_type_mask(sptr);
   ctx->total_replayed = 0;
   ctx->chan_count = 0;
   ctx->since_time = since_time;
@@ -7794,7 +7879,8 @@ static int search_row_hook(const struct HistoryMessage *msg, int reverse,
       return v;
   }
 
-  if (msg->type != HISTORY_PRIVMSG && msg->type != HISTORY_NOTICE
+  if (history_type_base(msg->type) != HISTORY_PRIVMSG
+      && history_type_base(msg->type) != HISTORY_NOTICE
       && msg->type != HISTORY_MULTILINE)
     return 0;
 
@@ -7926,7 +8012,7 @@ static int search_one_target(struct Client *sptr, const char *lookup_target,
     memset(&bare, 0, sizeof(bare));
     phook = &bare;
   }
-  phook->type_mask = requester_type_mask(sptr);
+  phook->type_mask = requester_type_mask(sptr, lookup_target);
   phook->veto = typing_only_veto;
   phook->veto_ctx = NULL;
 
@@ -7981,7 +8067,8 @@ static void search_send(struct Client *sptr, struct HistoryMessage *head,
 
   for (msg = head; msg; msg = msg->next) {
     const char *time_str = msg->timestamp;
-    const char *cmd = (msg->type == HISTORY_NOTICE) ? "NOTICE" : "PRIVMSG";
+    const char *cmd = (history_type_base(msg->type) == HISTORY_NOTICE)
+                      ? "NOTICE" : "PRIVMSG";
     const char *target = msg->target;
 
     if (history_unix_to_iso(msg->timestamp, iso_time, sizeof(iso_time)) == 0)
@@ -8158,7 +8245,7 @@ static struct FedRequest *start_fed_search(struct Client *sptr, const char *targ
     sendcmdto_one(&me, CMD_CHATHISTORY, server, "Q %s S %s %d %s %s %s P%s %x :%s",
                   target, before_unix, limit, reqid, dest_yxx,
                   after_unix && after_unix[0] ? after_unix : "*",
-                  req->client_yxx, requester_type_mask(sptr), sel);
+                  req->client_yxx, requester_type_mask(sptr, target), sel);
   }
   return req;
 }
@@ -8345,7 +8432,7 @@ int ms_chathistory(struct Client *cptr, struct Client *sptr, int parc, char *par
     char *dest_numeric = NULL;
     char *ref2 = NULL;
     const char *requester = NULL;   /* P<yxx> / F<yxx>, see start_fed_query */
-    unsigned int req_type_mask = 0; /* row types the requester can receive; 0 = all */
+    unsigned int req_type_mask = 0; /* row types the requester can receive */
     struct PresenceQueryFilter *fed_pf = NULL;
     char query_subcmd_char;
     int between_desc = -1;   /* W: walk direction for the overflow trim */
@@ -8377,11 +8464,18 @@ int ms_chathistory(struct Client *cptr, struct Client *sptr, int parc, char *par
     if (parc >= 10 && parv[9][0] != '\0')
       requester = parv[9];
     /* Optional trailing requester type mask (hex): the row types the
-     * requester can receive.  0 / absent = all types (audit #8). */
+     * requester can receive (audit #8).  0 / absent, from an older
+     * binary, is every type but the status-message ones. */
     {
       if (parc >= 11 && parv[10][0] != '\0')
         req_type_mask = (unsigned int)strtoul(parv[10], NULL, 16);
     }
+    /* No mask (absent, or 0 from a server that predates the status-message
+     * types) reads as every type BUT those: a requester says which of them
+     * its client may read, and one that says nothing may read none.  This
+     * server's requesters always send a mask (requester_type_mask). */
+    if (!req_type_mask)
+      req_type_mask = statusmsg_free_mask();
 
     /* Destination-addressed query: if not for us, forward and skip */
     if (dest_numeric) {
@@ -8793,6 +8887,15 @@ int ms_chathistory(struct Client *cptr, struct Client *sptr, int parc, char *par
       if (ref[0] == 'M' && ref[1]) {
         struct HistoryMessage *single_msg = NULL;
         int lrc = history_lookup_message(target, ref + 1, &single_msg);
+        /* A row the requester's type mask does not name -- a status
+         * message, for a requester without the status or with no mask --
+         * is not there for it. */
+        if (lrc == 0 && single_msg
+            && !history_type_wanted(req_type_mask, single_msg->type)) {
+          history_free_messages(single_msg);
+          single_msg = NULL;
+          lrc = 1;
+        }
         if (lrc == 0 && single_msg) {
           /* The row first, then its context children, each after its
            * CH C: a REDACT among them tells the requester the message is
@@ -9538,21 +9641,9 @@ int ms_chathistory(struct Client *cptr, struct Client *sptr, int parc, char *par
       }
     } else {
       /* Parse type character */
-      char type_char = parv[7][0];
-      int type_int = 0;
-      switch (type_char) {
-        case 'P': type_int = HISTORY_PRIVMSG; break;
-        case 'N': type_int = HISTORY_NOTICE; break;
-        case 'J': type_int = HISTORY_JOIN; break;
-        case 'L': type_int = HISTORY_PART; break;
-        case 'Q': type_int = HISTORY_QUIT; break;
-        case 'I': type_int = HISTORY_KICK; break;
-        case 'M': type_int = HISTORY_MODE; break;
-        case 'O': type_int = HISTORY_TOPIC; break;
-        case 'T': type_int = HISTORY_TAGMSG; break;
-        case 'K': type_int = HISTORY_NICK; break;
-        case 'R': type_int = HISTORY_REDACT; break;   /* re-review R15 */
-      }
+      int type_int = ch_write_type(parv[7][0]);
+      if (type_int < 0)
+        type_int = HISTORY_PRIVMSG;   /* as before: an unknown letter is a PRIVMSG */
       chunk = create_write_chunk(target, msgid, parv[4], type_int, parv[5], parv[6]);
       if (!chunk) {
         Debug((DEBUG_DEBUG, "CH WB: No slots available for %s", chunk_key));
@@ -9570,21 +9661,8 @@ int ms_chathistory(struct Client *cptr, struct Client *sptr, int parc, char *par
       size_t decoded_len;
       char type_char;
 
-      /* Convert type enum back to char for process_write_forward */
-      switch (chunk->type) {
-        case HISTORY_PRIVMSG: type_char = 'P'; break;
-        case HISTORY_NOTICE:  type_char = 'N'; break;
-        case HISTORY_JOIN:    type_char = 'J'; break;
-        case HISTORY_PART:    type_char = 'L'; break;
-        case HISTORY_QUIT:    type_char = 'Q'; break;
-        case HISTORY_KICK:    type_char = 'I'; break;
-        case HISTORY_MODE:    type_char = 'M'; break;
-        case HISTORY_TOPIC:   type_char = 'O'; break;
-        case HISTORY_TAGMSG:  type_char = 'T'; break;
-        case HISTORY_NICK:    type_char = 'K'; break;
-        case HISTORY_REDACT:  type_char = 'R'; break;
-        default: type_char = 'P'; break;
-      }
+      /* Back to the letter for process_write_forward */
+      type_char = ch_write_letter(chunk->type);
 
       if (ch_base64_decode(chunk->b64_data, chunk->b64_len, &decoded, &decoded_len)) {
         Debug((DEBUG_DEBUG, "CH WB: Decoded %zu bytes for %s", decoded_len, target));

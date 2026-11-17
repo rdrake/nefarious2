@@ -545,7 +545,7 @@ static int deserialize_message(const char *data, int datalen,
   field = memchr(p, '|', end - p);
   if (!field || field >= end) goto deser_cleanup;
   type = atoi(p);
-  if (type < 0 || type > HISTORY_MULTILINE) goto deser_cleanup;
+  if (!history_type_valid(type)) goto deser_cleanup;   /* an older binary refuses a newer type: a status message never replays as a plain one */
   msg->type = (enum HistoryMessageType)type;
   p = field + 1;
 

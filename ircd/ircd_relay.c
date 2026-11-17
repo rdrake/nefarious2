@@ -677,7 +677,12 @@ static void store_channel_history(struct Client *sptr, struct Channel *chptr,
   if (chptr->mode.exmode & EXMODE_NOSTORAGE)
     return;
 
-  /* Check if sender has +Y (no storage) user mode — store gap marker */
+  /* Check if sender has +Y (no storage) user mode — store gap marker.
+   * Not for a status message: a gap is an ordinary row every reader is
+   * shown (sender, time, msgid) and it stamps TARGETS, which a message
+   * for the channel's ops must not do; it is simply not stored. */
+  if (IsNoStorage(sptr) && history_type_is_statusmsg(type))
+    return;
   if (IsNoStorage(sptr)) {
     history_store_message(msgid, timestamp, chptr->chname, NULL, sender,
                           account, HISTORY_GAP, "", NULL, owner);
@@ -1259,6 +1264,9 @@ void relay_channel_notice(struct Client* sptr, const char* name, const char* tex
   }
 }
 
+static int server_relay_tagged_statusmsg(struct Client *sptr, const char *name,
+                                         const char *text, int notice);
+
 /** Relay a message to a channel.
  * Generates an error if the client cannot send to the channel,
  * or if the channel is a local channel
@@ -1278,6 +1286,10 @@ void server_relay_channel_message(struct Client* sptr, const char* name, const c
   assert(0 != sptr);
   assert(0 != name);
   assert(0 != text);
+
+  /* A PRIVMSG to "<status><chan>" (,P<status>, #226). */
+  if (server_relay_tagged_statusmsg(sptr, name, text, 0))
+    return;
 
   if (IsLocalChannel(name) || 0 == (chptr = FindChannel(name))) {
     send_reply(sptr, ERR_NOSUCHCHANNEL, name);
@@ -1408,6 +1420,10 @@ void server_relay_channel_notice(struct Client* sptr, const char* name, const ch
   assert(0 != name);
   assert(0 != text);
 
+  /* A NOTICE to "<status><chan>" (,P<status>, #226). */
+  if (server_relay_tagged_statusmsg(sptr, name, text, 1))
+    return;
+
   if (IsLocalChannel(name) || 0 == (chptr = FindChannel(name)))
     return;
 
@@ -1517,52 +1533,60 @@ static void statusmsg_wall(char status, const char **cmd, const char **tok,
   }
 }
 
-/** Relay a local user's PRIVMSG to a status target, "@#chan", "%#chan"
- * or "+#chan" (#226): to the channel's members with that status or
- * higher, as a PRIVMSG.
+/** Relay a local user's PRIVMSG or NOTICE to a status target, "@#chan",
+ * "%#chan" or "+#chan" (#226): to the channel's members with that status
+ * or higher, as the PRIVMSG or NOTICE it is.
  *
- * The checks are an ordinary channel PRIVMSG's, made by the same helpers
- * (UTF8ONLY, relay_channel_refused: may speak there, +n's target limit;
- * relay_channel_text: +C with ACTION allowed, +T, +c, +S), answered as
- * for a PRIVMSG; there is no rule for the sender's own status (ircu has
- * none: whoever may speak in the channel may address its ops).
+ * The checks are an ordinary channel PRIVMSG's or NOTICE's, made by the
+ * same helpers (UTF8ONLY, relay_channel_refused: may speak there, +n's
+ * target limit; relay_channel_text: +C with ACTION allowed, +T, +c, +S),
+ * answered as for that command (a NOTICE is never answered with an
+ * error); there is no rule for the sender's own status (ircu has none:
+ * whoever may speak in the channel may address its ops).
  *
- * Between servers it is the wall line a NOTICE to the same target sends,
- * "<from> WC <chan> :@ <text>" (WH "% ", WV "+ "), so legacy servers and
- * their users get exactly what they get for that NOTICE; toward an
- * IRCv3-aware link the line also carries the compact tag mark ,P, and a
- * server that reads it delivers the PRIVMSG form to its own users
- * (server_relay_channel_statusmsg).  Local members get
- * ":<from> PRIVMSG <status><chan> :<text>", with the message's one msgid
- * and time; the sender its echo-message echo in the same form.
+ * Between servers, a link that announced 'S' (FLAG_STATUSMSG_AWARE) gets
+ * the PRIVMSG/NOTICE itself, "<from> P|O <chan> :<text>", marked with the
+ * compact-tag segment ,P<status>; it delivers, stores and relays it as one
+ * (server_relay_tagged_statusmsg).  Every other link gets the wall line
+ * a NOTICE to the same target always sent, "<from> WC <chan> :@ <text>"
+ * (WH "% ", WV "+ "), so legacy servers and their users get exactly that;
+ * toward an IRCv3-aware link a PRIVMSG's wall line also carries the bare
+ * ,P mark, which a fork server from before 'S' reads to deliver it as a
+ * PRIVMSG.  Local members get ":<from> PRIVMSG|NOTICE <status><chan>
+ * :<text>", with the message's one msgid and time; the sender its
+ * echo-message echo in the same form.
  *
- * The text is cut once, here, to fit both client forms of it -- the
- * PRIVMSG form and the NOTICE form legacy servers show, ":<from> NOTICE
- * <status><chan> :<status> <text>", which is one byte longer and binds --
- * so every server and recipient gets the same text.
+ * The text is cut once, here, to fit every client form of it -- the
+ * PRIVMSG/NOTICE form and the NOTICE form legacy servers show, ":<from>
+ * NOTICE <status><chan> :<status> <text>", which is the longest and
+ * binds -- so every server and recipient gets the same text.
  *
- * Not stored in history (a message for the channel's ops must not be
- * replayed to everyone who can read its history), as the NOTICE is not;
- * no web push.
+ * Stored in history as a status message (HISTORY_SM_*): replayed only to
+ * a reader holding that status in the channel when it asks
+ * (requester_type_mask), and only within its presence, as every row.
+ * No web push.
  *
  * @param[in] sptr The local sender.
  * @param[in] status '@', '%' or '+'.
  * @param[in] name The channel name (the target less its status).
  * @param[in] text The message text.
- * @param[in] targets Number of targets of the PRIVMSG.
+ * @param[in] targets Number of targets of the PRIVMSG/NOTICE.
+ * @param[in] notice Non-zero for a NOTICE.
  */
 void relay_channel_statusmsg(struct Client *sptr, char status, const char *name,
-                             const char *text, int targets)
+                             const char *text, int targets, int notice)
 {
   struct Channel *chptr;
   const char *mytext = text;
   const char *wcmd, *wtok;
+  const char *cmdname = notice ? MSG_NOTICE : MSG_PRIVATE;
   unsigned int wskip;
   char utf8buf[BUFSIZE];
   char cutbuf[BUFSIZE];
   char wallbuf[BUFSIZE];
   size_t room, nroom;
   int utf8;
+  int need_echo;
 
   assert(0 != sptr);
   assert(0 != name);
@@ -1576,43 +1600,46 @@ void relay_channel_statusmsg(struct Client *sptr, char status, const char *name,
    * (relay_answer_begin, below) -- never sent for one refused later. */
   if ((utf8 = relay_utf8_check(text, utf8buf, sizeof(utf8buf))) != RELAY_UTF8_OK) {
     if (utf8 == RELAY_UTF8_REFUSED) {
-      relay_utf8_answer(sptr, "PRIVMSG", utf8, NULL);
+      relay_utf8_answer(sptr, cmdname, utf8, NULL);
       return;
     }
     mytext = utf8buf;
     if (EmptyString(mytext)) {
-      send_reply(sptr, ERR_NOTEXTTOSEND);
+      if (!notice)
+        send_reply(sptr, ERR_NOTEXTTOSEND);
       return;
     }
   }
 
   if (0 == (chptr = FindChannel(name))) {
-    send_reply(sptr, ERR_NOSUCHCHANNEL, name);
+    if (!notice)
+      send_reply(sptr, ERR_NOSUCHCHANNEL, name);
     return;
   }
-  if (relay_channel_refused(sptr, chptr, 0))
+  if (relay_channel_refused(sptr, chptr, notice))
     return;
-  if (!(mytext = relay_channel_text(sptr, chptr, text, mytext, targets, 0)))
+  if (!(mytext = relay_channel_text(sptr, chptr, text, mytext, targets, notice)))
     return;
 
-  /* Cut once, to the smaller room of the two client forms (above); a
-   * line with no room left is the last refusal, so it comes before the
-   * answer begins. */
-  room = relay_text_budget(sptr, MSG_PRIVATE, 1 + strlen(chptr->chname), 0);
+  /* Cut once, to the smaller room of the client forms (above); a line
+   * with no room left is the last refusal, so it comes before the answer
+   * begins. */
+  room = relay_text_budget(sptr, cmdname, 1 + strlen(chptr->chname), 0);
   nroom = relay_text_budget(sptr, MSG_NOTICE, 1 + strlen(chptr->chname), 2);
   if (nroom < room)
     room = nroom;
   mytext = relay_cut_to(mytext, room, cutbuf, sizeof(cutbuf));
   if (EmptyString(mytext)) {
-    send_reply(sptr, ERR_NOTEXTTOSEND);
+    if (!notice)
+      send_reply(sptr, ERR_NOTEXTTOSEND);
     return;
   }
 
+  need_echo = feature_bool(FEAT_CAP_echo_message) && CapOwnHas(sptr, CAP_ECHOMSG);
   /* Accepted: the answer begins -- one labeled batch when it is more than
    * one line (the WARN and the echo), the WARN out now (#224). */
-  relay_answer_begin(sptr, "PRIVMSG", utf8, 0,
-                     feature_bool(FEAT_CAP_echo_message) && CapOwnHas(sptr, CAP_ECHOMSG));
-  /* The relayed text: the lead, then the text (the wall form's). */
+  relay_answer_begin(sptr, cmdname, utf8, 0, need_echo);
+  /* The wall line's text: the lead, then the text. */
   ircd_snprintf(0, wallbuf, sizeof(wallbuf), "%c %s", status, mytext);
 
   RevealDelayedJoinIfNeeded(sptr, chptr);
@@ -1620,7 +1647,7 @@ void relay_channel_statusmsg(struct Client *sptr, char status, const char *name,
   {
     char msgid[64] = "";
     char timestamp[32] = "";
-    int need_echo = feature_bool(FEAT_CAP_echo_message) && CapOwnHas(sptr, CAP_ECHOMSG);
+    int htype = history_statusmsg_type(notice, status);
 
 #ifdef USE_ROCKSDB
     if (feature_bool(FEAT_MSGID)) {
@@ -1636,7 +1663,15 @@ void relay_channel_statusmsg(struct Client *sptr, char status, const char *name,
     if (msgid[0])
       sendcmdto_set_client_event(msgid, history_parse_ms(timestamp));
 
-    /* No forward_channel_history / store_channel_history: not stored. */
+#ifdef USE_ROCKSDB
+    /* No store here: write-forward AHEAD of the relay
+     * (forward_channel_history; only to a store that announced 'S'). */
+    if (msgid[0]) {
+      const char *fwd_ctags = cli_client_tags(sptr);
+      forward_channel_history(sptr, chptr, mytext, htype, msgid, timestamp,
+                              (fwd_ctags && *fwd_ctags) ? fwd_ctags : NULL);
+    }
+#endif
 
     /* Alias source rewriting (see relay_channel_message) */
     {
@@ -1649,7 +1684,7 @@ void relay_channel_statusmsg(struct Client *sptr, char status, const char *name,
         from = cli_user(sptr)->alias_primary;
       }
 
-      sendcmdto_set_statusmsg_privmsg(mytext);
+      sendcmdto_set_statusmsg(mytext, notice);
       sendcmdto_channel_butone_with_client_tags(from, wcmd, wtok, chptr,
                          cli_from(sptr), SKIP_DEAF | SKIP_BURST | wskip, '\0',
                          (client_tags && *client_tags) ? client_tags : NULL,
@@ -1664,69 +1699,71 @@ void relay_channel_statusmsg(struct Client *sptr, char status, const char *name,
       if (echo_ctags && *echo_ctags && CapOwnHas(sptr, CAP_MSGTAGS)) {
         if (msgid[0])
           sendcmdto_set_client_event(msgid, history_parse_ms(timestamp));
-        sendcmdto_one_client_tags(sptr, MSG_PRIVATE, sptr, echo_ctags,
+        sendcmdto_one_client_tags(sptr, cmdname, sptr, echo_ctags,
                                   "%c%H :%s", status, chptr, mytext);
         sendcmdto_set_client_msgid(NULL);
       } else {
 #ifdef USE_ROCKSDB
         if (msgid[0])
           sendcmdto_set_client_event(msgid, history_parse_ms(timestamp));
-        sendcmdto_one_tags_ext(sptr, CMD_PRIVATE, sptr, msgid,
-                               "%c%H :%s", status, chptr, mytext);
+        sendcmdto_one_tags_ext(sptr, cmdname, notice ? TOK_NOTICE : TOK_PRIVATE,
+                               sptr, msgid, "%c%H :%s", status, chptr, mytext);
         sendcmdto_set_client_msgid(NULL);
 #else
-        sendcmdto_one_tags(sptr, CMD_PRIVATE, sptr, "%c%H :%s", status, chptr,
-                           mytext);
+        sendcmdto_one_tags(sptr, cmdname, notice ? TOK_NOTICE : TOK_PRIVATE,
+                           sptr, "%c%H :%s", status, chptr, mytext);
 #endif
       }
     }
+
+#ifdef USE_ROCKSDB
+    /* Stored as the status message it is (see above). */
+    if (msgid[0]) {
+      const char *store_ctags = cli_client_tags(sptr);
+      store_channel_history(sptr, chptr, mytext, htype, msgid, timestamp,
+                            (store_ctags && *store_ctags) ? store_ctags : NULL);
+    }
+#else
+    (void)htype;
+#endif
   }
 }
 
-/** Deliver a wall line from another server as a status-message PRIVMSG
- * (#226), when it is one: the line carried the compact tag mark ,P and
- * its text starts with exactly the lead the origin added for \a status
- * ("@ " / "% " / "+ ", ircd_statusmsg_unlead) with text after it.
- * Otherwise nothing is done and the caller handles the line as the wall
- * command it is (the NOTICE form) -- a mark on a line without its lead
- * is not trusted.
+/** Deliver, store and relay a status message that came from another
+ * server (#226): the PRIVMSG or NOTICE it is, marked ,P<status>, from a
+ * link that announced 'S' (ms_privmsg / ms_notice), or a PRIVMSG's wall
+ * line marked with the bare ,P from an older fork server (ms_wallchops &
+ * co, via server_relay_channel_statusmsg).
  *
  * Handled as server_relay_channel_message handles a channel PRIVMSG (an
  * alias sender taken as its primary, the origin's msgid and time, the
- * client-only tags) -- except that a refusal (404) answers the device
- * that sent the line, not its primary -- never stored, and delivered to
- * local members with
- * the status as ":<from> PRIVMSG <status><chan> :<text less the lead>";
- * relayed on unchanged -- the lead in the text, ,P re-armed toward
- * IRCv3-aware links, the bare line toward legacy ones.
+ * client-only tags) -- except that a refusal (404, never for a NOTICE)
+ * answers the device that sent the line, not its primary -- delivered to
+ * local members with the status as ":<from> PRIVMSG|NOTICE
+ * <status><chan> :<text>", stored as a status message (HISTORY_SM_*,
+ * under the storage gate every channel row passes), and relayed on in
+ * the forms relay_channel_statusmsg describes.
  *
  * @param[in] sptr The sender (a remote user).
- * @param[in] name The channel name.
- * @param[in] status '@', '%' or '+' (the wall command's).
- * @param[in] text The relayed text.
- * @return 1 when the line was handled here, 0 when the caller handles it.
+ * @param[in] chptr The channel.
+ * @param[in] status '@', '%' or '+'.
+ * @param[in] notice Non-zero for a NOTICE.
+ * @param[in] ptext The text, without any wall-line lead.
  */
-int server_relay_channel_statusmsg(struct Client *sptr, const char *name,
-                                   char status, const char *text)
+static void server_relay_statusmsg_core(struct Client *sptr, struct Channel *chptr,
+                                        char status, int notice, const char *ptext)
 {
-  struct Channel *chptr;
   struct Client *one;
   struct Client *sender;
   const char *client_tags;
-  const char *ptext;
+  const char *stext;
   const char *wcmd, *wtok;
   unsigned int wskip;
-
-  assert(0 != sptr);
-  assert(0 != name);
-  assert(0 != text);
+  char wallbuf[BUFSIZE];
+  char storebuf[BUFSIZE];
+  int htype = history_statusmsg_type(notice, status);
 
   one = cli_from(sptr);
-  if (!one || !cli_s2s_statusmsg(one)
-      || !(ptext = ircd_statusmsg_unlead(status, text))
-      || IsLocalChannel(name) || 0 == (chptr = FindChannel(name)))
-    return 0;
-
   statusmsg_wall(status, &wcmd, &wtok, &wskip);
 
   {
@@ -1749,16 +1786,26 @@ int server_relay_channel_statusmsg(struct Client *sptr, const char *name,
   if (IsBouncerAlias(sptr) && cli_user(sptr)->alias_primary)
     sptr = cli_user(sptr)->alias_primary;
 
-  if (!server_relay_channel_allowed(sptr, chptr, 0)) {
-    send_reply(sender, ERR_CANNOTSENDTOCHAN, chptr->chname);
-    return 1;
+  if (!server_relay_channel_allowed(sptr, chptr, notice)) {
+    if (!notice)
+      send_reply(sender, ERR_CANNOTSENDTOCHAN, chptr->chname);
+    return;
   }
+
+  /* The stored copy is the line local clients are delivered
+   * (relay_store_cut, as server_relay_channel_message's). */
+  stext = relay_store_cut(sptr, notice ? MSG_NOTICE : MSG_PRIVATE,
+                          1 + strlen(chptr->chname), ptext,
+                          storebuf, sizeof(storebuf));
 
   if (sender != sptr) {
     sendcmdto_set_s2s_cptr(one);  /* Preserve alias's S2S tags */
     if (!MyUser(sptr))
       sendcmdto_set_alias_source(sender);
   }
+
+  /* The wall line toward links without 'S': the lead, then the text. */
+  ircd_snprintf(0, wallbuf, sizeof(wallbuf), "%c %s", status, ptext);
 
   {
     char relay_msgid[64] = "";
@@ -1773,14 +1820,107 @@ int server_relay_channel_statusmsg(struct Client *sptr, const char *name,
       sendcmdto_set_client_event(relay_msgid, history_event_time_ms(one));
     }
 
-    sendcmdto_set_statusmsg_privmsg(ptext);
+#ifdef USE_ROCKSDB
+    /* No store here: write-forward AHEAD of the relay (see
+     * server_relay_channel_message). */
+    if (relay_msgid[0]) {
+      char fwd_ts[32];
+
+      history_format_ms(fwd_ts, sizeof(fwd_ts), history_event_time_ms(one));
+      forward_channel_history(sptr, chptr, stext, htype, relay_msgid, fwd_ts,
+                              (client_tags && *client_tags) ? client_tags : NULL);
+    }
+#endif
+
+    sendcmdto_set_statusmsg(ptext, notice);
     sendcmdto_channel_butone_with_client_tags(sptr, wcmd, wtok, chptr, one,
                        SKIP_DEAF | SKIP_BURST | wskip, '\0',
                        (client_tags && *client_tags) ? client_tags : NULL,
-                       "%H :%s", chptr, text);
+                       "%H :%s", chptr, wallbuf);
 
     sendcmdto_set_client_msgid(NULL);
+
+#ifdef USE_ROCKSDB
+    if (relay_msgid[0]) {
+      char timestamp[32];
+
+      history_format_ms(timestamp, sizeof(timestamp), history_event_time_ms(one));
+      store_channel_history(sptr, chptr, stext, htype, relay_msgid, timestamp,
+                            (client_tags && *client_tags) ? client_tags : NULL);
+    }
+#else
+    (void)htype;
+    (void)stext;
+#endif
   }
+}
+
+/** Deliver a wall line from another server as a status-message PRIVMSG
+ * (#226), when it is one: the line carried the bare compact tag mark ,P
+ * (an older fork server's form; a server that announced 'S' sends the
+ * PRIVMSG itself) and its text starts with exactly the lead the origin
+ * added for \a status ("@ " / "% " / "+ ", ircd_statusmsg_unlead) with
+ * text after it.  Otherwise nothing is done and the caller handles the
+ * line as the wall command it is (the NOTICE form, never stored) -- a
+ * mark on a line without its lead is not trusted.
+ *
+ * @param[in] sptr The sender (a remote user).
+ * @param[in] name The channel name.
+ * @param[in] status '@', '%' or '+' (the wall command's).
+ * @param[in] text The relayed text.
+ * @return 1 when the line was handled here, 0 when the caller handles it.
+ */
+int server_relay_channel_statusmsg(struct Client *sptr, const char *name,
+                                   char status, const char *text)
+{
+  struct Channel *chptr;
+  struct Client *one;
+  const char *ptext;
+
+  assert(0 != sptr);
+  assert(0 != name);
+  assert(0 != text);
+
+  one = cli_from(sptr);
+  if (!one || cli_s2s_statusmsg(one) != 1
+      || !(ptext = ircd_statusmsg_unlead(status, text))
+      || IsLocalChannel(name) || 0 == (chptr = FindChannel(name)))
+    return 0;
+
+  server_relay_statusmsg_core(sptr, chptr, status, 0, ptext);
+  return 1;
+}
+
+/** Deliver a PRIVMSG or NOTICE from another server addressed to a status
+ * (#226), when it is one: the line carried ,P<status>
+ * (cli_s2s_statusmsg is '@', '%' or '+').  The caller (ms_privmsg /
+ * ms_notice, through server_relay_channel_message / _notice) handles any
+ * other line as an ordinary channel message.  A status line to a channel
+ * this server does not know is dropped, as an ordinary one is.
+ *
+ * @param[in] sptr The sender.
+ * @param[in] name The channel name (the line's target, no status).
+ * @param[in] text The text.
+ * @param[in] notice Non-zero for a NOTICE.
+ * @return 1 when the line was a status message (handled here), else 0.
+ */
+static int server_relay_tagged_statusmsg(struct Client *sptr, const char *name,
+                                         const char *text, int notice)
+{
+  struct Client *one = cli_from(sptr);
+  struct Channel *chptr;
+  char status;
+
+  if (!one)
+    return 0;
+  status = cli_s2s_statusmsg(one);
+  if (status != '@' && status != '%' && status != '+')
+    return 0;
+  /* Never delivered as an ordinary channel message from here on: a line
+   * this server cannot route as the status message it is goes nowhere. */
+  if (!IsUser(sptr) || IsLocalChannel(name) || 0 == (chptr = FindChannel(name)))
+    return 1;
+  server_relay_statusmsg_core(sptr, chptr, status, notice, text);
   return 1;
 }
 
