@@ -1001,6 +1001,20 @@ static int persistence_cmd_list(struct Client *sptr)
   return 0;
 }
 
+/** Whether @a sptr may use the PERSISTENCE extras (ATTACH, DETACH, LIST,
+ * PROFILE, REPLAY): it negotiated evilnet.github.io/persistence, or
+ * draft/persistence while PERSISTENCE_DRAFT_EXTRAS keeps the old names
+ * working. */
+static int persistence_extras_allowed(struct Client *sptr)
+{
+  /* The connection's own caps: a session's union would let another
+   * device's vendor cap stand in for this one's. */
+  if (CapOwnHas(sptr, CAP_EVILNET_PERSISTENCE))
+    return 1;
+  return feature_bool(FEAT_PERSISTENCE_DRAFT_EXTRAS)
+         && CapOwnHas(sptr, CAP_DRAFT_PERSISTENCE);
+}
+
 int m_persistence(struct Client *cptr, struct Client *sptr,
                   int parc, char *parv[])
 {
@@ -1027,6 +1041,15 @@ int m_persistence(struct Client *cptr, struct Client *sptr,
   if (0 == ircd_strcmp(sub, "SET"))
     return persistence_cmd_set(sptr, parc, parv);
 
+  /* Everything below is ours, not the spec's (N027): it belongs to the
+   * evilnet.github.io/persistence cap.  While PERSISTENCE_DRAFT_EXTRAS is
+   * on (the transition for clients written against the old names), a
+   * client with draft/persistence alone still reaches it.  Without
+   * either, these are unknown subcommands, as the spec's own server
+   * would answer. */
+  if (!persistence_extras_allowed(sptr))
+    goto unknown;
+
   if (0 == ircd_strcmp(sub, "PROFILE"))
     return persistence_cmd_profile(sptr, parc, parv);
 
@@ -1042,6 +1065,7 @@ int m_persistence(struct Client *cptr, struct Client *sptr,
   if (0 == ircd_strcmp(sub, "LIST"))
     return persistence_cmd_list(sptr);
 
+unknown:
   send_fail_ctx(sptr, "PERSISTENCE", "INVALID_PARAMETERS",
                 "Unknown PERSISTENCE subcommand",
                 "%s", sub);
