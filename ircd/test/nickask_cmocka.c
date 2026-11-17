@@ -14,6 +14,7 @@
 
 #include "../s_numeric.c"
 #include "ircd_log.h"
+#include "ircd_string.h"
 
 struct Client me;
 time_t CurrentTime;
