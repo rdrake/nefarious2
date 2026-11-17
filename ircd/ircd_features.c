@@ -1636,8 +1636,12 @@ feature_set(struct Client* from, const char* const* fields, int count)
 	  feat->flags |= FEAT_MARK;
 	else /* i < 0 */
 	  feat->flags &= ~FEAT_MARK;
-	break;
       }
+      /* A handler's 0 leaves the mark alone.  Falling through to
+       * FEAT_INT read the value as a number and cleared the mark, so a
+       * LOG subsystem line cleared the mark of a default facility set
+       * before it (log_feature_mark()). */
+      break;
 
     case FEAT_INT: /* an integer value */
       tmp = feat->v_int; /* detect changes... */
