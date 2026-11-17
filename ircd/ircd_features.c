@@ -1641,6 +1641,11 @@ feature_set(struct Client* from, const char* const* fields, int count)
 	  feat->flags &= ~FEAT_MARK;
 	break;
       }
+      /* A set handler that returns 0 falls through, as it always has.
+       * For "LOG" = "<subsystem>" ... lines that stores 0 in the unused
+       * v_int and clears LOG's mark, which log_feature_mark() depends on
+       * as it stands: changing either belongs with that function, not
+       * here.  Only a real integer feature's value is checked below. */
 
     case FEAT_INT: /* an integer value */
       tmp = feat->v_int; /* detect changes... */
@@ -1649,7 +1654,20 @@ feature_set(struct Client* from, const char* const* fields, int count)
 	feat->v_int = feat->def_int;
 	feat->flags &= ~FEAT_MARK;
       } else { /* ok, figure out the value and whether to mark it */
-	feat->v_int = strtoul(fields[1], 0, 0);
+	if ((feat->flags & FEAT_MASK) != FEAT_INT)
+	  feat->v_int = strtoul(fields[1], 0, 0); /* see FEAT_NONE above */
+	else if (!ircd_strtoint(fields[1], &feat->v_int)) {
+	  /* The value stays as it was.  Reading ircd.conf, feature_unmark()
+	   * has cleared every mark, and feature_mark() would put an unmarked
+	   * feature back to its default: keep the mark for a kept value. */
+	  if (feat->v_int != feat->def_int)
+	    feat->flags |= FEAT_MARK;
+	  if (from) /* report an error... */
+	    return send_reply(from, ERR_BADFEATVALUE, fields[1], feat->type);
+	  log_write(LS_CONFIG, L_ERROR, 0, "Bad value \"%s\" for feature %s",
+		    fields[1], feat->type);
+	  return 0;
+	}
 	if (feat->v_int == feat->def_int)
 	  feat->flags &= ~FEAT_MARK;
 	else
@@ -1677,9 +1695,13 @@ feature_set(struct Client* from, const char* const* fields, int count)
 		 (strlen(fields[1]) >= 2 &&
 		  !ircd_strncmp(fields[1], "OFF", strlen(fields[1]))))
 	  feat->v_int = 0;
-	else if (from) /* report an error... */
-	  return send_reply(from, ERR_BADFEATVALUE, fields[1], feat->type);
 	else {
+	  /* The value stays as it was, and keeps its mark, as for a refused
+	   * integer (FEAT_INT above). */
+	  if (feat->v_int != feat->def_int)
+	    feat->flags |= FEAT_MARK;
+	  if (from) /* report an error... */
+	    return send_reply(from, ERR_BADFEATVALUE, fields[1], feat->type);
 	  log_write(LS_CONFIG, L_ERROR, 0, "Bad value \"%s\" for feature %s",
 		    fields[1], feat->type);
 	  return 0;
