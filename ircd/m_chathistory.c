@@ -8206,7 +8206,7 @@ static struct FedRequest *start_fed_search(struct Client *sptr, const char *targ
                             target, before_unix, limit, reqid, "AB",
                             after_unix && after_unix[0] ? after_unix : "*",
                             cli_yxx(cli_user(sptr)->server), cli_yxx(sptr),
-                            requester_type_mask(sptr), sel);
+                            requester_type_mask(sptr, target), sel);
     if (len < 0 || 6 /* "<YY> CH " */ + (size_t)len + 4 >= 510)
       return NULL;
   }
