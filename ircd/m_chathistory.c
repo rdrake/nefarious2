@@ -407,7 +407,10 @@ static int parse_reference(const char *ref, enum HistoryRefType *ref_type, const
     return 0;
   }
 
-  if (strncmp(ref, "msgid=", 6) == 0) {
+  /* An empty msgid names no message: refused here, as an invalid
+   * reference, rather than looked up and answered "Unknown message id"
+   * with an empty parameter. */
+  if (strncmp(ref, "msgid=", 6) == 0 && ref[6]) {
     *ref_type = HISTORY_REF_MSGID;
     *value = ref + 6;
     return 0;
@@ -8907,7 +8910,8 @@ int ms_chathistory(struct Client *cptr, struct Client *sptr, int parc, char *par
        * it here.  Anything else is malformed. */
       if (ref[0] == 'M' && ref[1]) {
         struct HistoryMessage *single_msg = NULL;
-        int lrc = history_lookup_message(target, ref + 1, &single_msg);
+        /* A row of the channel's previous incarnation is not found. */
+        int lrc = history_lookup_live_message(target, ref + 1, &single_msg);
         /* A row the requester's type mask does not name -- a status
          * message, for a requester without the status or with no mask --
          * is not there for it. */
